@@ -1,0 +1,43 @@
+[package]
+name = "superiority-core"
+version = "0.1.22"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+
+[lib]
+name = "sc2_core"
+path = "src/lib.rs"
+
+[dependencies]
+bsn-derive = { version = "0.1.0", path = "../bsn-derive" }
+hex = "0.4"
+hmac = "0.12"
+prost = "0.14"
+rand = "0.9"
+rc4 = { version = "0.2", features = ["zeroize"] }
+rsa = { version = "0.9", features = ["sha2"] }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+subtle = "2.6"
+thiserror = "2"
+tungstenite = { version = "0.30", features = ["native-tls"] }
+url = "2"
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+crossterm = "0.29"
+libc = "0.2"
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+tao = { version = "0.36", default-features = false, features = ["rwh_06"] }
+wry = { version = "0.56.0", git = "https://github.com/ncarrillo/wry.git", rev = "0ac69b98c08a98db9db600fac761c95394c98cae", default-features = false }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
