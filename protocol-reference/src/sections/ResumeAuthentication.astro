@@ -1,0 +1,128 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BackToContents from "../components/BackToContents.astro";
+---
+
+<Chapter id="resume">
+<h2>8. Native Resume authentication</h2>
+  <p>The Resume path starts immediately after the Front handoff. The Sunken endpoint
+  does not greet first; it waits for client <code>Auth/1</code>.</p>
+
+  <h3 id="resume-name">8.1 Where the name “Resume” comes from</h3>
+  <p><b>Resume is Blizzard’s type name.</b> SC2’s embedded BSN metadata contains the
+  fully qualified types
+  <code>Battlenet::Client::Authentication::ResumeRequest</code> and
+  <code>Battlenet::Client::Authentication::ResumeResponse</code>. The runtime Auth
+  route maps client-to-server <code>Auth/1</code> to the request and
+  server-to-client <code>Auth/1</code> to the response. This chapter uses those
+  embedded names throughout.</p>
+
+  <p><b>What is resumed is the authenticated session context.</b> Front has already
+  authenticated the Battle.net account, selected an SC2 game account, and obtained
+  the native endpoint plus session material from GameUtilities. The new Sunken
+  connection uses <code>ResumeRequest</code> and its proof exchange to demonstrate
+  possession of that handed-off state and continue it on the native service plane.
+  In other words, authorization crosses from one protocol connection to another.</p>
+
+  <table>
+    <caption>Native authentication entry points named in the embedded metadata</caption>
+    <thead><tr><th>Route</th><th>Embedded request type</th><th>Starting context</th></tr></thead>
+    <tbody>
+      <tr><td><code>Auth/0</code></td><td><code>LogonRequest3</code></td><td>Cold native account logon; asks the native service to choose account-logon modules.</td></tr>
+      <tr><td><code>Auth/1</code></td><td><code>ResumeRequest</code></td><td>Continues the account and game-account session authorized by the Front handoff. This is the path documented here.</td></tr>
+      <tr><td><code>Auth/17</code></td><td><code>SingleSignOnRequest3</code></td><td>Begins from a native SSO identifier supplied by another trusted context.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="notice"><b>Resume does not mean reconnecting the TCP socket.</b>
+  Sunken is a new TCP connection. The term also does not promise restoration of a
+  previous chat roster, game, or disconnected native session. It names the
+  authentication entry point that continues Front-authorized identity and key
+  material on that new connection.</div>
+
+  <h3 id="resume-request">8.2 Auth/1 ResumeRequest</h3>
+  <p>Logical payload:</p>
+<pre is:raw><span class="syn-type">RequestCommon</span>:
+    <span class="syn-field">m_program</span>   = <span class="syn-type">FourCC</span>(<span class="syn-string">"S2"</span>)
+    <span class="syn-field">m_platform</span>  = <span class="syn-type">FourCC</span>(<span class="syn-string">"Mc64"</span>)
+    <span class="syn-field">m_locale</span>    = <span class="syn-type">FourCC</span>(<span class="syn-string">"enUS"</span>)
+    <span class="syn-field">m_versions</span>  = five <span class="syn-type">Version</span> records <span class="syn-comment">(table below)</span>
+<span class="syn-field">m_account</span>            = private account-login bytes
+<span class="syn-field">m_gameAccountRegion</span>  = <span class="syn-type">u8</span> region from Front <span class="syn-type">LogonResponse3</span>
+<span class="syn-field">m_gameAccountName</span>    = private game-account bytes
+</pre>
+  <table>
+    <thead><tr><th>Program</th><th>Component/platform</th><th>Version</th></tr></thead>
+    <tbody>
+      <tr><td><code>S2</code></td><td><code>NGD1</code></td><td><code>0x5bc8dcc1</code></td></tr>
+      <tr><td><code>S2</code></td><td><code>NGD2</code></td><td><code>0xfade3a32</code></td></tr>
+      <tr><td><code>S2</code></td><td><code>NGD3</code></td><td><code>0x0c129365</code></td></tr>
+      <tr><td><code>S2</code></td><td><code>NGD4</code></td><td><code>0x86b7c0ed</code></td></tr>
+      <tr><td><code>Bnet</code></td><td><code>Mc64</code></td><td><code>0x000a16a7</code> (661159)</td></tr>
+    </tbody>
+  </table>
+  <p>These are Base97563-specific values. The final native compatibility number is
+  not the installation build number, and the outer BGS LogonRequest independently
+  sends <code>application_version=0</code>. Omitting the NGD records, substituting
+  97563, or labeling the final record <code>S2/Mc64</code> produces a different and
+  invalid version set.</p>
+
+  <h3 id="resume-proof">8.3 Configuration and proof</h3>
+  <figure class="sequence">
+<pre is:raw><span class="syn-direction">C -&gt; S</span>  <span class="syn-route">Auth/1</span>   <span class="syn-field">ResumeRequest</span>
+<span class="syn-direction">S -&gt; C</span>  <span class="syn-route">Auth/18</span>  <span class="syn-field">Configuration</span>
+<span class="syn-direction">S -&gt; C</span>  <span class="syn-route">Auth/2</span>   <span class="syn-field">ProofRequest</span> <span class="syn-comment">[two modules]</span>
+<span class="syn-direction">C -&gt; S</span>  <span class="syn-route">Auth/2</span>   <span class="syn-field">ProofResponse</span> <span class="syn-comment">[one session-proof output]</span>
+<span class="syn-direction">S -&gt; C</span>  <span class="syn-route">Auth/1</span>   <span class="syn-field">ResumeResponse</span> <span class="syn-comment">[phase-two server proof]</span>
+</pre>
+  </figure>
+  <p>The Resume ProofRequest contains two 40-byte module IDs (eight-byte usage
+  prefix plus a 32-byte module identity):</p>
+  <ol>
+    <li><b>Thumbprint module.</b> The server supplies a 4096-bit RSA PKCS#1 v1.5
+    SHA-512 signature. Hash the 16-byte connected peer address followed by the
+    ASCII domain <code>Thumbprint.IPv6</code>. IPv4 peers use IPv4-mapped IPv6 form.
+    Verify with exponent 65537 and the public modulus embedded in SC2. This is a
+    one-way server-authentication check and contributes no
+    <code>ModuleOutput</code> element.</li>
+    <li><b>Session-proof module.</b> Server data is
+    <code>00 || server_nonce[16]</code>. Treat the 64-byte GameUtilities value as
+    seed <code>B</code>, generate <code>client_nonce[16]</code>, derive the
+    per-challenge key <code>C</code> below, and return
+    <code>01 || client_nonce || HMAC-SHA256(C,
+    00 || client_nonce || server_nonce)</code>. The successful ResumeResponse
+    returns <code>02 || HMAC-SHA256(C,
+    01 || server_nonce || client_nonce)</code>, which must be verified.</li>
+  </ol>
+  <p>For GameUtilities seed <code>B</code>, client nonce <code>Nc</code>, and
+  server nonce <code>Ns</code>, the Resume ratchet and proofs are:</p>
+<pre is:raw><span class="syn-field">C</span> = <span class="syn-type">HMAC-SHA256</span>(B, <span class="syn-number">0x00</span> || Nc || Ns)
+ || <span class="syn-type">HMAC-SHA256</span>(B, <span class="syn-number">0x01</span> || Ns || Nc)
+
+<span class="syn-field">client_proof</span>    = <span class="syn-type">HMAC-SHA256</span>(C, <span class="syn-number">0x00</span> || Nc || Ns)
+<span class="syn-field">server_proof</span>    = <span class="syn-type">HMAC-SHA256</span>(C, <span class="syn-number">0x01</span> || Ns || Nc)
+<span class="syn-field">transport_secret</span> = C
+</pre>
+  <p>Resume first ratchets seed <code>B</code> into <code>C</code>; Auth/2 proofs use
+  <code>C</code>, not <code>B</code> directly. The domain-two KDF belongs to the
+  alternate full-logon handshake and is not part of Resume.</p>
+  <p>An optional plaintext <code>Conn/11 RegulatorUpdate</code> can appear before
+  <code>Auth/1 ResumeResponse</code>.</p>
+
+  <h3 id="protection">8.4 Conn/5 and stream protection</h3>
+  <p>After validating the server proof, the client sends an empty
+  <code>Conn/5 EnableEncryption</code> BSN record in plaintext. Both directions then
+  immediately use ordinary stateful RC4, with no initial keystream discard:</p>
+<pre is:raw><span class="syn-field">inbound_key</span>  = <span class="syn-type">HMAC-SHA256</span>(transport_secret,
+                <span class="syn-number">68e0c72eddd6d2f31e5ab155b18b631e</span>)
+<span class="syn-field">outbound_key</span> = <span class="syn-type">HMAC-SHA256</span>(transport_secret,
+                <span class="syn-number">dea965ae543a1e939e690caa68de7839</span>)
+</pre>
+  <p>The two RC4 states are independent and persist across TCP reads, writes, and
+  BSN record boundaries. TCP segmentation is irrelevant. If one receive call contains
+  plaintext ResumeResponse followed by protected bytes, decrypt only the buffered
+  suffix after enabling the inbound state, exactly once.</p>
+  <p>Once protection is active, the connection enters the service bootstrap covered
+  by the endpoint reference in the next chapter.</p>
+  <BackToContents />
+</Chapter>

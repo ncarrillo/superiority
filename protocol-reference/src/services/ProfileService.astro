@@ -1,0 +1,76 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-profile">
+  <Fragment slot="title">9.9 <code>Prfl</code> — profile data</Fragment>
+<p>The FourCC is <code>Prfl</code>; embedded type names use the full
+    <code>Profile</code> namespace.</p>
+    <p class="endpoint-index">
+      <a href="#profile-read">Prfl/0 Read</a><a href="#profile-address-query">Prfl/1 AddressQuery</a>
+      <a href="#profile-resolve-toon">Prfl/3 ResolveToonNameToHandle</a><a href="#profile-settings-available">Prfl/4 SettingsAvailable</a>
+    </p>
+
+    <Endpoint id="profile-read" direction="bidirectional" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Prfl/0</code> Profile::Read</Fragment>
+      <p>Reads a field path from a profile record. Roster avatar resolution uses
+      the profile address advertised by presence and path <code>04</code>, the
+      zero-based position of <code>ToonProfile.m_avatar</code>.</p>
+<pre is:raw><span class="syn-comment">client → server</span>
+<span class="syn-field">clientHash</span>     <span class="syn-type">u32</span>
+<span class="syn-field">requestId</span>      <span class="syn-type">u32</span>
+<span class="syn-field">recordAddress</span>  <span class="syn-type">Profile::RecordAddress</span>
+<span class="syn-field">readFlags</span>      <span class="syn-type">bits</span>[<span class="syn-number">5</span>]
+<span class="syn-field">pathLength</span>     <span class="syn-type">u8</span>
+<span class="syn-field">path</span>           <span class="syn-type">bytes</span>[pathLength]
+
+<span class="syn-comment">server → client</span>
+<span class="syn-field">result</span>         <span class="syn-type">choice</span> { Start, Block, Failure, Cache }
+<span class="syn-field">requestId</span>      <span class="syn-type">u32</span></pre>
+      <p class="endpoint-note">Both directions differ from reflection member
+      order. A returned avatar is an <code>ImageTableEntry</code> containing the
+      retail <code>ICON</code> atlas ID and row-major cell offset.</p>
+    </Endpoint>
+
+    <Endpoint id="profile-address-query" direction="bidirectional" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Prfl/1</code> Profile::AddressQuery</Fragment>
+      <p>Resolves a Battle.net account id to a profile record address, so a friend
+      or whisper target known only by account can be read through
+      <code>Prfl/0</code>.</p>
+<pre is:raw><span class="syn-comment">client → server</span>
+<span class="syn-field">requestId</span>     <span class="syn-type">integer</span>
+<span class="syn-field">playerTarget</span>  <span class="syn-keyword">choice</span> { <span class="syn-keyword">accountId</span> <span class="syn-type">integer</span> }
+
+<span class="syn-comment">server → client</span>
+<span class="syn-field">requestId</span>  <span class="syn-type">u32</span>
+<span class="syn-field">result?</span>    <span class="syn-keyword">choice</span> {
+    <span class="syn-number">0</span> <span class="syn-keyword">success</span> { <span class="syn-field">address</span> <span class="syn-type">ProfileAddress</span> { <span class="syn-field">label</span> <span class="syn-type">u32</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> } }
+    <span class="syn-number">1</span> <span class="syn-keyword">failure</span> { <span class="syn-field">error</span> <span class="syn-type">u32</span> }
+}</pre>
+    </Endpoint>
+
+    <Endpoint id="profile-resolve-toon" direction="bidirectional" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Prfl/3</code> Profile::ResolveToonNameToHandle</Fragment>
+      <p>Resolves a <code>ToonName</code> to its full <code>ToonHandle</code>, used to
+      target a friend's or a stranger's toon for a whisper.</p>
+<pre is:raw><span class="syn-comment">client → server</span>
+<span class="syn-field">name</span>  <span class="syn-type">ToonFullName</span> { <span class="syn-field">region</span> <span class="syn-type">integer</span>, <span class="syn-field">programId</span> <span class="syn-type">FourCC</span>, <span class="syn-field">realm</span> <span class="syn-type">integer</span>, <span class="syn-field">name</span> <span class="syn-type">string</span> }
+
+<span class="syn-comment">server → client</span>
+<span class="syn-field">name</span>    <span class="syn-type">ToonFullName</span>
+<span class="syn-field">result</span>  <span class="syn-type">u16</span>
+<span class="syn-field">handle</span>  <span class="syn-type">ToonHandle</span> { <span class="syn-field">region</span>, <span class="syn-field">programId</span>, <span class="syn-field">realm</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }</pre>
+    </Endpoint>
+
+    <Endpoint id="profile-settings-available" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Prfl/4</code> Profile::SettingsAvailable</Fragment>
+      <p>Announces a profile settings record that can be addressed by type, field
+      path, and record address.</p>
+<pre is:raw><span class="syn-field">type</span>     <span class="syn-type">enum</span> { <span class="syn-number">1</span>=<span class="syn-keyword">SETTING_ACCOUNT</span>, <span class="syn-number">2</span>=<span class="syn-keyword">SETTING_GAME</span>, <span class="syn-number">3</span>=<span class="syn-keyword">SETTING_TOON</span> }
+<span class="syn-field">path</span>     <span class="syn-type">blob</span>[<span class="syn-number">0..32</span>]
+<span class="syn-field">address</span>  <span class="syn-type">Profile::RecordAddress</span> { <span class="syn-field">label</span>, <span class="syn-field">id</span> }</pre>
+      <p class="endpoint-note">Reflection lists address before path. The generated
+      client reads type, path, then address.</p>
+    </Endpoint>
+</ServiceSection>

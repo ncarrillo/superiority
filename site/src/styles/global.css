@@ -1,0 +1,104 @@
+/*
+ * The page wears the app's own skin. Palette values are lifted from
+ * `macos.rs`, the fonts are the ones `fonts.rs` maps (EurostileExt-Med for
+ * navigation, Eurostile-Bol for headings, Eurostile-Reg for interface text),
+ * and the textures under /ui/img are the same files the app ships in
+ * `app/macos/resources/images`.
+ */
+
+@font-face {
+  font-family: "Eurostile Ext";
+  src: url("/ui/fonts/eurostileext-med.otf") format("opentype");
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Eurostile";
+  src: url("/ui/fonts/eurostile-bol.otf") format("opentype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Eurostile";
+  src: url("/ui/fonts/eurostile-reg.otf") format("opentype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --panel: #0b121a;
+  --deep: #060a0f;
+  --surface: #0e1722;
+  --line: #14344d;
+  --blue: #33a8f0;
+  --blue-bright: #6bc2f2;
+  --header-blue: #62c9ff;
+  --ink: #d6e0f0;
+  --soft: #a6b5c9;
+  --muted: #7d8fa8;
+  --hairline: color-mix(in srgb, #14344d 65%, transparent);
+  --font-nav: "Eurostile Ext", "Eurostile", -apple-system, "Segoe UI",
+    sans-serif;
+  --font-head: "Eurostile", -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  /* the app's own chat background, dimmed the way it sits behind a transcript */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(6, 10, 15, 0.78) 0%,
+      rgba(6, 10, 15, 0.92) 55%,
+      rgba(6, 10, 15, 0.97) 100%
+    ),
+    url("/ui/img/deep-nebula.jpg") center / cover no-repeat;
+  background-attachment: fixed;
+  background-color: var(--deep);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 24px 72px;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--blue) 30%, transparent);
+}
+
+.muted {
+  color: var(--muted);
+}

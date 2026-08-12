@@ -1,0 +1,31 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BackToContents from "../components/BackToContents.astro";
+---
+
+<Chapter id="handoff">
+<h2>4. Front-to-Sunken handoff</h2>
+  <p>The SC2 client names the generic BGS side “Front” and the native endpoint
+  “Sunken.” Front authenticates the Battle.net account, selects an SC2 game account,
+  and returns the values needed to open and authenticate the second connection.</p>
+  <p>The <code>logon_response</code> attribute is not an opaque ticket. It decodes
+  as <code>Battlenet::Client::Authentication::LogonResponse3</code>, including
+  response status, final authentication-module requests, ping timeout, regulator
+  rules, account and game-account region, game-account name, failure count, and
+  optional RAF state. The enclosing protobuf blob carries no native bit count;
+  unused bits in the last byte must be zero.</p>
+  <p>The native TCP connection may be established before Front finishes closing, but
+  the first native <a href="#resume-name"><code>Auth/1 ResumeRequest</code></a> is
+  written after the Front shutdown. The sockets remain independent even when their
+  lifetimes briefly overlap.</p>
+  <p>An ordered Front shutdown uses
+  <code>ConnectionService.RequestDisconnect</code> (method 7, declared
+  <code>NO_RESPONSE</code>). The server answers with the one-way
+  <code>ConnectionService.ForceDisconnect</code> notification (method 4) and then
+  closes TLS. This notification is a protocol event, not the response frame that
+  <code>NO_RESPONSE</code> explicitly forbids.</p>
+  <p>From this point onward, the transport and payload format are native BSN. The
+  next chapter introduces its bit cursor, record header, and schema-delimited
+  boundaries before any authentication payloads are decoded.</p>
+  <BackToContents />
+</Chapter>

@@ -1,0 +1,29 @@
+<figure class="diagram bgs-dispatch-map">
+  <div class="dispatch-special">
+    <strong>Connection bootstrap</strong>
+    <span>The first <code>ConnectionService.Connect</code> is the exception:
+    <code>service_id=0</code>, <code>method_id=1</code>, <code>token=0</code>.</span>
+  </div>
+
+  <div class="dispatch-lane" tabindex="0" aria-label="A client request is routed by service hash and method, then matched to its response by token">
+    <b class="lane-label">Client call</b>
+    <div class="dispatch-node request-node"><strong>Request header</strong><span><code>service_hash</code><br><code>method_id</code><br><code>token = t</code></span></div>
+    <i aria-hidden="true">→</i>
+    <div class="dispatch-node"><strong>Server dispatch</strong><span>hash selects service<br>method selects operation</span></div>
+    <i aria-hidden="true">→</i>
+    <div class="dispatch-node response-node"><strong>Response header</strong><span><code>service_id=0xfe</code><br><code>token = t</code><br><code>status</code></span></div>
+  </div>
+
+  <div class="dispatch-lane" tabindex="0" aria-label="A server callback is routed to a listener and may require a token-matched acknowledgement">
+    <b class="lane-label">Server callback</b>
+    <div class="dispatch-node request-node"><strong>Callback header</strong><span>listener <code>service_hash</code><br><code>method_id</code><br><code>token = c</code></span></div>
+    <i aria-hidden="true">→</i>
+    <div class="dispatch-node"><strong>Client dispatch</strong><span>decode listener body<br>run callback</span></div>
+    <i aria-hidden="true">→</i>
+    <div class="dispatch-node response-node"><strong>Declared result</strong><span>reply with token <code>c</code><br>or send nothing for<br><code>NO_RESPONSE</code></span></div>
+  </div>
+
+  <p class="chart-note"><b>Tokens correlate calls; they do not serialize traffic.</b>
+  Callbacks and connection-control messages may arrive while an unrelated request
+  remains pending, so dispatch must examine every complete BGS header.</p>
+</figure>

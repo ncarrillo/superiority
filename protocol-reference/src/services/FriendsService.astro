@@ -1,0 +1,62 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-friends">
+  <Fragment slot="title">9.5 <code>Frnd</code> — friends and blocks</Fragment>
+<p>These paged notifications carry the initial friends and block lists and can
+    later carry incremental changes.</p>
+    <p class="endpoint-index"><a href="#friends-toons">Frnd/6 ToonsOfFriendsNotify</a><a href="#friends-list">Frnd/30 FriendsListNotify5</a><a href="#friends-account-blocks">Frnd/31 AccountBlockAddedNotify</a><a href="#friends-toon-blocks">Frnd/33 ToonBlockNotify</a></p>
+
+    <Endpoint id="friends-toons" direction="server → client" phase="protected bootstrap and updates" structure="generated order" status="capture observed">
+      <Fragment slot="title"><code>Frnd/6</code> Friends::ToonsOfFriendsNotify</Fragment>
+      <p>Carries friends' SC2 toon identities. Each entry is a full
+      <code>ToonName</code>, so a friend whisper can target the toon rather than the
+      account id. The wire order is toon, then profile address, then friend account
+      id &mdash; which differs from the reflection member order.</p>
+<pre is:raw><span class="syn-field">count</span>  <span class="syn-type">u7</span> <span class="syn-comment">0..100</span>
+<span class="syn-keyword">repeat</span> count:
+    <span class="syn-field">region</span>         <span class="syn-type">u8</span>
+    <span class="syn-field">programId</span>      <span class="syn-type">u32</span>
+    <span class="syn-field">realm</span>          <span class="syn-type">u32</span>
+    <span class="syn-field">nameLen</span>        <span class="syn-type">u7</span> <span class="syn-comment">= byteLen−2</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">name</span> <span class="syn-type">bytes</span>[byteLen]
+    <span class="syn-field">profile.label</span>  <span class="syn-type">u32</span>
+    <span class="syn-field">profile.id</span>     <span class="syn-type">u64</span>
+    <span class="syn-field">accountId</span>      <span class="syn-type">u32</span>
+<span class="syn-field">complete</span>  <span class="syn-type">bool</span></pre>
+    </Endpoint>
+
+    <Endpoint id="friends-list" direction="server → client" phase="protected bootstrap and updates" structure="generated order" status="boundary verified">
+      <Fragment slot="title"><code>Frnd/30</code> Friends::FriendsListNotify5</Fragment>
+      <p>Pages additions, removals, and modifications for account, character, and
+      presence-only friend containers.</p>
+<pre is:raw><span class="syn-field">endOfInitial?</span>  <span class="syn-type">bool</span>
+<span class="syn-field">updateCount</span>    <span class="syn-type">u7</span> <span class="syn-comment">0..64</span>
+<span class="syn-keyword">repeat</span> updateCount:
+    <span class="syn-field">operation</span>  <span class="syn-keyword">choice</span> { <span class="syn-keyword">add</span> | <span class="syn-keyword">remove</span> | <span class="syn-keyword">modify</span> }
+    <span class="syn-field">subject</span>    <span class="syn-keyword">choice</span> { <span class="syn-keyword">character</span> | <span class="syn-keyword">account</span> | <span class="syn-keyword">presence</span> }</pre>
+      <p class="endpoint-note">Nested account and character records contain
+      private names, notes, profile addresses, and presence values. Those private
+      leaf values are omitted here; the enclosing wire structure is unchanged.</p>
+    </Endpoint>
+
+    <Endpoint id="friends-account-blocks" direction="server → client" phase="protected bootstrap and updates" structure="generated order" status="boundary verified">
+      <Fragment slot="title"><code>Frnd/31</code> Friends::AccountBlockAddedNotify</Fragment>
+<pre is:raw><span class="syn-field">endOfInitial?</span>  <span class="syn-type">bool</span>
+<span class="syn-field">entryCount</span>      <span class="syn-type">u7</span> <span class="syn-comment">0..64</span>
+<span class="syn-keyword">repeat</span> entryCount:
+    <span class="syn-field">accountId</span>  <span class="syn-type">u32</span>
+    <span class="syn-field">fullName?</span>  <span class="syn-type">optional value</span>
+    <span class="syn-field">nickname?</span>  <span class="syn-type">UTF-8</span>
+    <span class="syn-field">role</span>       <span class="syn-type">u32</span></pre>
+    </Endpoint>
+
+    <Endpoint id="friends-toon-blocks" direction="server → client" phase="protected bootstrap" structure="generated order" status="empty page verified">
+      <Fragment slot="title"><code>Frnd/33</code> Friends::ToonBlockNotify</Fragment>
+<pre is:raw><span class="syn-field">entryCount</span>      <span class="syn-type">u7</span>
+<span class="syn-field">endOfInitial?</span>   <span class="syn-type">bool</span></pre>
+      <p class="endpoint-note">Only the empty-page form is currently defined. The
+      generated order of a non-empty toon-block entry remains unresolved.</p>
+    </Endpoint>
+</ServiceSection>

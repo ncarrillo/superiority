@@ -1,0 +1,76 @@
+<figure class="diagram bit-order-example">
+  <div class="bit-example-equation" aria-label="The service slot value fourteen is binary one one one zero">
+    <span>field</span>
+    <strong>service slot</strong>
+    <span>value</span>
+    <code>14 = 1110₂</code>
+    <span>starting position</span>
+    <code>byte 0, bit 7</code>
+  </div>
+
+  <p class="bit-display-note">Bytes below use the conventional display order
+  <b>bit 7 → bit 0</b>. The BSN cursor moves in the opposite visual direction:
+  it begins at bit 0, advances toward bit 7, then wraps to bit 0 of the next byte.</p>
+
+  <div class="byte-map" aria-label="Two-byte map showing a service slot split across the byte boundary">
+    <div class="byte-row">
+      <div class="byte-label"><strong>byte 0</strong><code>11000000₂ = c0₁₆</code></div>
+      <div class="byte-bits">
+        <button class="bit-piece piece-slot piece-slot-high" type="button"
+          aria-label="Step 3a: the high bit of service slot 14 is stored in byte 0 bit 7">
+          <span class="piece-step">3a</span><b>1</b><small>slot bit 3<br>byte bit 7</small>
+        </button>
+        <button class="bit-piece piece-flag" type="button"
+          aria-label="Step 2: the service-present flag is stored in byte 0 bit 6">
+          <span class="piece-step">2</span><b>1</b><small>has service<br>byte bit 6</small>
+        </button>
+        <button class="bit-piece piece-command" type="button"
+          aria-label="Step 1: command zero occupies byte 0 bits 5 through 0">
+          <span class="piece-step">1</span><b>000000</b><small>command 0<br>byte bits 5..0</small>
+        </button>
+      </div>
+    </div>
+
+    <div class="byte-wrap" aria-hidden="true"><span>cursor wraps to the next byte</span> ↓</div>
+
+    <div class="byte-row">
+      <div class="byte-label"><strong>byte 1</strong><code>ppppp110₂</code></div>
+      <div class="byte-bits">
+        <button class="bit-piece piece-payload" type="button"
+          aria-label="Step 4: the payload begins in byte 1 bit 3 and occupies the remaining high bits">
+          <span class="piece-step">4</span><b>ppppp</b><small>payload begins<br>byte bits 7..3</small>
+        </button>
+        <button class="bit-piece piece-slot piece-slot-low" type="button"
+          aria-label="Step 3b: the remaining low three bits of service slot 14 are stored in byte 1 bits 2 through 0">
+          <span class="piece-step">3b</span><b>110</b><small>slot bits 2..0<br>byte bits 2..0</small>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <ol class="bit-read-path" aria-label="Logical field-reading order">
+    <li><b>1</b><span>command</span></li>
+    <li><b>2</b><span>has-service flag</span></li>
+    <li class="slot-path"><b>3</b><span>slot <code>1</code> + <code>110</code></span></li>
+    <li><b>4</b><span>payload</span></li>
+  </ol>
+
+  <div class="bit-order-explainer">
+    <p class="bit-order-default"><b>Hover or focus a colored field.</b> The step
+    numbers show cursor order. The diagram itself keeps the conventional byte
+    display order so the resulting bytes remain recognizable in a hex dump.</p>
+    <p class="bit-order-detail detail-command"><b>Command is read first.</b>
+    Six bits fit entirely in byte 0, occupying its low positions 0 through 5.
+    This example uses command 0 only to keep those bits visually quiet.</p>
+    <p class="bit-order-detail detail-flag"><b>The one-bit flag follows.</b>
+    It occupies byte 0 bit 6 and leaves exactly one bit available in that byte.</p>
+    <p class="bit-order-detail detail-slot"><b>The four-bit slot must split.</b>
+    Its binary value is <code>1110₂</code>. The one available position receives
+    the value's high bit, <code>1</code>. The remaining low value,
+    <code>110₂</code>, continues in byte 1 bits 2 through 0. Reading the two
+    chunks as <code>1 || 110</code> reconstructs <code>1110₂ = 14</code>.</p>
+    <p class="bit-order-detail detail-payload"><b>The next field starts immediately.</b>
+    After the slot consumes byte 1 bits 0 through 2, the payload begins at bit 3.
+    The letters <code>p</code> are payload bits, not zero padding.</p>
+  </div>
+</figure>

@@ -1,0 +1,68 @@
+[package]
+name = "superiority-app"
+version = "0.1.24"
+edition = "2024"
+rust-version = "1.87"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "superiority_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "superiority"
+path = "src/main.rs"
+
+[dependencies]
+sc2-core = { package = "superiority-core", path = "../core" }
+hex = "0.4"
+pulldown-cmark = "0.13"
+rand = "0.9"
+rsa = { version = "0.9", features = ["sha2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
+url = "2"
+zeroize = { version = "1.8", features = ["derive"] }
+
+[features]
+default = []
+sparkle = []
+
+[build-dependencies]
+cc = "1"
+embed-resource = "3"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+gpui = { workspace = true }
+image = { version = "0.25.1", default-features = false, features = ["png"] }
+raw-window-handle = "0.6"
+superiority-ui = { path = "../ui" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+wry = "=0.56.0"
+gpui_platform = { workspace = true, features = ["font-kit", "runtime_shaders"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+gpui_windows = { git = "https://github.com/ncarrillo/zed", rev = "ab1ddf343020437169c4d581e6f26724c3aff3a9", default-features = false }
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+] }
+wry = "=0.56.0"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

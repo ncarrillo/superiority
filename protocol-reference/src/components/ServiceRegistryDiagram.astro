@@ -1,0 +1,27 @@
+<figure class="diagram service-registry-map">
+  <div class="registry-flow" tabindex="0" aria-label="A native route header resolves its service slot through the connection registry before selecting an endpoint">
+    <div class="registry-node registry-header">
+      <strong>Record header</strong>
+      <span>direction <code>S→C</code><br>command <code>11</code><br>slot <code>s</code></span>
+    </div>
+    <i aria-hidden="true">→</i>
+    <div class="registry-node registry-lookup">
+      <strong>Connection registry</strong>
+      <span><code>registry[s] = Chat</code></span>
+    </div>
+    <i aria-hidden="true">→</i>
+    <div class="registry-node registry-route">
+      <strong>Stable route identity</strong>
+      <span><code>(S→C, Chat, 11)</code></span>
+    </div>
+    <i aria-hidden="true">→</i>
+    <div class="registry-node registry-endpoint">
+      <strong>Endpoint</strong>
+      <span><code>MessageRecv</code><br>payload decoder</span>
+    </div>
+  </div>
+
+  <p class="chart-note">The example uses symbolic slot <code>s</code> deliberately.
+  Store the connection's slot-to-FourCC mapping, then identify records by direction,
+  FourCC, and command. A hard-coded numeric slot is not a portable route name.</p>
+</figure>

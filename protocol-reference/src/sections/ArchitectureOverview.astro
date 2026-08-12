@@ -1,0 +1,19 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BackToContents from "../components/BackToContents.astro";
+import SessionFlow from "../components/SessionFlow.astro";
+---
+
+<Chapter id="overview">
+<h2>2. High-level architecture and flow</h2>
+  <p>SC2 signs in on Battle.net's shared BGS service, then moves the authorized
+  session to SC2's native service. The first connection establishes who you are
+  and which game account may log in; the second proves that it received that
+  authorization and carries the live SC2 services. The protocol calls that
+  continuation <a href="#resume-name">Resume</a>.</p>
+  <SessionFlow />
+  <p>The next chapter begins with the outer BGS control plane: its framing,
+  dispatch rules, account logon, and the GameUtilities request that creates the
+  handoff.</p>
+  <BackToContents />
+</Chapter>

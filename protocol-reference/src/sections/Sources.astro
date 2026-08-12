@@ -1,0 +1,20 @@
+---
+import Chapter from "../components/Chapter.astro";
+---
+
+<Chapter id="sources">
+<h2>12. Prior art and source material</h2>
+  <p>The 6+1+4 bit header and unusual bit order were publicly described during the
+  original Battle.net 2 era. The sources below also provide protobuf, replay-format,
+  and GameUtilities context useful when interpreting the live SC2 protocols.</p>
+  <ul>
+    <li><a href="https://bnetdocs.org/document/32/battle-net-v2-information">BNETDocs: Battle.net v2 Information</a></li>
+    <li><a href="https://pastebin.com/zPJQYQLr">2011 Battle.net v2 packet research referenced by BNETDocs</a></li>
+    <li><a href="https://github.com/Blizzard/s2protocol">Blizzard/s2protocol</a> — official replay-protocol decoder, useful for comparison but not the live social protocol</li>
+    <li><a href="https://github.com/Blizzard/s2protocol/blob/master/json/protocol97563.json">Blizzard build-97563 replay protocol JSON</a></li>
+    <li><a href="https://github.com/cjbrigato/d4-bnet-mitm">d4-bnet-mitm</a> — public modern BGS protobuf decoding prior art</li>
+    <li><a href="https://github.com/plasmawatch/login-server">Plasmawatch login-server</a> — public BGS login-server implementation</li>
+    <li><a href="https://git.nightspire.gg/Inna/CypherCore/src/commit/581d077acd17b0e2724e9ebdbc46a432252dac2d/Source/Game/Services/GameUtilitiesService.cs">CypherCore GameUtilitiesService.cs</a> — public GameUtilities and <code>Command_*</code> precedent for another Blizzard game</li>
+  </ul>
+  <p class="back"><a href="#top">Back to top</a></p>
+</Chapter>

@@ -1,0 +1,26 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-s2master">
+  <Fragment slot="title">9.7 <code>S2Ms</code> — SC2 master data</Fragment>
+<p class="endpoint-index"><a href="#s2master-current-season">S2Ms/27 CurrentSeasonResponse</a></p>
+    <Endpoint id="s2master-current-season" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
+      <Fragment slot="title"><code>S2Ms/27</code> S2Master::CurrentSeasonResponse</Fragment>
+      <p>Returns either a 16-bit error or the current authority, matchmaker, league,
+      season, and league-configuration data.</p>
+<pre is:raw><span class="syn-field">result</span>  <span class="syn-keyword">choice</span> {
+    <span class="syn-keyword">success</span> {
+        <span class="syn-field">authorityState</span>       <span class="syn-type">bool</span>
+        <span class="syn-field">rankedMatchmakers</span>     <span class="syn-type">RankedMatchmakerConfig</span>[count:<span class="syn-type">u7</span>]
+        <span class="syn-field">leagues</span>               <span class="syn-type">League</span>[count:<span class="syn-type">u9</span>]
+        <span class="syn-field">seasonInfo</span>           <span class="syn-type">SeasonInfo</span>
+        <span class="syn-field">leagueConfigurations</span> <span class="syn-type">LeagueConfig</span>[count:<span class="syn-type">u9</span>]
+    }
+    <span class="syn-keyword">failure</span>  <span class="syn-type">u16</span>
+}</pre>
+      <p class="endpoint-note">The generated order includes reserved runs and
+      reordered nested members that are absent from logical metadata.</p>
+    </Endpoint>
+</ServiceSection>

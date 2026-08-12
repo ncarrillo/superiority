@@ -1,0 +1,69 @@
+<figure class="diagram record-length-model">
+  <p class="extent-example"><b>Concrete example:</b> a server-to-client
+  <a href="#chat-message-recv"><code>Chat/11 MessageRecv</code></a> record. The values are omitted; only the
+  decoder’s consumed-bit counts are shown.</p>
+
+  <div class="extent-flow" aria-label="Five stages used to determine the length of a BSN record">
+    <button class="extent-step extent-route" type="button"
+      aria-label="Step one: read the eleven-bit routing header">
+      <span>1</span><strong>Read route</strong><small>11 bits consumed</small>
+    </button>
+    <i aria-hidden="true">→</i>
+    <button class="extent-step extent-schema" type="button"
+      aria-label="Step two: map the route to the Chat MessageRecv decoder">
+      <span>2</span><strong>Select schema</strong><small><code>Chat/11</code> receive</small>
+    </button>
+    <i aria-hidden="true">→</i>
+    <button class="extent-step extent-payload" type="button"
+      aria-label="Step three: the selected payload decoder consumes three hundred thirty-six bits">
+      <span>3</span><strong>Decode payload</strong><small>336 bits consumed</small>
+    </button>
+    <i aria-hidden="true">→</i>
+    <button class="extent-step extent-padding" type="button"
+      aria-label="Step four: consume five zero padding bits to reach the next byte boundary">
+      <span>4</span><strong>Align record</strong><small>5 zero bits</small>
+    </button>
+    <i aria-hidden="true">→</i>
+    <button class="extent-step extent-result" type="button"
+      aria-label="Step five: the complete record is forty-four bytes">
+      <span>5</span><strong>Boundary known</strong><small>44 bytes total</small>
+    </button>
+  </div>
+
+  <div class="extent-equation" aria-label="Eleven header bits plus three hundred thirty-six payload bits plus five padding bits equals three hundred fifty-two bits or forty-four bytes">
+    <code>11 header</code><b>+</b><code>336 payload</code><b>+</b><code>5 pad</code><b>=</b><code>352 bits</code><b>=</b><code>44 bytes</code>
+  </div>
+
+  <div class="extent-explainer">
+    <p class="extent-default"><b>The length is a result, not an input.</b> The
+    decoder learns the route, executes that route’s payload schema, rounds its
+    final bit position up to a byte boundary, and only then knows how many bytes
+    belong to the record.</p>
+    <p class="extent-detail detail-route"><b>The route is the only universal prefix.</b>
+    It consumes 7 or 11 bits and identifies the command plus an optional runtime
+    service slot. It contains no payload-size or record-size field.</p>
+    <p class="extent-detail detail-schema"><b>The route chooses the decoder.</b>
+    Direction, resolved service FourCC, and command identify the payload type and
+    generated field order. Looking up the decoder consumes no additional wire bits.</p>
+    <p class="extent-detail detail-payload"><b>The payload decoder advances the shared cursor.</b>
+    Fixed-width members, local counts, option flags, choice selectors, and nested
+    members collectively determine when the top-level value is complete.</p>
+    <p class="extent-detail detail-padding"><b>Final padding is deterministic.</b>
+    Once the top-level payload ends at bit 347, five zero bits reach bit 352, the
+    next byte boundary. Non-zero final padding indicates a wrong schema or a
+    corrupted stream.</p>
+    <p class="extent-detail detail-result"><b>The buffer can now release 44 bytes.</b>
+    The next byte begins another routing header. TCP may have delivered less than,
+    exactly, or more than those 44 bytes in any particular read.</p>
+  </div>
+
+  <h4>What makes a payload’s extent deterministic?</h4>
+  <div class="extent-controls">
+    <div><strong>Fixed-width value</strong><span>The schema supplies the exact width: for example, one bit for a Boolean or 32 bits for a FourCC.</span></div>
+    <div><strong>Array or byte string</strong><span>A bounded local count is decoded first. It determines the number of elements or raw bytes that follow.</span></div>
+    <div><strong>Optional value</strong><span>One presence bit decides whether the nested value follows.</span></div>
+    <div><strong>Choice</strong><span>A bounded selector chooses one arm; only that arm is decoded.</span></div>
+    <div><strong>Structure</strong><span>Members are decoded recursively in generated wire order until the structure is complete.</span></div>
+    <div><strong>Alignment point</strong><span>Strings and blobs may advance to the next byte before their raw bytes; final record padding does the same after the top-level value.</span></div>
+  </div>
+</figure>

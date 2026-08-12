@@ -19,6 +19,7 @@ use crate::{
 pub const DEFAULT_PUBLIC_CHANNEL: u16 = 1033;
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(60);
+const OBSERVER_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const TRANSPORT_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug)]
@@ -181,7 +182,7 @@ fn connect_once(
         chat.join_channel(channel)?;
     }
     chat.set_read_timeout(Some(LIVE_POLL_INTERVAL))?;
-    let mut tap = observer.begin_session();
+    let mut tap = observer.begin_session(&channels);
     for event in initial_events {
         tap.observe(&event);
         emit(events, ClientEvent::Chat(event));
@@ -210,23 +211,28 @@ fn run_live(
     mut chat: LiveChat,
     tap: &mut dyn SessionObserver,
 ) -> Result<()> {
-    let mut next_keep_alive = Instant::now();
+    let mut next_keep_alive = Instant::now() + KEEP_ALIVE_INTERVAL;
+    let mut next_observer_heartbeat = Instant::now() + OBSERVER_HEARTBEAT_INTERVAL;
+    let mut pending_channels_resolved = false;
     let mut next_transport_maintenance = Instant::now();
     loop {
         loop {
             match commands.try_recv() {
                 Ok(ClientCommand::Disconnect) => {
+                    tap.end_session();
                     chat.close()?;
                     emit(events, ClientEvent::Stage(ConnectionStage::Disconnected));
                     return Ok(());
                 }
                 Ok(ClientCommand::SignOut) => {
+                    tap.end_session();
                     let _ = chat.close();
                     FileCredentialStore::default().delete()?;
                     emit(events, ClientEvent::Stage(ConnectionStage::Disconnected));
                     return Ok(());
                 }
                 Ok(ClientCommand::Quit) | Err(TryRecvError::Disconnected) => {
+                    tap.end_session();
                     let _ = chat.close();
                     return Err(application_closed());
                 }
@@ -278,11 +284,13 @@ fn run_live(
             }
         }
 
-        if Instant::now() >= next_keep_alive {
-            chat.keep_alive()?;
-            tap.heartbeat();
-            next_keep_alive = Instant::now() + KEEP_ALIVE_INTERVAL;
-        }
+        maintain_live_state(
+            &mut chat,
+            tap,
+            &mut next_keep_alive,
+            &mut next_observer_heartbeat,
+            &mut pending_channels_resolved,
+        )?;
         if Instant::now() >= next_transport_maintenance {
             chat.maintain_transport()?;
             next_transport_maintenance = Instant::now() + TRANSPORT_MAINTENANCE_INTERVAL;
@@ -291,6 +299,13 @@ fn run_live(
         match chat.receive() {
             Ok(event) => {
                 tap.observe(&event);
+                if let ChatEvent::JoinRejected {
+                    channel: Some(channel),
+                    ..
+                } = &event
+                {
+                    tap.reject_channel(channel);
+                }
                 emit(events, ClientEvent::Chat(event));
             }
             Err(Error::Io(error))
@@ -298,6 +313,37 @@ fn run_live(
             Err(error) => return Err(error),
         }
     }
+}
+
+fn maintain_live_state(
+    chat: &mut LiveChat,
+    tap: &mut dyn SessionObserver,
+    next_keep_alive: &mut Instant,
+    next_observer_heartbeat: &mut Instant,
+    pending_channels_resolved: &mut bool,
+) -> Result<()> {
+    let now = Instant::now();
+    if now >= *next_keep_alive {
+        chat.keep_alive()?;
+        *next_keep_alive = now + KEEP_ALIVE_INTERVAL;
+    }
+    if now < *next_observer_heartbeat {
+        return Ok(());
+    }
+    if !*pending_channels_resolved {
+        tap.resolve_pending_channels();
+        *pending_channels_resolved = true;
+    }
+    tap.reconcile(
+        &chat
+            .rosters()
+            .into_iter()
+            .map(ChatEvent::Roster)
+            .collect::<Vec<_>>(),
+    );
+    tap.heartbeat();
+    *next_observer_heartbeat = now + OBSERVER_HEARTBEAT_INTERVAL;
+    Ok(())
 }
 
 fn load_protocol() -> Result<Protocol> {

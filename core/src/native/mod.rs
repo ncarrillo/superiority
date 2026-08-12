@@ -3,6 +3,7 @@ pub mod client;
 pub mod crypto;
 mod decode;
 pub mod errors;
+pub mod inspect;
 pub mod model;
 pub mod presence;
 pub mod protocol;

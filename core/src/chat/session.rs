@@ -481,6 +481,14 @@ impl LiveChat {
     }
 
     #[must_use]
+    pub fn rosters(&self) -> Vec<RosterSnapshot> {
+        self.channels
+            .keys()
+            .filter_map(|index| self.roster(*index))
+            .collect()
+    }
+
+    #[must_use]
     pub const fn channel_index(&self) -> u8 {
         self.default_channel_index
     }

@@ -1,0 +1,21 @@
+---
+interface Props {
+  id: string;
+  direction: string;
+  phase: string;
+  structure: string;
+  status: string;
+}
+
+const { id, direction, phase, structure } = Astro.props;
+---
+
+<article id={id} class="endpoint">
+  <h4><slot name="title" /></h4>
+  <dl class="endpoint-meta">
+    <div><dt>Direction</dt><dd>{direction}</dd></div>
+    <div><dt>Phase</dt><dd>{phase}</dd></div>
+    <div><dt>Structure</dt><dd>{structure}</dd></div>
+  </dl>
+  <slot />
+</article>

@@ -1,0 +1,59 @@
+{
+  "v": 1,
+  "session": {
+    "id": "00112233445566778899aabbccddeeff",
+    "client_version": "0.1.19",
+    "started_at": 1754700251000
+  },
+  "events": [
+    { "seq": 1, "ts": 1754700252000, "kind": "session_started" },
+    {
+      "seq": 2,
+      "ts": 1754700253000,
+      "kind": "joined",
+      "channel": { "key": "public:1033", "name": "General" }
+    },
+    {
+      "seq": 3,
+      "ts": 1754700254000,
+      "kind": "sync_started"
+    },
+    {
+      "seq": 4,
+      "ts": 1754700255000,
+      "kind": "roster",
+      "channel": { "key": "public:1033", "name": "General" },
+      "complete": true,
+      "count": 3,
+      "users": [
+        { "handle": 7, "name": "Overmind", "clan_tag": null, "presence": "available" },
+        { "handle": 991, "name": "Zergling", "clan_tag": null, "presence": "available" },
+        { "handle": 12345, "name": "Radiant", "clan_tag": "SLIM", "presence": "away" }
+      ]
+    },
+    { "seq": 5, "ts": 1754700256000, "kind": "session_synced" },
+    {
+      "seq": 6,
+      "ts": 1754700302113,
+      "kind": "message",
+      "channel": { "key": "public:1033", "name": "General" },
+      "sender": { "handle": 12345, "name": "Radiant", "clan_tag": "SLIM" },
+      "body": "gl hf"
+    },
+    {
+      "seq": 7,
+      "ts": 1754700310022,
+      "kind": "member_left",
+      "channel": { "key": "public:1033", "name": "General" },
+      "user": { "handle": 991, "name": "Zergling", "clan_tag": null }
+    },
+    {
+      "seq": 8,
+      "ts": 1754700311000,
+      "kind": "message",
+      "channel": { "key": "public:1033", "name": "General" },
+      "sender": { "handle": 7, "name": "Overmind", "clan_tag": null },
+      "body": "anyone up for 2v2?"
+    }
+  ]
+}

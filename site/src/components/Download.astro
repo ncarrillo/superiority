@@ -1,0 +1,57 @@
+---
+/// One stable URL, overwritten by each release, so the page says nothing about
+/// a version and never has to be rebuilt when one ships.
+const DOWNLOAD =
+  (process.env.SUPERIORITY_RELEASE_BASE_URL ??
+    "https://pub-ce8dea40e15e49cb9e8e01475b1876c0.r2.dev") +
+  "/releases/Superiority.dmg";
+---
+
+<div class="download">
+  <a class="button" href={DOWNLOAD} download>Download for macOS</a>
+  <p class="detail">Universal&ensp;·&ensp;macOS 14 or later</p>
+</div>
+
+<style>
+  .download {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    margin-top: 6px;
+  }
+
+  /* the app's own nine-patch button chrome, idle at rest, active on hover */
+  .button {
+    display: inline-block;
+    padding: 2px 14px 1px;
+    border: 17px solid transparent;
+    border-image: url("/ui/img/button-idle.png") 32 fill / 17px stretch;
+    color: #d9f1ff;
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    text-decoration: none;
+    text-shadow: 0 0 10px rgba(98, 201, 255, 0.4);
+  }
+
+  .button:hover {
+    border-image-source: url("/ui/img/button-active.png");
+  }
+
+  .button:focus-visible {
+    outline: 2px solid var(--header-blue);
+    outline-offset: 3px;
+  }
+
+  .detail {
+    font-family: "Eurostile", -apple-system, "Segoe UI", sans-serif;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+</style>
