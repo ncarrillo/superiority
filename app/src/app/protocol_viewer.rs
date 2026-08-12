@@ -5,16 +5,17 @@ use std::{
 
 use gpui::{
     AnyElement, App, Bounds, Context, FocusHandle, Focusable, KeyDownEvent, MouseButton,
-    MouseDownEvent, MouseMoveEvent, Subscription, TitlebarOptions, UniformListScrollHandle, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, rgb, size, uniform_list,
+    MouseDownEvent, MouseMoveEvent, Rgba, ScrollStrategy, Subscription, TitlebarOptions,
+    UniformListScrollHandle, Window, WindowBounds, WindowControlArea, WindowOptions, div,
+    prelude::*, px, rgb, size, uniform_list,
 };
 use superiority_ui::{
     UiAssets,
     components::{
-        controls as ui_controls, inspector as ui_inspector, navigation as ui_navigation,
-        roster as ui_roster, text_input as ui_text_input, workspace as ui_workspace,
+        controls as ui_controls, inspector as ui_inspector, roster as ui_roster,
+        text_input as ui_text_input, workspace as ui_workspace,
     },
-    theme::{FONT_INTERFACE, FONT_INTERNATIONAL, TAB_LEADING_SPACE},
+    theme::{FONT_INTERFACE, FONT_INTERNATIONAL},
 };
 
 use crate::native::inspect::{
@@ -24,23 +25,66 @@ use crate::native::inspect::{
 
 use super::client::{chrome::Assets, platform};
 
+mod field_help;
+
 const WINDOW_WIDTH: f32 = 1360.0;
 const WINDOW_HEIGHT: f32 = 820.0;
 const RECORD_PANE_WIDTH: f32 = 300.0;
 const FIELD_PANE_WIDTH: f32 = 500.0;
-const RECORD_ROW_HEIGHT: f32 = 72.0;
-const FIELD_ROW_HEIGHT: f32 = 50.0;
-const BIT_ROW_HEIGHT: f32 = 47.0;
-const BYTE_ROW_HEIGHT: f32 = 22.0;
+const RECORD_ROW_HEIGHT: f32 = 68.0;
+const FIELD_ROW_HEIGHT: f32 = 64.0;
+const BIT_ROW_HEIGHT: f32 = 51.0;
+const BYTE_ROW_HEIGHT: f32 = 24.0;
 const SPLITTER_SIZE: f32 = 7.0;
 const BIT_BYTE_WIDTH: f32 = 64.0;
 const BIT_LABEL_WIDTH: f32 = 34.0;
 const BIT_LABEL_GAP: f32 = 5.0;
+const MIN_STREAM_WIDTH: f32 = 360.0;
+const MIN_BYTE_PANE_HEIGHT: f32 = 128.0;
+const MIN_RECORD_PANE_WIDTH: f32 = 270.0;
+const CONTENT_TOP: f32 = 40.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FilterTarget {
     Records,
     Fields,
+}
+
+fn filter_target_at(
+    x: f32,
+    y: f32,
+    viewport_width: f32,
+    record_width: f32,
+    field_width: f32,
+    has_fields: bool,
+) -> Option<FilterTarget> {
+    if y < CONTENT_TOP {
+        None
+    } else if x < record_width {
+        Some(FilterTarget::Records)
+    } else if has_fields && x >= viewport_width - field_width {
+        Some(FilterTarget::Fields)
+    } else {
+        None
+    }
+}
+
+fn moved_position(items: &[usize], selected: usize, delta: isize) -> Option<usize> {
+    if items.is_empty() {
+        return None;
+    }
+    let position = items.iter().position(|item| *item == selected);
+    Some(match position {
+        Some(position) => position
+            .saturating_add_signed(delta)
+            .min(items.len().saturating_sub(1)),
+        None if delta < 0 => items.len() - 1,
+        None => 0,
+    })
+}
+
+fn boundary_position(item_count: usize, end: bool) -> Option<usize> {
+    (item_count > 0).then_some(if end { item_count - 1 } else { 0 })
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,35 +95,48 @@ enum PaneResize {
 }
 
 struct InspectorTooltip {
-    title: &'static str,
-    detail: &'static str,
+    title: String,
+    detail: String,
     assets: UiAssets,
 }
 
 impl gpui::Render for InspectorTooltip {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let tooltip = ui_controls::tooltip_shell(330.0, 92.0, self.assets.tooltip_fill.clone())
+        let title_lines = self.title.len().div_ceil(46).clamp(1, 3) as f32;
+        let detail_lines = self.detail.len().div_ceil(58).clamp(2, 5) as f32;
+        let height = 36.0 + title_lines * 19.0 + detail_lines * 17.0;
+        let tooltip = ui_controls::tooltip_shell(410.0, height, self.assets.tooltip_fill.clone())
             .font_family(FONT_INTERNATIONAL)
             .child(
                 div()
-                    .absolute()
-                    .left(px(18.0))
-                    .top(px(14.0))
-                    .right(px(18.0))
-                    .text_size(px(13.5))
-                    .text_color(rgb(0xd6e0f0))
-                    .child(self.title),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(18.0))
-                    .top(px(42.0))
-                    .right(px(18.0))
-                    .text_size(px(11.5))
-                    .line_height(px(15.0))
-                    .text_color(rgb(0x85d1ff))
-                    .child(self.detail),
+                    .relative()
+                    .w_full()
+                    .h_full()
+                    .px(px(18.0))
+                    .py(px(14.0))
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .w_full()
+                            .flex_shrink_0()
+                            .font_family("monospace")
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_size(px(12.5))
+                            .line_height(px(19.0))
+                            .text_color(rgb(0xd6e0f0))
+                            .child(self.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .flex_shrink_0()
+                            .text_size(px(12.5))
+                            .line_height(px(17.0))
+                            .text_color(rgb(0x85d1ff))
+                            .child(self.detail.clone()),
+                    ),
             );
         ui_controls::animated_tooltip(tooltip, "protocol-tooltip-open", 0.0, 0.0, -8.0)
     }
@@ -87,18 +144,135 @@ impl gpui::Render for InspectorTooltip {
 
 fn with_inspector_tooltip(
     element: impl StatefulInteractiveElement + IntoElement,
-    title: &'static str,
-    detail: &'static str,
+    title: impl Into<String>,
+    detail: impl Into<String>,
     assets: UiAssets,
 ) -> impl IntoElement {
+    let title = title.into();
+    let detail = detail.into();
     element.tooltip(move |_, cx| {
         cx.new(|_| InspectorTooltip {
-            title,
-            detail,
+            title: title.clone(),
+            detail: detail.clone(),
             assets: assets.clone(),
         })
         .into()
     })
+}
+
+fn capture_toggle_icon(paused: bool) -> AnyElement {
+    if paused {
+        div()
+            .w(px(13.0))
+            .h(px(14.0))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .font_family(FONT_INTERFACE)
+            .font_weight(gpui::FontWeight::BOLD)
+            .text_size(px(11.0))
+            .child("▶")
+            .into_any_element()
+    } else {
+        div()
+            .w(px(13.0))
+            .h(px(14.0))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(3.0))
+            .child(
+                div()
+                    .w(px(2.0))
+                    .h(px(10.0))
+                    .rounded(px(1.0))
+                    .bg(rgb(0x8aa2b5)),
+            )
+            .child(
+                div()
+                    .w(px(2.0))
+                    .h(px(10.0))
+                    .rounded(px(1.0))
+                    .bg(rgb(0x8aa2b5)),
+            )
+            .into_any_element()
+    }
+}
+
+fn clear_icon() -> impl IntoElement {
+    div()
+        .relative()
+        .w(px(14.0))
+        .h(px(14.0))
+        .flex_shrink_0()
+        .child(
+            div()
+                .absolute()
+                .left(px(2.0))
+                .right(px(2.0))
+                .top(px(3.0))
+                .h(px(1.0))
+                .bg(rgb(0x8aa2b5)),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(4.0))
+                .right(px(4.0))
+                .top(px(1.0))
+                .h(px(1.0))
+                .bg(rgb(0x8aa2b5)),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(3.0))
+                .right(px(3.0))
+                .top(px(5.0))
+                .bottom(px(1.0))
+                .rounded(px(1.0))
+                .border_1()
+                .border_color(rgb(0x8aa2b5)),
+        )
+}
+
+fn titlebar_drag_region(id: &'static str) -> impl IntoElement {
+    div()
+        .id(id)
+        .h_full()
+        .flex_1()
+        .window_control_area(WindowControlArea::Drag)
+        .on_mouse_down(MouseButton::Left, |_, window, cx| {
+            window.start_window_move();
+            cx.stop_propagation();
+        })
+}
+
+fn service_color(service: &str) -> Rgba {
+    match service {
+        "Authentication" => rgb(0xf0b35a),
+        "Connection" => rgb(0x63b8f2),
+        "Chat" => rgb(0x5fd1d0),
+        "Friends" => rgb(0x72d69b),
+        "Presence" => rgb(0xa5d86c),
+        "Profile" => rgb(0xb99af2),
+        "Toon" => rgb(0xe88bc8),
+        "Cache" => rgb(0x77cdb4),
+        "Club" | "S2Multiplayer" => rgb(0xf09667),
+        "S2Master" => rgb(0xe87b8e),
+        "GameUtilities" => rgb(0xd8c66a),
+        _ => {
+            const COLORS: [u32; 8] = [
+                0x62b7e8, 0x68c7b0, 0x9ccf70, 0xe0bd67, 0xe38b73, 0xd181b4, 0xa594e6, 0x7aa7e8,
+            ];
+            let index = service.bytes().fold(0usize, |hash, byte| {
+                hash.wrapping_mul(31).wrapping_add(usize::from(byte))
+            }) % COLORS.len();
+            rgb(COLORS[index])
+        }
+    }
 }
 
 fn field_label(path: &str) -> String {
@@ -148,7 +322,8 @@ pub(super) fn open(cx: &mut App) {
                 appears_transparent: true,
                 ..Default::default()
             }),
-            is_movable: false,
+            is_movable: true,
+            app_owns_titlebar_drag: true,
             ..Default::default()
         },
         move |window, cx| {
@@ -169,6 +344,7 @@ struct ProtocolViewer {
     field_filter: ui_text_input::TextInput,
     field_filter_value: String,
     filter_target: FilterTarget,
+    pointer_filter_target: Option<FilterTarget>,
     record_transition: Option<ui_roster::TimedTransition<(), usize, Instant>>,
     field_transition: Option<ui_roster::TimedTransition<(), usize, Instant>>,
     record_scroll: UniformListScrollHandle,
@@ -215,6 +391,7 @@ impl ProtocolViewer {
             field_filter,
             field_filter_value: String::new(),
             filter_target: FilterTarget::Records,
+            pointer_filter_target: None,
             record_transition: None,
             field_transition: None,
             record_scroll: UniformListScrollHandle::new(),
@@ -342,6 +519,14 @@ impl ProtocolViewer {
 
     fn select_field(&mut self, index: usize, cx: &mut Context<Self>) {
         self.selected_field = index;
+        if let Some(position) = self
+            .visible_field_indices()
+            .iter()
+            .position(|visible| *visible == index)
+        {
+            self.field_scroll
+                .scroll_to_item(position, ScrollStrategy::Nearest);
+        }
         cx.notify();
     }
 
@@ -385,7 +570,149 @@ impl ProtocolViewer {
             self.focus_handle.focus(window, cx);
             cx.stop_propagation();
             cx.notify();
+            return;
         }
+        if event.keystroke.modifiers.modified() {
+            return;
+        }
+        let handled = match self.filter_target {
+            FilterTarget::Records => match event.keystroke.key.as_str() {
+                "up" => self.move_record_selection(-1, cx),
+                "down" => self.move_record_selection(1, cx),
+                "home" => self.select_record_boundary(false, cx),
+                "end" => self.select_record_boundary(true, cx),
+                _ => false,
+            },
+            FilterTarget::Fields => match event.keystroke.key.as_str() {
+                "up" => self.move_field_selection(-1, cx),
+                "down" => self.move_field_selection(1, cx),
+                "home" => self.select_field_boundary(false, cx),
+                "end" => self.select_field_boundary(true, cx),
+                "left" if self.field_filter_value.is_empty() => self.navigate_field_left(cx),
+                "right" if self.field_filter_value.is_empty() => self.navigate_field_right(cx),
+                _ => false,
+            },
+        };
+        if handled {
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    fn move_record_selection(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        let visible = self.filtered_record_indices();
+        let Some(position) = moved_position(&visible, self.selected_record, delta) else {
+            return false;
+        };
+        self.select_record(visible[position], cx);
+        self.record_scroll
+            .scroll_to_item(position, ScrollStrategy::Nearest);
+        true
+    }
+
+    fn select_record_boundary(&mut self, end: bool, cx: &mut Context<Self>) -> bool {
+        let visible = self.filtered_record_indices();
+        let Some(position) = boundary_position(visible.len(), end) else {
+            return false;
+        };
+        self.select_record(visible[position], cx);
+        self.record_scroll.scroll_to_item(
+            position,
+            if end {
+                ScrollStrategy::Bottom
+            } else {
+                ScrollStrategy::Top
+            },
+        );
+        true
+    }
+
+    fn move_field_selection(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        if self.capture.records.is_empty() {
+            return false;
+        }
+        let visible = self.visible_field_indices();
+        let Some(position) = moved_position(&visible, self.selected_field, delta) else {
+            return false;
+        };
+        self.select_field(visible[position], cx);
+        true
+    }
+
+    fn select_field_boundary(&mut self, end: bool, cx: &mut Context<Self>) -> bool {
+        if self.capture.records.is_empty() {
+            return false;
+        }
+        let visible = self.visible_field_indices();
+        let Some(position) = boundary_position(visible.len(), end) else {
+            return false;
+        };
+        self.selected_field = visible[position];
+        self.field_scroll.scroll_to_item(
+            position,
+            if end {
+                ScrollStrategy::Bottom
+            } else {
+                ScrollStrategy::Top
+            },
+        );
+        cx.notify();
+        true
+    }
+
+    fn navigate_field_left(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.capture.records.is_empty() {
+            return false;
+        }
+        let index = self.selected_field;
+        let record = self.selected_record();
+        let Some(field) = record.fields.get(index) else {
+            return false;
+        };
+        let path = field.path.clone();
+        let depth = field.depth;
+        let container = record
+            .fields
+            .get(index + 1)
+            .is_some_and(|next| next.depth > depth);
+        if container && !self.collapsed_fields.contains(&path) {
+            self.toggle_field(index, &path, cx);
+            return true;
+        }
+        let Some(parent) = (0..index)
+            .rev()
+            .find(|candidate| record.fields[*candidate].depth < depth)
+        else {
+            return false;
+        };
+        self.select_field(parent, cx);
+        true
+    }
+
+    fn navigate_field_right(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.capture.records.is_empty() {
+            return false;
+        }
+        let index = self.selected_field;
+        let record = self.selected_record();
+        let Some(field) = record.fields.get(index) else {
+            return false;
+        };
+        let path = field.path.clone();
+        let depth = field.depth;
+        let container = record
+            .fields
+            .get(index + 1)
+            .is_some_and(|next| next.depth > depth);
+        if !container {
+            return false;
+        }
+        if self.collapsed_fields.contains(&path) {
+            self.toggle_field(index, &path, cx);
+        } else {
+            self.select_field(index + 1, cx);
+        }
+        true
     }
 
     fn set_record_filter(&mut self, next: String, cx: &mut Context<Self>) {
@@ -434,17 +761,28 @@ impl ProtocolViewer {
         }
     }
 
-    fn update_resize(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+    fn normalize_pane_widths(&mut self, viewport_width: f32) {
+        let available = (viewport_width - MIN_STREAM_WIDTH - SPLITTER_SIZE * 2.0).max(610.0);
+        let excess = (self.record_pane_width + self.field_pane_width - available).max(0.0);
+        let field_reduction = excess.min((self.field_pane_width - 340.0).max(0.0));
+        self.field_pane_width -= field_reduction;
+        self.record_pane_width =
+            (self.record_pane_width - (excess - field_reduction)).max(MIN_RECORD_PANE_WIDTH);
+    }
+
+    fn update_resize(&mut self, event: &MouseMoveEvent, window: &Window, cx: &mut Context<Self>) {
         let Some(resize) = self.pane_resize else {
             return;
         };
         let pointer = event.position.x.as_f32();
+        let viewport_width = window.viewport_size().width.as_f32();
         match resize {
             PaneResize::Records {
                 pointer: start,
                 width,
             } => {
-                self.record_pane_width = (width + pointer - start).clamp(230.0, 480.0);
+                self.record_pane_width =
+                    (width + pointer - start).clamp(MIN_RECORD_PANE_WIDTH, 480.0);
             }
             PaneResize::Fields {
                 pointer: start,
@@ -454,15 +792,22 @@ impl ProtocolViewer {
             }
             PaneResize::Bitstream { .. } => return,
         }
+        self.normalize_pane_widths(viewport_width);
         cx.notify();
     }
 
-    fn update_vertical_resize(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+    fn update_vertical_resize(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(PaneResize::Bitstream { pointer, height }) = self.pane_resize else {
             return;
         };
+        let maximum = (window.viewport_size().height.as_f32() - 260.0).max(160.0);
         self.bitstream_height =
-            Some((height + event.position.y.as_f32() - pointer).clamp(160.0, 680.0));
+            Some((height + event.position.y.as_f32() - pointer).clamp(118.0, maximum));
         cx.notify();
     }
 
@@ -509,7 +854,15 @@ impl ProtocolViewer {
     }
 
     fn focus_filter(&mut self, target: FilterTarget, window: &mut Window, cx: &mut Context<Self>) {
+        let focused = match target {
+            FilterTarget::Records => self.record_filter.is_focused(window),
+            FilterTarget::Fields => self.field_filter.is_focused(window),
+        };
+        if self.filter_target == target && focused {
+            return;
+        }
         self.filter_target = target;
+        self.pointer_filter_target = Some(target);
         match target {
             FilterTarget::Records => self.record_filter.focus(window, cx),
             FilterTarget::Fields => self.field_filter.focus(window, cx),
@@ -517,90 +870,118 @@ impl ProtocolViewer {
         cx.notify();
     }
 
-    fn top_bar(&self) -> impl IntoElement {
-        let tabs = ui_navigation::ChannelTabs::new(
-            vec![ui_navigation::ChannelTab::new("protocol-viewer-tab", "Capture").active(true)],
-            self.ui_assets.clone(),
-        )
-        .leading(TAB_LEADING_SPACE);
-        ui_navigation::bar(Some(self.ui_assets.top_navigation_background.clone())).child(tabs)
+    fn update_filter_focus(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pane_resize.is_some() {
+            return;
+        }
+        let target = filter_target_at(
+            event.position.x.as_f32(),
+            event.position.y.as_f32(),
+            window.viewport_size().width.as_f32(),
+            self.record_pane_width,
+            self.field_pane_width,
+            !self.capture.records.is_empty(),
+        );
+        if self.pointer_filter_target == target {
+            return;
+        }
+        self.pointer_filter_target = target;
+        if let Some(target) = target {
+            self.focus_filter(target, window, cx);
+        } else {
+            self.focus_handle.focus(window, cx);
+            cx.notify();
+        }
     }
 
     fn capture_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let record_count = self.capture.records.len();
+        let filtered_count = self.filtered_record_indices().len();
+        ui_inspector::header(
+            if self.record_filter_value.is_empty() {
+                "Records".to_owned()
+            } else {
+                format!("Records  /  {}", self.record_filter_value)
+            },
+            if self.record_filter_value.is_empty() {
+                record_count.to_string()
+            } else {
+                format!("{filtered_count} / {record_count}")
+            },
+        )
+        .id("protocol-record-filter-focus")
+        .cursor(gpui::CursorStyle::IBeam)
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.focus_filter(FilterTarget::Records, window, cx);
+        }))
+    }
+
+    fn titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .h(px(38.0))
+            .h(px(34.0))
             .w_full()
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(px(7.0))
-            .px(px(9.0))
             .border_b_1()
             .border_color(rgb(0x102a3b))
-            .bg(rgb(0x050d15))
+            .bg(rgb(0x07111d))
+            .child(titlebar_drag_region("protocol-titlebar-left"))
             .child(
                 div()
-                    .id("protocol-record-filter-focus")
-                    .mr_auto()
                     .h_full()
+                    .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .cursor(gpui::CursorStyle::IBeam)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.focus_filter(FilterTarget::Records, window, cx);
-                    }))
-                    .font_family("monospace")
-                    .text_size(px(11.0))
-                    .text_color(if self.record_filter_value.is_empty() {
-                        rgb(0x587287)
-                    } else {
-                        rgb(0x55c8f5)
-                    })
-                    .child(if self.record_filter_value.is_empty() {
-                        format!("{record_count} records")
-                    } else {
-                        format!(
-                            "{} / {record_count}  ·  {}",
-                            self.filtered_record_indices().len(),
-                            self.record_filter_value
-                        )
-                    }),
+                    .gap(px(6.0))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(self.capture_toggle_button(cx))
+                    .child(self.clear_capture_button(cx)),
             )
-            .child(with_inspector_tooltip(
-                ui_inspector::toolbar_button(
-                    "protocol-capture-toggle",
-                    if self.paused {
-                        "▶  Resume"
-                    } else {
-                        "Ⅱ  Pause"
-                    },
-                    self.paused,
-                )
-                .h(px(26.0))
-                .px(px(9.0))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_capture(cx))),
-                if self.paused {
-                    "Resume capture"
-                } else {
-                    "Pause capture"
-                },
-                if self.paused {
-                    "Continue collecting native protocol records."
-                } else {
-                    "Freeze this record list without disconnecting the client."
-                },
-                self.ui_assets.clone(),
-            ))
-            .child(with_inspector_tooltip(
-                ui_inspector::toolbar_button("protocol-capture-clear", "×  Clear", false)
-                    .h(px(26.0))
-                    .px(px(9.0))
-                    .on_click(cx.listener(|this, _, _, cx| this.clear(cx))),
-                "Clear capture",
-                "Remove the records currently held by this viewer.",
-                self.ui_assets.clone(),
-            ))
+            .child(titlebar_drag_region("protocol-titlebar-right"))
+    }
+
+    fn capture_toggle_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        with_inspector_tooltip(
+            ui_inspector::toolbar_icon_button(
+                "protocol-capture-toggle",
+                if self.paused { "Resume" } else { "Pause" },
+                capture_toggle_icon(self.paused),
+                self.paused,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_capture(cx))),
+            if self.paused {
+                "Resume capture"
+            } else {
+                "Pause capture"
+            },
+            if self.paused {
+                "Continue collecting native protocol records."
+            } else {
+                "Freeze this record list without disconnecting the client."
+            },
+            self.ui_assets.clone(),
+        )
+    }
+
+    fn clear_capture_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        with_inspector_tooltip(
+            ui_inspector::toolbar_icon_button(
+                "protocol-capture-clear",
+                "Clear",
+                clear_icon(),
+                false,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.clear(cx))),
+            "Clear capture",
+            "Remove the records currently held by this viewer.",
+            self.ui_assets.clone(),
+        )
     }
 
     fn filtered_record_indices(&self) -> Vec<usize> {
@@ -622,7 +1003,10 @@ impl ProtocolViewer {
     fn record_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let record = &self.capture.records[index];
         let selected = index == self.selected_record;
-        ui_inspector::selectable_row(("protocol-record", index), selected)
+        let category_color = service_color(&record.service);
+        let category_text =
+            rgb(0x7893a9).blend(category_color.alpha(if selected { 0.62 } else { 0.48 }));
+        ui_inspector::tinted_selectable_row(("protocol-record", index), selected, category_color)
             .h(px(RECORD_ROW_HEIGHT))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_record(index, cx);
@@ -630,43 +1014,91 @@ impl ProtocolViewer {
             }))
             .child(
                 div()
-                    .absolute()
-                    .left(px(10.0))
-                    .top(px(11.0))
-                    .text_size(px(11.0))
-                    .font_family("monospace")
-                    .text_color(rgb(0x536d82))
-                    .child(format!("{:02}", index + 1)),
-            )
-            .child(
-                div()
-                    .pl(px(40.0))
-                    .pt(px(8.0))
-                    .pr(px(10.0))
+                    .relative()
+                    .h_full()
+                    .px(px(12.0))
+                    .py(px(9.0))
                     .child(
                         div()
-                            .text_size(px(13.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xd5e5f4))
-                            .child(record.service.clone()),
-                    )
-                    .child(
-                        div()
-                            .mt(px(2.0))
-                            .text_size(px(12.0))
-                            .text_color(rgb(0x4db8e9))
-                            .child(record.command.clone()),
-                    )
-                    .child(
-                        div()
-                            .mt(px(5.0))
+                            .h(px(20.0))
                             .flex()
-                            .gap(px(10.0))
-                            .font_family("monospace")
-                            .text_size(px(10.0))
-                            .text_color(rgb(0x536f84))
-                            .child(format!("{} B", record.bytes.len()))
-                            .child(format!("{} bits", record.logical_bits)),
+                            .items_center()
+                            .gap(px(9.0))
+                            .child(
+                                div()
+                                    .w(px(30.0))
+                                    .h(px(18.0))
+                                    .flex_shrink_0()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(2.0))
+                                    .border_1()
+                                    .border_color(category_color.alpha(if selected {
+                                        0.72
+                                    } else {
+                                        0.38
+                                    }))
+                                    .bg(category_color.alpha(if selected { 0.13 } else { 0.06 }))
+                                    .font_family("monospace")
+                                    .text_size(px(10.5))
+                                    .text_color(category_text)
+                                    .child(format!("{:02}", index + 1)),
+                            )
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_size(px(14.5))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(if selected {
+                                        rgb(0xf0f7ff)
+                                    } else {
+                                        rgb(0xd5e5f4)
+                                    })
+                                    .child(record.command.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(7.0))
+                            .pl(px(39.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .text_size(px(12.5))
+                                    .text_color(category_text)
+                                    .child(record.service.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px(px(7.0))
+                                    .py(px(2.0))
+                                    .rounded(px(2.0))
+                                    .bg(category_color.alpha(if selected { 0.1 } else { 0.045 }))
+                                    .font_family("monospace")
+                                    .text_size(px(10.0))
+                                    .text_color(if selected {
+                                        rgb(0x8ebbd0)
+                                    } else {
+                                        rgb(0x536f84)
+                                    })
+                                    .child(format!(
+                                        "{} B · {}b",
+                                        record.bytes.len(),
+                                        record.logical_bits
+                                    )),
+                            ),
                     ),
             )
             .into_any_element()
@@ -705,6 +1137,7 @@ impl ProtocolViewer {
         .size_full()
         .track_scroll(&self.record_scroll);
         ui_inspector::pane()
+            .id("protocol-record-pane")
             .relative()
             .w(px(self.record_pane_width))
             .flex_shrink_0()
@@ -733,6 +1166,10 @@ impl ProtocolViewer {
                     )
                     .when_some(rows, |layer, rows| layer.overflow_y_scroll().children(rows))
                     .when(!animating, |layer| layer.child(list)),
+            )
+            .when(
+                self.pointer_filter_target == Some(FilterTarget::Records),
+                |pane| pane.child(ui_inspector::focus_outline()),
             )
     }
 
@@ -818,7 +1255,7 @@ impl ProtocolViewer {
                     .hover(|style| style.bg(rgb(0x1e789e)))
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
                             this.pane_resize = Some(PaneResize::Bitstream {
                                 pointer: event.position.y.as_f32(),
                                 height: bitstream_height,
@@ -836,7 +1273,7 @@ impl ProtocolViewer {
             .child(
                 div()
                     .flex_1()
-                    .min_h(px(128.0))
+                    .min_h(px(MIN_BYTE_PANE_HEIGHT))
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
@@ -853,7 +1290,7 @@ impl ProtocolViewer {
                             .border_color(rgb(0x102a3b))
                             .font_family(FONT_INTERFACE)
                             .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_size(px(11.0))
+                            .text_size(px(12.5))
                             .text_color(rgb(0x6b8498))
                             .child(if selection_is_exact {
                                 "Selected range"
@@ -947,7 +1384,7 @@ impl ProtocolViewer {
                     })
                     .when(!active, |cell| cell.border_1())
                     .bg(if active {
-                        rgb(0x12374d)
+                        rgb(0x145b80)
                     } else {
                         match role {
                             FieldRole::Route => rgb(0x10293a),
@@ -973,7 +1410,7 @@ impl ProtocolViewer {
                         .items_center()
                         .justify_center()
                         .font_family("monospace")
-                        .text_size(px(10.0))
+                        .text_size(px(11.0))
                         .text_color(rgb(0x536d82))
                         .child(format!("{byte_index:04x}")),
                 )
@@ -990,7 +1427,7 @@ impl ProtocolViewer {
                     .flex_shrink_0()
                     .pt(px(17.0))
                     .font_family("monospace")
-                    .text_size(px(10.0))
+                    .text_size(px(11.0))
                     .text_color(rgb(0x536d82))
                     .child(format!("+{:02x}", start)),
             )
@@ -1005,35 +1442,60 @@ impl ProtocolViewer {
         let end = (start + 16).min(record.bytes.len());
         let hex = (start..end).map(|index| {
             let byte = record.bytes[index];
-            let bit = index * 8;
-            let active =
-                selected.exact_range && bit < selected.end_bit && bit + 8 > selected.start_bit;
-            div()
+            let byte_start = index * 8;
+            let overlap_start = selected.start_bit.max(byte_start);
+            let overlap_end = selected.end_bit.min(byte_start + 8);
+            let active = selected.exact_range && overlap_start < overlap_end;
+            let coverage = if active {
+                (overlap_end - overlap_start) as f32 / 8.0
+            } else {
+                0.0
+            };
+            let cell = div()
+                .relative()
                 .w(px(23.0))
                 .flex_shrink_0()
                 .text_center()
-                .when(active, |cell| {
-                    cell.bg(rgb(0x12374d)).text_color(rgb(0xd9f2ff))
-                })
-                .child(format!("{byte:02x}"))
+                .when(active, |cell| cell.text_color(rgb(0xd9f2ff)))
+                .child(format!("{byte:02x}"));
+            if active {
+                cell.child(
+                    div()
+                        .absolute()
+                        .left(px(23.0 * (overlap_start - byte_start) as f32 / 8.0))
+                        .top_0()
+                        .bottom_0()
+                        .w(px(23.0 * coverage))
+                        .bg(gpui::rgba(0x174e_6fa8)),
+                )
+            } else {
+                cell
+            }
         });
-        let ascii = record.bytes[start..end]
-            .iter()
-            .map(|byte| {
-                if byte.is_ascii_graphic() || *byte == b' ' {
-                    char::from(*byte)
+        let ascii = (start..end).map(|index| {
+            let byte = record.bytes[index];
+            let active = selected.exact_range
+                && index * 8 < selected.end_bit
+                && index * 8 + 8 > selected.start_bit;
+            div()
+                .w(px(7.0))
+                .text_center()
+                .when(active, |cell| {
+                    cell.bg(gpui::rgba(0x174e_6f80)).text_color(rgb(0xd9f2ff))
+                })
+                .child(if byte.is_ascii_graphic() || byte == b' ' {
+                    char::from(byte).to_string()
                 } else {
-                    '·'
-                }
-            })
-            .collect::<String>();
+                    "·".to_owned()
+                })
+        });
         div()
             .h(px(BYTE_ROW_HEIGHT))
             .min_w(px(590.0))
             .flex()
             .items_center()
             .font_family("monospace")
-            .text_size(px(11.0))
+            .text_size(px(12.0))
             .text_color(rgb(0x7893a9))
             .child(
                 div()
@@ -1047,10 +1509,11 @@ impl ProtocolViewer {
                 div()
                     .ml(px(10.0))
                     .pl(px(10.0))
+                    .flex()
                     .border_l_1()
                     .border_color(rgb(0x17384d))
                     .text_color(rgb(0x9db5c7))
-                    .child(ascii),
+                    .children(ascii),
             )
             .into_any_element()
     }
@@ -1119,7 +1582,10 @@ impl ProtocolViewer {
                 field.kind, field.start_bit, field.end_bit
             )
         } else {
-            field.kind.to_owned()
+            format!(
+                "{}  ·  within [{}, {})",
+                field.kind, field.start_bit, field.end_bit
+            )
         };
         let toggle_glyph = div()
             .relative()
@@ -1145,9 +1611,11 @@ impl ProtocolViewer {
                 )
             });
         let active = index == self.selected_field;
-        ui_inspector::selectable_row(("protocol-field", index), active)
+        let tooltip_title = field.path.clone();
+        let tooltip_detail = field_help::tooltip_detail(field, container);
+        let row = ui_inspector::selectable_row(("protocol-field", index), active)
             .h(px(FIELD_ROW_HEIGHT))
-            .when(container, |row| row.bg(rgb(0x07121b)))
+            .when(container && !active, |row| row.bg(rgb(0x07121b)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_field(index, cx);
                 this.focus_filter(FilterTarget::Fields, window, cx);
@@ -1156,16 +1624,16 @@ impl ProtocolViewer {
                 div()
                     .relative()
                     .h_full()
-                    .pl(px(10.0 + field.depth as f32 * 17.0))
-                    .pr(px(12.0))
+                    .pl(px(12.0 + field.depth as f32 * 19.0))
+                    .pr(px(14.0))
                     .flex()
                     .items_center()
                     .gap(px(8.0))
-                    .when(field.depth > 0, |row| {
+                    .when(field.depth > 0 && !active, |row| {
                         row.child(
                             div()
                                 .absolute()
-                                .left(px(16.0 + (field.depth - 1) as f32 * 17.0))
+                                .left(px(18.0 + (field.depth - 1) as f32 * 19.0))
                                 .top_0()
                                 .bottom_0()
                                 .w(px(1.0))
@@ -1175,7 +1643,7 @@ impl ProtocolViewer {
                     .child(
                         div()
                             .id(("protocol-field-toggle", index))
-                            .size(px(16.0))
+                            .size(px(18.0))
                             .flex_shrink_0()
                             .flex()
                             .items_center()
@@ -1224,13 +1692,15 @@ impl ProtocolViewer {
                                     } else {
                                         FONT_INTERFACE
                                     })
-                                    .text_size(px(if container { 12.0 } else { 11.5 }))
+                                    .text_size(px(if container { 15.5 } else { 15.0 }))
                                     .font_weight(if container {
                                         gpui::FontWeight::SEMIBOLD
                                     } else {
                                         gpui::FontWeight::NORMAL
                                     })
-                                    .text_color(if container {
+                                    .text_color(if active {
+                                        rgb(0xf1f8ff)
+                                    } else if container {
                                         rgb(0xcce2f2)
                                     } else {
                                         rgb(0xaebfce)
@@ -1239,27 +1709,28 @@ impl ProtocolViewer {
                             )
                             .child(
                                 div()
-                                    .mt(px(2.0))
+                                    .mt(px(3.0))
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .font_family("monospace")
-                                    .text_size(px(9.5))
-                                    .text_color(rgb(0x526f84))
+                                    .text_size(px(12.0))
+                                    .text_color(if active { rgb(0x8dbbd0) } else { rgb(0x607f94) })
                                     .child(metadata),
                             ),
                     )
                     .child(
                         div()
-                            .max_w(px(205.0))
+                            .max_w(px(230.0))
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_right()
                             .font_family("monospace")
-                            .text_size(px(11.0))
-                            .text_color(rgb(0x67ceff))
+                            .text_size(px(14.0))
+                            .text_color(if active { rgb(0xbdeaff) } else { rgb(0x67ceff) })
                             .child(field.value.clone()),
                     ),
-            )
+            );
+        with_inspector_tooltip(row, tooltip_title, tooltip_detail, self.ui_assets.clone())
             .into_any_element()
     }
 
@@ -1297,6 +1768,7 @@ impl ProtocolViewer {
         .size_full()
         .track_scroll(&self.field_scroll);
         ui_inspector::pane()
+            .id("protocol-field-pane")
             .relative()
             .w(px(self.field_pane_width))
             .flex_shrink_0()
@@ -1347,25 +1819,10 @@ impl ProtocolViewer {
                     .when_some(rows, |layer, rows| layer.overflow_y_scroll().children(rows))
                     .when(!animating, |layer| layer.child(list)),
             )
-    }
-
-    fn status_bar(&self) -> impl IntoElement {
-        div()
-            .h(px(29.0))
-            .w_full()
-            .flex()
-            .items_center()
-            .gap(px(20.0))
-            .px(px(12.0))
-            .border_t_1()
-            .border_color(rgb(0x143c55))
-            .bg(rgb(0x03080d))
-            .font_family("monospace")
-            .text_size(px(10.0))
-            .text_color(rgb(0x4f697d))
-            .child("Bit order  LSB-first within each byte")
-            .child("Boundary  schema-delimited")
-            .child("Ranges  [start, end)")
+            .when(
+                self.pointer_filter_target == Some(FilterTarget::Fields),
+                |pane| pane.child(ui_inspector::focus_outline()),
+            )
     }
 }
 
@@ -1380,6 +1837,58 @@ impl Drop for ProtocolViewer {
         if self.paused {
             set_capture_paused(false);
         }
+    }
+}
+
+#[cfg(test)]
+mod focus_tests {
+    use super::{FilterTarget, boundary_position, filter_target_at, moved_position};
+
+    #[test]
+    fn filter_focus_uses_full_column_bounds() {
+        assert_eq!(
+            filter_target_at(100.0, 700.0, 1_360.0, 300.0, 500.0, true),
+            Some(FilterTarget::Records)
+        );
+        assert_eq!(
+            filter_target_at(1_000.0, 700.0, 1_360.0, 300.0, 500.0, true),
+            Some(FilterTarget::Fields)
+        );
+        assert_eq!(
+            filter_target_at(500.0, 700.0, 1_360.0, 300.0, 500.0, true),
+            None
+        );
+    }
+
+    #[test]
+    fn filter_focus_excludes_chrome_and_absent_fields() {
+        assert_eq!(
+            filter_target_at(100.0, 20.0, 1_360.0, 300.0, 500.0, true),
+            None
+        );
+        assert_eq!(
+            filter_target_at(1_000.0, 700.0, 1_360.0, 300.0, 500.0, false),
+            None
+        );
+    }
+
+    #[test]
+    fn navigation_moves_through_visible_items_only() {
+        let visible = [1, 4, 9];
+        assert_eq!(moved_position(&visible, 4, -1), Some(0));
+        assert_eq!(moved_position(&visible, 4, 1), Some(2));
+        assert_eq!(moved_position(&visible, 1, -1), Some(0));
+        assert_eq!(moved_position(&visible, 9, 1), Some(2));
+        assert_eq!(moved_position(&visible, 7, 1), Some(0));
+        assert_eq!(moved_position(&visible, 7, -1), Some(2));
+        assert_eq!(moved_position(&[], 0, 1), None);
+    }
+
+    #[test]
+    fn navigation_finds_list_boundaries() {
+        assert_eq!(boundary_position(3, false), Some(0));
+        assert_eq!(boundary_position(3, true), Some(2));
+        assert_eq!(boundary_position(0, false), None);
     }
 }
 
@@ -1417,9 +1926,10 @@ impl gpui::Render for ProtocolViewer {
             .id("protocol-viewer")
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
-            .on_mouse_move(cx.listener(|this, event, _, cx| {
-                this.update_resize(event, cx);
-                this.update_vertical_resize(event, cx);
+            .on_mouse_move(cx.listener(|this, event, window, cx| {
+                this.update_resize(event, window, cx);
+                this.update_vertical_resize(event, window, cx);
+                this.update_filter_focus(event, window, cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -1432,8 +1942,8 @@ impl gpui::Render for ProtocolViewer {
             .flex()
             .flex_col()
             .font_family(FONT_INTERFACE)
-            .child(self.top_bar())
-            .child(div().h(px(8.0)).flex_shrink_0().bg(rgb(0x040a10)))
+            .child(self.titlebar(cx))
+            .child(div().h(px(6.0)).flex_shrink_0().bg(rgb(0x040a10)))
             .child(if self.capture.records.is_empty() {
                 div()
                     .flex_1()
@@ -1468,6 +1978,5 @@ impl gpui::Render for ProtocolViewer {
                     .child(self.fields_pane(cx))
                     .into_any_element()
             })
-            .child(self.status_bar())
     }
 }
