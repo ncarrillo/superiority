@@ -1,0 +1,22 @@
+[package]
+name = "superiority-live-app"
+version = "0.1.24"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+console_log = "1"
+gloo-net = { version = "0.6", default-features = false, features = ["http", "json"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+gpui.workspace = true
+gpui_platform.workspace = true
+superiority-ui = { path = "../ui" }
+js-sys = "0.3"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+urlencoding = "2"
+wasm-bindgen = "=0.2.127"

@@ -1,0 +1,48 @@
+#![cfg(target_arch = "wasm32")]
+
+mod api;
+mod view;
+
+use std::borrow::Cow;
+
+use gpui::{App, AppCell, AppContext as _, Application, WindowOptions};
+use wasm_bindgen::prelude::*;
+
+use view::LiveView;
+
+#[wasm_bindgen]
+pub fn run(feed_id: String, backend: String, asset_root: String) -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Info);
+
+    gpui_platform::web_init();
+    let app = keep_web_application_alive(gpui_platform::single_threaded_web());
+    app.run(move |cx: &mut App| {
+        let fonts = vec![
+            Cow::Borrowed(
+                include_bytes!("../../assets/fonts/game/eurostileext-med.otf").as_slice(),
+            ),
+            Cow::Borrowed(include_bytes!("../../assets/fonts/game/eurostile-reg.otf").as_slice()),
+            Cow::Borrowed(include_bytes!("../../assets/fonts/game/bl.ttf").as_slice()),
+        ];
+        cx.text_system()
+            .add_fonts(fonts)
+            .expect("superiority fonts must load");
+
+        cx.open_window(WindowOptions::default(), |_, cx| {
+            cx.new(|cx| LiveView::new(backend, feed_id, asset_root, cx))
+        })
+        .expect("the browser window must open");
+        cx.activate(true);
+    });
+
+    Ok(())
+}
+
+fn keep_web_application_alive(app: Application) -> Application {
+    // the web runtime requires one strong app cell for the page lifetime
+    struct WasmApplication(std::rc::Rc<AppCell>);
+    let wasm_app = unsafe { std::mem::transmute::<Application, WasmApplication>(app) };
+    std::mem::forget(wasm_app.0.clone());
+    unsafe { std::mem::transmute::<WasmApplication, Application>(wasm_app) }
+}

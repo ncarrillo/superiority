@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Superiority Live</title>
+    <link rel="icon" href="/ui/app-icon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="boot">
+      <canvas id="canvas"></canvas>
+      <div id="loading">STARTING SUPERIORITY LIVE…</div>
+    </div>
+    <script type="module">
+      if (location.protocol === "file:") {
+        const loading = document.querySelector("#loading");
+        if (loading) {
+          loading.innerHTML =
+            "HTTP ORIGIN REQUIRED<br><small>Run <code>npm run dev:viewer</code> from the live directory.</small>";
+        }
+      } else {
+        await import("/src/main.js");
+      }
+    </script>
+  </body>
+</html>
