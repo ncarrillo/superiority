@@ -24,9 +24,10 @@ const VERIFIED_REFLECTED: &[&str] = &[
 pub(super) fn register(codec: &mut Codec) -> Result<()> {
     codec.register_wire_layout(
         CLUB_INVITE_ACTION,
-        WireLayout::new(
+        WireLayout::new_traced(
             "generated Club::InviteAction",
             decode_club_invite_action,
+            decode_club_invite_action_traced,
             encode_club_invite_action,
         ),
     )?;
@@ -41,35 +42,248 @@ fn decode_club_invite_action(
     root_type: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<BsnValue> {
+    let values = read_club_invite_action(reader)?;
+    build_club_invite_action(codec, root_type, &values)
+}
+
+fn decode_club_invite_action_traced(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+) -> Result<(BsnValue, Vec<crate::bsn::codec::DecodedField>)> {
+    let values = read_club_invite_action(reader)?;
+    let fields = values.fields(path, depth);
+    Ok((build_club_invite_action(codec, root_type, &values)?, fields))
+}
+
+#[derive(Clone, Debug)]
+struct Spanned<T> {
+    value: T,
+    start_bit: usize,
+    end_bit: usize,
+}
+
+#[derive(Clone, Debug)]
+struct ClubInviteActionValues {
+    start_bit: usize,
+    end_bit: usize,
+    code: Spanned<i128>,
+    program: Spanned<u32>,
+    region: Spanned<i128>,
+    realm: Spanned<i128>,
+    id: Spanned<i128>,
+    club_id: Spanned<i128>,
+    reserved: Spanned<u64>,
+    result: Spanned<i128>,
+}
+
+impl ClubInviteActionValues {
+    fn fields(&self, path: &str, depth: usize) -> Vec<crate::bsn::codec::DecodedField> {
+        use crate::bsn::codec::DecodedField;
+
+        let action = format!("{path}.m_action");
+        let member = format!("{action}.m_member");
+        let mut fields = vec![
+            DecodedField {
+                path: action.clone(),
+                kind: "struct",
+                value: "4 fields".to_owned(),
+                start_bit: self.start_bit,
+                end_bit: self.end_bit,
+                depth: depth + 1,
+            },
+            DecodedField {
+                path: member.clone(),
+                kind: "struct",
+                value: "4 fields".to_owned(),
+                start_bit: self.program.start_bit,
+                end_bit: self.id.end_bit,
+                depth: depth + 2,
+            },
+        ];
+        fields.extend([
+            traced_integer(
+                format!("{action}.m_code"),
+                "uint2",
+                &self.code.value,
+                &self.code,
+                depth + 2,
+            ),
+            crate::bsn::codec::DecodedField {
+                path: format!("{member}.m_programId"),
+                kind: "fourcc",
+                value: format!("0x{:08x}", self.program.value),
+                start_bit: self.program.start_bit,
+                end_bit: self.program.end_bit,
+                depth: depth + 3,
+            },
+            traced_integer(
+                format!("{member}.m_region"),
+                "uint8",
+                &self.region.value,
+                &self.region,
+                depth + 3,
+            ),
+            traced_integer(
+                format!("{member}.m_realm"),
+                "uint32",
+                &self.realm.value,
+                &self.realm,
+                depth + 3,
+            ),
+            traced_integer(
+                format!("{member}.m_id"),
+                "uint64",
+                &self.id.value,
+                &self.id,
+                depth + 3,
+            ),
+            traced_integer(
+                format!("{action}.m_clubId"),
+                "uint32",
+                &self.club_id.value,
+                &self.club_id,
+                depth + 2,
+            ),
+            DecodedField {
+                path: format!("{action}.reserved"),
+                kind: "reserved bits",
+                value: self.reserved.value.to_string(),
+                start_bit: self.reserved.start_bit,
+                end_bit: self.reserved.end_bit,
+                depth: depth + 2,
+            },
+            traced_integer(
+                format!("{action}.m_result"),
+                "uint16",
+                &self.result.value,
+                &self.result,
+                depth + 2,
+            ),
+        ]);
+        fields
+    }
+}
+
+fn traced_integer<T: ToString>(
+    path: String,
+    kind: &'static str,
+    value: &T,
+    span: &Spanned<T>,
+    depth: usize,
+) -> crate::bsn::codec::DecodedField {
+    crate::bsn::codec::DecodedField {
+        path,
+        kind,
+        value: value.to_string(),
+        start_bit: span.start_bit,
+        end_bit: span.end_bit,
+        depth,
+    }
+}
+
+fn read_spanned<T>(
+    reader: &mut BitReader<'_>,
+    width: usize,
+    convert: impl FnOnce(u64) -> T,
+) -> Result<Spanned<T>> {
+    let start_bit = reader.position();
+    let value = convert(reader.read(width)?);
+    Ok(Spanned {
+        value,
+        start_bit,
+        end_bit: reader.position(),
+    })
+}
+
+fn read_club_invite_action(reader: &mut BitReader<'_>) -> Result<ClubInviteActionValues> {
+    let start_bit = reader.position();
+    let code = read_spanned(reader, 2, i128::from)?;
+    let program = read_spanned(reader, 32, |value| {
+        u32::try_from(value).expect("32-bit field fits in u32")
+    })?;
+    let region = read_spanned(reader, 8, i128::from)?;
+    let realm = read_spanned(reader, 32, i128::from)?;
+    let id = read_spanned(reader, 64, i128::from)?;
+    let club_id = read_spanned(reader, 32, i128::from)?;
+    let reserved = read_spanned(reader, 11, |value| value)?;
+    let result = read_spanned(reader, 16, i128::from)?;
+    Ok(ClubInviteActionValues {
+        start_bit,
+        end_bit: reader.position(),
+        code,
+        program,
+        region,
+        realm,
+        id,
+        club_id,
+        reserved,
+        result,
+    })
+}
+
+fn build_club_invite_action(
+    codec: &Codec,
+    root_type: u32,
+    values: &ClubInviteActionValues,
+) -> Result<BsnValue> {
     let root_type = peel_alias(codec, root_type)?;
     let action_type = peel_alias(codec, member_type(codec, root_type, "m_action")?)?;
     let member_type = peel_alias(codec, member_type(codec, action_type, "m_member")?)?;
 
-    let code = i128::from(reader.read(2)?);
-    let program = u32::try_from(reader.read(32)?).expect("32-bit field fits in u32");
-    let region = i128::from(reader.read(8)?);
-    let realm = i128::from(reader.read(32)?);
-    let id = i128::from(reader.read(64)?);
-    let club_id = i128::from(reader.read(32)?);
-    reader.read(11)?;
-    let result = i128::from(reader.read(16)?);
-
     let member = BsnValue::Struct(BsnStruct::new(
         member_type,
         vec![
-            named_field(codec, member_type, "m_region", BsnValue::Integer(region))?,
-            named_field(codec, member_type, "m_programId", BsnValue::FourCc(program))?,
-            named_field(codec, member_type, "m_realm", BsnValue::Integer(realm))?,
-            named_field(codec, member_type, "m_id", BsnValue::Integer(id))?,
+            named_field(
+                codec,
+                member_type,
+                "m_region",
+                BsnValue::Integer(values.region.value),
+            )?,
+            named_field(
+                codec,
+                member_type,
+                "m_programId",
+                BsnValue::FourCc(values.program.value),
+            )?,
+            named_field(
+                codec,
+                member_type,
+                "m_realm",
+                BsnValue::Integer(values.realm.value),
+            )?,
+            named_field(
+                codec,
+                member_type,
+                "m_id",
+                BsnValue::Integer(values.id.value),
+            )?,
         ],
     ));
     let action = BsnValue::Struct(BsnStruct::new(
         action_type,
         vec![
-            named_field(codec, action_type, "m_clubId", BsnValue::Integer(club_id))?,
+            named_field(
+                codec,
+                action_type,
+                "m_clubId",
+                BsnValue::Integer(values.club_id.value),
+            )?,
             named_field(codec, action_type, "m_member", member)?,
-            named_field(codec, action_type, "m_code", BsnValue::Integer(code))?,
-            named_field(codec, action_type, "m_result", BsnValue::Integer(result))?,
+            named_field(
+                codec,
+                action_type,
+                "m_code",
+                BsnValue::Integer(values.code.value),
+            )?,
+            named_field(
+                codec,
+                action_type,
+                "m_result",
+                BsnValue::Integer(values.result.value),
+            )?,
         ],
     ));
     Ok(BsnValue::Struct(BsnStruct::new(

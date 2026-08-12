@@ -7,6 +7,7 @@ use std::{
 use crate::{
     Result,
     bsn::bits::{BitReader, RoutingHeader},
+    bsn::codec::DecodedField,
     bsn::value::BsnValue,
 };
 
@@ -54,25 +55,6 @@ impl Field {
             role,
             exact_range: true,
         }
-    }
-
-    fn container(
-        path: impl Into<String>,
-        kind: &'static str,
-        value: impl Into<String>,
-        start_bit: usize,
-        end_bit: usize,
-        depth: usize,
-    ) -> Self {
-        Self::leaf(
-            path,
-            kind,
-            value,
-            start_bit,
-            end_bit,
-            depth,
-            FieldRole::Payload,
-        )
     }
 
     fn decoded(
@@ -129,7 +111,6 @@ struct RawRecord {
     sequence: u64,
     captured_at_millis: u64,
     header: RoutingHeader,
-    type_id: u32,
     bytes: Vec<u8>,
     logical_bits: usize,
 }
@@ -157,14 +138,15 @@ pub fn live_capture_after(sequence: Option<u64>) -> Capture {
                 .filter_map(|raw| {
                     let mut reader = BitReader::new(&raw.bytes, None).ok()?;
                     reader.set_position(raw.header.bit_count).ok()?;
-                    let (_, payload) = protocol
-                        .decode_incoming_from(&mut reader, raw.header)
+                    let decoded = protocol
+                        .decode_incoming_with_provenance_from(&mut reader, raw.header)
                         .ok()?;
                     let mut record = inspect_incoming(
                         &protocol,
                         raw.header,
-                        raw.type_id,
-                        &payload,
+                        decoded.type_id,
+                        &decoded.payload,
+                        &decoded.provenance,
                         &raw.bytes,
                         raw.logical_bits,
                     )?;
@@ -203,7 +185,6 @@ pub fn clear_capture() {
 pub(crate) fn capture_incoming(
     protocol: &Protocol,
     header: RoutingHeader,
-    type_id: u32,
     bytes: &[u8],
     logical_bits: usize,
 ) {
@@ -223,7 +204,6 @@ pub(crate) fn capture_incoming(
         sequence,
         captured_at_millis: now_millis(),
         header,
-        type_id,
         bytes: bytes.to_vec(),
         logical_bits,
     });
@@ -254,299 +234,29 @@ pub fn sample_capture() -> Capture {
 #[allow(clippy::too_many_lines)]
 pub fn inspect_chat_join(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
     let mut reader = BitReader::new(bytes, None)?;
-    let mut fields = Vec::new();
-    let command_start = reader.position();
-    let command_id = read_u8(&mut reader, 6)?;
-    fields.push(Field::leaf(
-        "route.command_id",
-        "uint6",
-        command_id.to_string(),
-        command_start,
-        reader.position(),
-        1,
-        FieldRole::Route,
-    ));
-    let present_start = reader.position();
-    let service_present = reader.read(1)? != 0;
-    fields.push(Field::leaf(
-        "route.service_present",
-        "bool",
-        service_present.to_string(),
-        present_start,
-        reader.position(),
-        1,
-        FieldRole::Route,
-    ));
-    let slot_start = reader.position();
-    let service_slot = if service_present {
-        read_u8(&mut reader, 4)?
+    let command_id = u8::try_from(reader.read(6)?).expect("six bits fit in u8");
+    let service_slot = if reader.read(1)? == 0 {
+        None
     } else {
-        0
+        Some(u8::try_from(reader.read(4)?).expect("four bits fit in u8"))
     };
-    if service_present {
-        fields.push(Field::leaf(
-            "route.service_slot",
-            "uint4",
-            service_slot.to_string(),
-            slot_start,
-            reader.position(),
-            1,
-            FieldRole::Route,
-        ));
-    }
-    let route_end = reader.position();
-    fields.insert(
-        0,
-        Field::container(
-            "route",
-            "routing header",
-            format!("slot {service_slot}, command {command_id}"),
-            0,
-            route_end,
-            0,
-        ),
-    );
-
-    let payload_start = reader.position();
-    let success_start = reader.position();
-    let success = reader.read(1)? == 0;
-    fields.push(Field::leaf(
-        "payload.success",
-        "bool (inverted)",
-        success.to_string(),
-        success_start,
-        reader.position(),
-        1,
-        FieldRole::Control,
-    ));
-    if success {
-        push_integer(
-            &mut fields,
-            &mut reader,
-            "payload.member_handle",
-            "uint32",
-            32,
-            1,
-        )?;
-        push_integer(
-            &mut fields,
-            &mut reader,
-            "payload.channel_index",
-            "uint3",
-            3,
-            1,
-        )?;
-        push_integer(
-            &mut fields,
-            &mut reader,
-            "payload.conference_id",
-            "uint32",
-            32,
-            1,
-        )?;
-        push_integer(
-            &mut fields,
-            &mut reader,
-            "payload.owner_id",
-            "uint32",
-            32,
-            1,
-        )?;
-        push_integer(
-            &mut fields,
-            &mut reader,
-            "payload.channel_type",
-            "uint4",
-            4,
-            1,
-        )?;
-
-        let name_present_start = reader.position();
-        let name_present = reader.read(1)? != 0;
-        fields.push(Field::leaf(
-            "payload.channel_name.present",
-            "optional flag",
-            name_present.to_string(),
-            name_present_start,
-            reader.position(),
-            2,
-            FieldRole::Control,
-        ));
-        if name_present {
-            let name_start = name_present_start;
-            push_integer(
-                &mut fields,
-                &mut reader,
-                "payload.channel_name.region",
-                "uint16",
-                16,
-                2,
-            )?;
-            push_integer(
-                &mut fields,
-                &mut reader,
-                "payload.channel_name.namespace",
-                "uint29",
-                29,
-                2,
-            )?;
-            let variant_start = reader.position();
-            let variant = read_u8(&mut reader, 2)?;
-            fields.push(Field::leaf(
-                "payload.channel_name.kind",
-                "choice selector",
-                channel_name_kind(variant),
-                variant_start,
-                reader.position(),
-                2,
-                FieldRole::Control,
-            ));
-            match variant {
-                2 => {
-                    push_integer(
-                        &mut fields,
-                        &mut reader,
-                        "payload.channel_name.locale",
-                        "fourcc",
-                        32,
-                        2,
-                    )?;
-                    push_integer(
-                        &mut fields,
-                        &mut reader,
-                        "payload.channel_name.id",
-                        "uint16",
-                        16,
-                        2,
-                    )?;
-                }
-                1 | 3 => {
-                    push_integer(
-                        &mut fields,
-                        &mut reader,
-                        "payload.channel_name.index",
-                        "uint16",
-                        16,
-                        2,
-                    )?;
-                    push_integer(
-                        &mut fields,
-                        &mut reader,
-                        "payload.channel_name.owner",
-                        "uint32",
-                        32,
-                        2,
-                    )?;
-                }
-                0 => push_string(
-                    &mut fields,
-                    &mut reader,
-                    "payload.channel_name.literal",
-                    7,
-                    2,
-                )?,
-                _ => unreachable!(),
-            }
-            fields.push(Field::container(
-                "payload.channel_name",
-                "optional choice",
-                "present",
-                name_start,
-                reader.position(),
-                1,
-            ));
-        }
-
-        push_optional_bits(&mut fields, &mut reader, "payload.channel_config", 0, 1)?;
-        push_optional_bits(&mut fields, &mut reader, "payload.reserved", 32, 1)?;
-
-        let token_start = reader.position();
-        let token_present = reader.read(1)? != 0;
-        fields.push(Field::leaf(
-            "payload.token.present",
-            "optional flag",
-            token_present.to_string(),
-            token_start,
-            reader.position(),
-            2,
-            FieldRole::Control,
-        ));
-        if token_present {
-            push_integer(
-                &mut fields,
-                &mut reader,
-                "payload.token.value",
-                "uint32",
-                32,
-                2,
-            )?;
-        }
-        fields.push(Field::container(
-            "payload.token",
-            "optional<uint32>",
-            if token_present { "present" } else { "none" },
-            token_start,
-            reader.position(),
-            1,
-        ));
-    } else {
-        push_integer(&mut fields, &mut reader, "payload.reason", "uint16", 16, 1)?;
-        push_optional_bits(&mut fields, &mut reader, "payload.channel_type", 4, 1)?;
-        push_optional_bits(&mut fields, &mut reader, "payload.token", 32, 1)?;
-    }
-    let payload_end = reader.position();
-    fields.push(Field::container(
-        "payload",
-        "Chat.JoinNotify2",
-        if success { "success" } else { "failure" },
-        payload_start,
-        payload_end,
-        0,
-    ));
-
-    let padding_start = reader.position();
-    let padding = padding_start.wrapping_neg() & 7;
-    if padding > 0 {
-        let value = reader.read(padding)?;
-        fields.push(Field::leaf(
-            "padding",
-            "zero bits",
-            value.to_string(),
-            padding_start,
-            reader.position(),
-            0,
-            FieldRole::Padding,
-        ));
-    }
-    let logical_bits = padding_start;
-    let mut validation = BitReader::new(bytes, None)?;
-    validation.set_position(route_end)?;
-    protocol.decode_incoming_from(
-        &mut validation,
-        crate::bsn::bits::RoutingHeader {
-            command_id,
-            service_slot: service_present.then_some(service_slot),
-            bit_count: route_end,
-        },
-    )?;
-    fields.sort_by(|left, right| {
-        left.start_bit
-            .cmp(&right.start_bit)
-            .then_with(|| left.depth.cmp(&right.depth))
-            .then_with(|| right.end_bit.cmp(&left.end_bit))
-    });
-    Ok(Record {
-        sequence: 0,
-        captured_at_millis: now_millis(),
-        service: "Chat".to_owned(),
-        command: "JoinNotify2".to_owned(),
-        type_name: "Battlenet::Client::Chat::JoinNotify2".to_owned(),
-        service_slot,
+    let header = RoutingHeader {
         command_id,
-        bytes: bytes.to_vec(),
+        service_slot,
+        bit_count: reader.position(),
+    };
+    let decoded = protocol.decode_incoming_with_provenance_from(&mut reader, header)?;
+    let logical_bits = reader.position();
+    inspect_incoming(
+        protocol,
+        header,
+        decoded.type_id,
+        &decoded.payload,
+        &decoded.provenance,
+        bytes,
         logical_bits,
-        fields,
-    })
+    )
+    .ok_or_else(|| crate::Error::Native("chat join has no service slot".to_owned()))
 }
 
 fn inspect_incoming(
@@ -554,14 +264,10 @@ fn inspect_incoming(
     header: RoutingHeader,
     type_id: u32,
     payload: &Payload,
+    provenance: &[DecodedField],
     bytes: &[u8],
     logical_bits: usize,
 ) -> Option<Record> {
-    if header.service_slot == Some(CHAT_SLOT)
-        && header.command_id == super::protocol::CHAT_JOIN_NOTIFY_COMMAND
-    {
-        return inspect_chat_join(protocol, bytes).ok();
-    }
     let service_slot = header.service_slot?;
     let type_name = protocol
         .codec()
@@ -610,19 +316,12 @@ fn inspect_incoming(
             FieldRole::Route,
         ),
     ];
-    let traced_fields = append_traced_payload(
-        &mut fields,
-        protocol,
-        type_id,
-        bytes,
-        route_end,
-        logical_bits,
-    );
+    let traced_fields = append_provenance(&mut fields, provenance);
     if traced_fields == 0 {
-        append_decoded_payload(&mut fields, payload, bytes, route_end, logical_bits);
+        append_decoded_payload(&mut fields, payload, route_end, logical_bits);
     } else if traced_fields == 1 && payload.reflected().is_none() {
         fields.pop();
-        append_decoded_payload(&mut fields, payload, bytes, route_end, logical_bits);
+        append_decoded_payload(&mut fields, payload, route_end, logical_bits);
     }
     let total_bits = bytes.len() * 8;
     if logical_bits < total_bits {
@@ -650,28 +349,8 @@ fn inspect_incoming(
     })
 }
 
-fn append_traced_payload(
-    fields: &mut Vec<Field>,
-    protocol: &Protocol,
-    type_id: u32,
-    bytes: &[u8],
-    start_bit: usize,
-    end_bit: usize,
-) -> usize {
-    let Ok(mut reader) = BitReader::new(bytes, Some(end_bit)) else {
-        return 0;
-    };
-    if reader.set_position(start_bit).is_err() {
-        return 0;
-    }
-    let Ok(decoded) = protocol.codec().decode_traced_from(&mut reader, type_id) else {
-        return 0;
-    };
-    if reader.position() != end_bit {
-        return 0;
-    }
-    let field_count = decoded.fields.len();
-    fields.extend(decoded.fields.into_iter().map(|field| {
+fn append_provenance(fields: &mut Vec<Field>, provenance: &[DecodedField]) -> usize {
+    fields.extend(provenance.iter().map(|field| {
         let path = field
             .path
             .strip_prefix("value")
@@ -679,14 +358,14 @@ fn append_traced_payload(
         Field::leaf(
             path,
             field.kind,
-            field.value,
+            field.value.clone(),
             field.start_bit,
             field.end_bit,
             field.depth,
             FieldRole::Payload,
         )
     }));
-    field_count
+    provenance.len()
 }
 
 fn labels(type_name: &str) -> (String, String) {
@@ -707,17 +386,11 @@ fn payload_name(payload: &Payload) -> String {
 fn append_decoded_payload(
     fields: &mut Vec<Field>,
     payload: &Payload,
-    bytes: &[u8],
     start_bit: usize,
     end_bit: usize,
 ) {
     if let Some(value) = payload.reflected() {
         append_bsn_value(fields, "payload", value, start_bit, end_bit, 1);
-        return;
-    }
-    if let Payload::ClubSummaries(clubs) | Payload::ClubInfo(clubs) = payload
-        && append_club_summaries(fields, clubs, bytes, start_bit, end_bit)
-    {
         return;
     }
     let Ok(value) = serde_json::to_value(payload) else {
@@ -734,84 +407,6 @@ fn append_decoded_payload(
     };
     let (kind, value) = unwrap_payload_variant(&value);
     append_json_value(fields, "payload", kind, value, start_bit, end_bit, 0, true);
-}
-
-fn append_club_summaries(
-    fields: &mut Vec<Field>,
-    clubs: &[super::model::ClubSummary],
-    bytes: &[u8],
-    start_bit: usize,
-    end_bit: usize,
-) -> bool {
-    let traces = super::decode::club_summary_traces(bytes, end_bit);
-    if traces.len() != clubs.len() {
-        return false;
-    }
-    fields.push(Field::container(
-        "payload",
-        "array",
-        format!("{} items", clubs.len()),
-        start_bit,
-        end_bit,
-        0,
-    ));
-    for (index, (club, trace)) in clubs.iter().zip(traces).enumerate() {
-        let path = format!("payload[{index}]");
-        fields.push(Field::container(
-            path.clone(),
-            "object",
-            "5 fields",
-            trace.item.start,
-            trace.item.end,
-            1,
-        ));
-        fields.push(Field::leaf(
-            format!("{path}.club_id"),
-            "uint32",
-            club.club_id.to_string(),
-            trace.club_id.start,
-            trace.club_id.end,
-            2,
-            FieldRole::Payload,
-        ));
-        fields.push(Field::leaf(
-            format!("{path}.name"),
-            "string",
-            club.name.clone().unwrap_or_default(),
-            trace.name.start,
-            trace.name.end,
-            2,
-            FieldRole::Payload,
-        ));
-        fields.push(Field::leaf(
-            format!("{path}.kind"),
-            "uint8",
-            club.kind.to_string(),
-            trace.kind.start,
-            trace.kind.end,
-            2,
-            FieldRole::Payload,
-        ));
-        fields.push(Field::leaf(
-            format!("{path}.category"),
-            "uint8",
-            club.category.to_string(),
-            trace.category.start,
-            trace.category.end,
-            2,
-            FieldRole::Payload,
-        ));
-        fields.push(Field::leaf(
-            format!("{path}.private"),
-            "bool",
-            club.private.to_string(),
-            trace.private.start,
-            trace.private.end,
-            2,
-            FieldRole::Payload,
-        ));
-    }
-    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1016,139 +611,6 @@ fn now_millis() -> u64 {
         })
 }
 
-fn push_integer(
-    fields: &mut Vec<Field>,
-    reader: &mut BitReader<'_>,
-    path: impl Into<String>,
-    kind: &'static str,
-    width: usize,
-    depth: usize,
-) -> Result<()> {
-    let start = reader.position();
-    let value = reader.read(width)?;
-    fields.push(Field::leaf(
-        path,
-        kind,
-        if width > 8 {
-            format!("0x{value:0digits$x}", digits = width.div_ceil(4))
-        } else {
-            value.to_string()
-        },
-        start,
-        reader.position(),
-        depth,
-        FieldRole::Payload,
-    ));
-    Ok(())
-}
-
-fn push_optional_bits(
-    fields: &mut Vec<Field>,
-    reader: &mut BitReader<'_>,
-    path: &'static str,
-    value_bits: usize,
-    depth: usize,
-) -> Result<()> {
-    let start = reader.position();
-    let present = reader.read(1)? != 0;
-    fields.push(Field::leaf(
-        format!("{path}.present"),
-        "optional flag",
-        present.to_string(),
-        start,
-        reader.position(),
-        depth + 1,
-        FieldRole::Control,
-    ));
-    if present && value_bits > 0 {
-        push_integer(
-            fields,
-            reader,
-            format!("{path}.value"),
-            "bits",
-            value_bits,
-            depth + 1,
-        )?;
-    }
-    fields.push(Field::container(
-        path,
-        "optional",
-        if present { "present" } else { "none" },
-        start,
-        reader.position(),
-        depth,
-    ));
-    Ok(())
-}
-
-fn push_string(
-    fields: &mut Vec<Field>,
-    reader: &mut BitReader<'_>,
-    path: &'static str,
-    length_bits: usize,
-    depth: usize,
-) -> Result<()> {
-    let start = reader.position();
-    let length_start = start;
-    let byte_count = usize::try_from(reader.read(length_bits)?).expect("length fits usize");
-    fields.push(Field::leaf(
-        format!("{path}.length"),
-        "bounded length",
-        byte_count.to_string(),
-        length_start,
-        reader.position(),
-        depth + 1,
-        FieldRole::Control,
-    ));
-    let align_start = reader.position();
-    let skipped = reader.align()?;
-    if skipped > 0 {
-        fields.push(Field::leaf(
-            format!("{path}.alignment"),
-            "zero bits",
-            skipped.to_string(),
-            align_start,
-            reader.position(),
-            depth + 1,
-            FieldRole::Padding,
-        ));
-    }
-    let bytes_start = reader.position();
-    let bytes = reader.read_bytes(byte_count, false)?;
-    fields.push(Field::leaf(
-        format!("{path}.utf8"),
-        "utf8 bytes",
-        String::from_utf8_lossy(&bytes),
-        bytes_start,
-        reader.position(),
-        depth + 1,
-        FieldRole::Payload,
-    ));
-    fields.push(Field::container(
-        path,
-        "string",
-        String::from_utf8_lossy(&bytes),
-        start,
-        reader.position(),
-        depth,
-    ));
-    Ok(())
-}
-
-fn read_u8(reader: &mut BitReader<'_>, width: usize) -> Result<u8> {
-    Ok(u8::try_from(reader.read(width)?).expect("at most eight bits"))
-}
-
-const fn channel_name_kind(value: u8) -> &'static str {
-    match value {
-        0 => "literal name",
-        1 => "private channel",
-        2 => "localized public channel",
-        3 => "group channel",
-        _ => "invalid",
-    }
-}
-
 fn sample_chat_join_bytes(name: &str, member: u32, channel: u8, token: u32) -> Vec<u8> {
     use crate::bsn::bits::BitWriter;
 
@@ -1220,10 +682,28 @@ mod tests {
                 && field.start_bit == record.logical_bits
                 && field.end_bit == bytes.len() * 8
         }));
+
+        let mut reader = BitReader::new(&bytes, None).unwrap();
+        let command_id = u8::try_from(reader.read(6).unwrap()).unwrap();
+        assert_eq!(reader.read(1).unwrap(), 1);
+        let service_slot = u8::try_from(reader.read(4).unwrap()).unwrap();
+        let header = RoutingHeader {
+            command_id,
+            service_slot: Some(service_slot),
+            bit_count: reader.position(),
+        };
+        let decoded = protocol
+            .decode_incoming_with_provenance_from(&mut reader, header)
+            .unwrap();
+        assert!(decoded.provenance.iter().any(|field| {
+            field.path == "value.channel_name.literal"
+                && field.value == "General"
+                && field.start_bit < field.end_bit
+        }));
     }
 
     #[test]
-    fn reflected_payload_fields_keep_their_wire_ranges() {
+    fn custom_whisper_fields_keep_their_wire_ranges() {
         let protocol = Protocol::current().unwrap();
         let bytes =
             hex::decode("5305414a682e0000000019034e656c736f6e54657374393123313435380100686f6c61")
@@ -1237,22 +717,188 @@ mod tests {
             service_slot: Some(service_slot),
             bit_count: reader.position(),
         };
-        let (type_id, payload) = protocol.decode_incoming_from(&mut reader, header).unwrap();
+        let decoded = protocol
+            .decode_incoming_with_provenance_from(&mut reader, header)
+            .unwrap();
         let logical_bits = reader.position();
 
-        let record =
-            inspect_incoming(&protocol, header, type_id, &payload, &bytes, logical_bits).unwrap();
+        let record = inspect_incoming(
+            &protocol,
+            header,
+            decoded.type_id,
+            &decoded.payload,
+            &decoded.provenance,
+            &bytes,
+            logical_bits,
+        )
+        .unwrap();
 
         let body = record
             .fields
             .iter()
-            .find(|field| field.path == "payload.m_body")
+            .find(|field| field.path == "payload.body")
             .expect("the decoded body must have a traced node");
         assert!(body.exact_range);
         assert_eq!(body.value, "hola");
         assert!(body.start_bit > header.bit_count);
         assert_eq!(body.end_bit, logical_bits);
         assert!(body.end_bit - body.start_bit < logical_bits - header.bit_count);
+    }
+
+    #[test]
+    fn friend_toon_fields_keep_their_generated_wire_ranges() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "460301010014cc0200000011004563686f657323323935cafebabe7f1884100000000002fe223701",
+        )
+        .unwrap();
+        let mut reader = BitReader::new(&bytes, None).unwrap();
+        let command_id = u8::try_from(reader.read(6).unwrap()).unwrap();
+        assert_eq!(reader.read(1).unwrap(), 1);
+        let service_slot = u8::try_from(reader.read(4).unwrap()).unwrap();
+        let header = RoutingHeader {
+            command_id,
+            service_slot: Some(service_slot),
+            bit_count: reader.position(),
+        };
+        let decoded = protocol
+            .decode_incoming_with_provenance_from(&mut reader, header)
+            .unwrap();
+        let record = inspect_incoming(
+            &protocol,
+            header,
+            decoded.type_id,
+            &decoded.payload,
+            &decoded.provenance,
+            &bytes,
+            reader.position(),
+        )
+        .unwrap();
+
+        for path in [
+            "payload.entries[0].account_id",
+            "payload.entries[0].program_id",
+            "payload.entries[0].profile.label",
+            "payload.entries[0].profile.id",
+            "payload.entries[0].toon_name.region",
+            "payload.entries[0].toon_name.program_id",
+            "payload.entries[0].toon_name.realm",
+            "payload.entries[0].toon_name.name",
+            "payload.complete",
+        ] {
+            let field = record
+                .fields
+                .iter()
+                .find(|field| field.path == path)
+                .unwrap_or_else(|| panic!("missing {path}"));
+            assert!(field.exact_range, "{path} must retain its wire range");
+            assert!(field.end_bit > field.start_bit);
+        }
+        assert!(
+            record
+                .fields
+                .iter()
+                .filter(|field| field.role == FieldRole::Payload)
+                .all(|field| field.exact_range)
+        );
+    }
+
+    #[test]
+    fn toon_list_wire_fields_reach_the_inspector_with_exact_ranges() {
+        let protocol = Protocol::current().unwrap();
+        let root_type = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Client::Toon::ToonList")
+            .unwrap();
+        let display_type = protocol
+            .array_element(protocol.member_type(root_type, "m_toonDisplays").unwrap())
+            .unwrap();
+        let profile_type = protocol.member_type(display_type, "m_profile").unwrap();
+        let realm_type = protocol.member_type(display_type, "m_realm").unwrap();
+        let profile_type = protocol.peel_alias(profile_type).unwrap();
+        let profile_shape = protocol.codec().schema().shape(profile_type).unwrap();
+        let profile = BsnValue::Struct(crate::bsn::value::BsnStruct::new(
+            profile_type,
+            vec![
+                crate::bsn::value::BsnField::named(
+                    profile_shape.index_values[0],
+                    "m_label",
+                    BsnValue::Integer(9),
+                ),
+                crate::bsn::value::BsnField::named(
+                    profile_shape.index_values[1],
+                    "m_id",
+                    BsnValue::Integer(10),
+                ),
+            ],
+        ));
+        let mut writer = crate::bsn::bits::BitWriter::new();
+        writer
+            .write(super::super::protocol::TOON_LIST_COMMAND.into(), 6)
+            .unwrap();
+        writer.write(1, 1).unwrap();
+        writer
+            .write(super::super::protocol::TOON_SLOT.into(), 4)
+            .unwrap();
+        writer.write(1, 6).unwrap();
+        writer.write(3, 7).unwrap();
+        writer.align().unwrap();
+        writer.write_bytes(b"Nova!", false).unwrap();
+        writer.write(0x8000_0000, 32).unwrap();
+        writer.write(5, 3).unwrap();
+        writer.write(7, 32).unwrap();
+        protocol
+            .codec()
+            .encode_reflected_into(&mut writer, profile_type, &profile)
+            .unwrap();
+        protocol
+            .codec()
+            .encode_reflected_into(&mut writer, realm_type, &BsnValue::Integer(1))
+            .unwrap();
+        let logical_bits = writer.position();
+        let bytes = writer.into_bytes();
+        let mut reader = BitReader::new(&bytes, Some(logical_bits)).unwrap();
+        let command_id = u8::try_from(reader.read(6).unwrap()).unwrap();
+        assert_eq!(reader.read(1).unwrap(), 1);
+        let service_slot = u8::try_from(reader.read(4).unwrap()).unwrap();
+        let header = RoutingHeader {
+            command_id,
+            service_slot: Some(service_slot),
+            bit_count: reader.position(),
+        };
+        let decoded = protocol
+            .decode_incoming_with_provenance_from(&mut reader, header)
+            .unwrap();
+        let record = inspect_incoming(
+            &protocol,
+            header,
+            decoded.type_id,
+            &decoded.payload,
+            &decoded.provenance,
+            &bytes,
+            logical_bits,
+        )
+        .unwrap();
+
+        for path in [
+            "payload.displays.count",
+            "payload.displays[0].name",
+            "payload.displays[0].last_online",
+            "payload.displays[0].wire_layout_selector",
+            "payload.displays[0].flags",
+            "payload.displays[0].profile.m_label",
+            "payload.displays[0].profile.m_id",
+            "payload.displays[0].realm",
+        ] {
+            let field = record
+                .fields
+                .iter()
+                .find(|field| field.path == path)
+                .unwrap_or_else(|| panic!("missing {path}"));
+            assert!(field.exact_range, "{path}");
+            assert!(field.end_bit > field.start_bit, "{path}");
+        }
     }
 
     #[test]
@@ -1266,7 +912,7 @@ mod tests {
         }]);
         let mut fields = Vec::new();
 
-        append_decoded_payload(&mut fields, &payload, &[], 11, 2304);
+        append_decoded_payload(&mut fields, &payload, 11, 2304);
 
         assert_eq!(fields[0].path, "payload");
         assert_eq!(fields[0].kind, "array");
@@ -1276,6 +922,7 @@ mod tests {
         assert!(fields.iter().any(|field| {
             field.path == "payload[0].name" && field.value == "cecw" && field.depth == 2
         }));
+        assert!(fields.iter().all(|field| field.end_bit > field.start_bit));
         assert!(!fields.iter().any(|field| field.path.contains("item_")));
     }
 
@@ -1303,10 +950,20 @@ mod tests {
             service_slot: Some(service_slot),
             bit_count: reader.position(),
         };
-        let (type_id, payload) = protocol.decode_incoming_from(&mut reader, header).unwrap();
+        let decoded = protocol
+            .decode_incoming_with_provenance_from(&mut reader, header)
+            .unwrap();
         let logical_bits = reader.position();
-        let record =
-            inspect_incoming(&protocol, header, type_id, &payload, &bytes, logical_bits).unwrap();
+        let record = inspect_incoming(
+            &protocol,
+            header,
+            decoded.type_id,
+            &decoded.payload,
+            &decoded.provenance,
+            &bytes,
+            logical_bits,
+        )
+        .unwrap();
 
         for path in [
             "payload[0].club_id",

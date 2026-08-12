@@ -100,7 +100,6 @@ impl<S> RecordStream<S> {
         super::inspect::capture_incoming(
             &self.protocol,
             header,
-            type_id,
             &self.buffer[..byte_count],
             logical_bits,
         );

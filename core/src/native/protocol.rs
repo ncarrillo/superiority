@@ -5,12 +5,19 @@ use crate::{
     bgs::{NativeHandoff, fourcc},
     bsn::{
         bits::{BitReader, BitWriter, RoutingHeader},
-        codec::Codec,
+        codec::{Codec, DecodedField},
         value::{BsnField, BsnStruct, BsnValue},
     },
     metadata::{Metadata, Schema, TypeKind, read_largest_metadata, read_metadata},
     native::{decode, model::Payload, schema, wire_layout},
 };
+
+#[derive(Clone, Debug)]
+pub(crate) struct DecodedIncoming {
+    pub type_id: u32,
+    pub payload: Payload,
+    pub provenance: Vec<DecodedField>,
+}
 
 pub const AUTHENTICATION_SLOT: u8 = 0;
 pub const CONNECTION_SLOT: u8 = 1;
@@ -563,6 +570,168 @@ impl Protocol {
             )
         })?;
         Ok((type_id, payload))
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per inbound native route, a flat dispatch table"
+    )]
+    pub(crate) fn decode_incoming_with_provenance_from(
+        &self,
+        reader: &mut BitReader<'_>,
+        header: RoutingHeader,
+    ) -> Result<DecodedIncoming> {
+        let slot = header
+            .service_slot
+            .ok_or_else(|| native_error("native server record has no service slot"))?;
+        let route = (slot, header.command_id);
+        let type_id = self.incoming_type(slot, header.command_id)?;
+        let payload_start = reader.position();
+        let decoded = match route {
+            (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND) => {
+                Some(decode::cache_stream_items_with_provenance(reader)?)
+            }
+            (CHAT_SLOT, CHAT_INVITE_NOTIFY_COMMAND) => {
+                Some(decode::chat_invite_with_provenance(self, type_id, reader)?)
+            }
+            (CHAT_SLOT, CHAT_CONFERENCES_RESPONSE_COMMAND) => {
+                Some(decode::conference_descriptions_with_provenance(reader)?)
+            }
+            (CHAT_SLOT, CHAT_CHANNEL_LIST_RESPONSE_COMMAND) => {
+                Some(decode::channel_list_with_provenance(reader)?)
+            }
+            (CHAT_SLOT, CHAT_JOIN_NOTIFY_COMMAND) => {
+                Some(decode::chat_join_with_provenance(reader)?)
+            }
+            (PRESENCE_SLOT, PRESENCE_FIELDS_COMMAND) => {
+                Some(decode::presence_fields_with_provenance(reader)?)
+            }
+            (PRESENCE_SLOT, PRESENCE_UPDATE_COMMAND) => {
+                Some(decode::presence_update_with_provenance(reader)?)
+            }
+            (S2_MASTER_SLOT, S2_MASTER_CURRENT_SEASON_COMMAND) => {
+                Some(decode::current_season_with_provenance(reader)?)
+            }
+            (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND) => {
+                Some(decode::club_settings_with_provenance(reader)?)
+            }
+            (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND) => {
+                Some(decode::club_search_with_provenance(self, type_id, reader)?)
+            }
+            (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_INVITE_ACTION_COMMAND) => Some(
+                decode::club_invite_action_with_provenance(self, type_id, reader)?,
+            ),
+            (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND) => Some(
+                decode::club_summaries_with_provenance(self, type_id, reader)?,
+            ),
+            (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND) => {
+                Some(decode::club_info_with_provenance(self, type_id, reader)?)
+            }
+            (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_MEMBER_CLAN_TAGS_RESPONSE_COMMAND) => Some(
+                decode::member_clan_tag_with_provenance(self, type_id, reader)?,
+            ),
+            (CONNECTION_SLOT, CONNECTION_GAME_SITE_INFO_COMMAND) => Some(
+                decode::game_site_info_with_provenance(self, type_id, reader)?,
+            ),
+            (CONNECTION_SLOT, CONNECTION_MESSAGE_FRAME_COMMAND) => Some(
+                decode::message_frame_with_provenance(self, type_id, reader)?,
+            ),
+            (FRIENDS_SLOT, FRIENDS_TOONS_COMMAND) => {
+                Some(decode::friend_toons_with_provenance(self, type_id, reader)?)
+            }
+            (FRIENDS_SLOT, FRIENDS_LIST_COMMAND) => {
+                Some(decode::friends_list_with_provenance(self, reader)?)
+            }
+            (FRIENDS_SLOT, FRIENDS_ACCOUNT_BLOCK_COMMAND) => {
+                Some(decode::account_blocks_with_provenance(self, reader)?)
+            }
+            (FRIENDS_SLOT, FRIENDS_TOON_BLOCK_COMMAND) => {
+                Some(decode::toon_blocks_with_provenance(reader)?)
+            }
+            (PROFILE_SLOT, PROFILE_SETTINGS_AVAILABLE_COMMAND) => Some(
+                decode::profile_settings_with_provenance(self, type_id, reader)?,
+            ),
+            (PROFILE_SLOT, PROFILE_READ_COMMAND) => Some(decode::profile_read_with_provenance(
+                self,
+                self.profile_data_response_type,
+                self.token_type,
+                reader,
+            )?),
+            (PROFILE_SLOT, PROFILE_ADDRESS_QUERY_COMMAND) => Some(
+                decode::profile_address_query_with_provenance(self, type_id, reader)?,
+            ),
+            (PROFILE_SLOT, PROFILE_RESOLVE_TOON_NAME_RESPONSE_COMMAND) => Some(
+                decode::toon_name_resolved_with_provenance(self, type_id, reader)?,
+            ),
+            (TOON_SLOT, TOON_LIST_COMMAND) => {
+                Some(decode::toon_list_with_provenance(self, type_id, reader)?)
+            }
+            (TOON_SLOT, TOON_SELECTED_COMMAND) => Some(decode::toon_selected_with_provenance(
+                self, type_id, reader,
+            )?),
+            (TOON_SLOT, TOON_WELCOME_COMMAND) => {
+                Some(decode::toon_welcome_with_provenance(self, type_id, reader)?)
+            }
+            (CHAT_SLOT, CHAT_MESSAGE_COMMAND) => {
+                Some(decode::chat_message_with_provenance(self, type_id, reader)?)
+            }
+            (CHAT_SLOT, CHAT_MEMBERSHIP_COMMAND) => Some(decode::chat_membership_with_provenance(
+                self, type_id, reader,
+            )?),
+            (CHAT_SLOT, CHAT_WHISPER_RECV_COMMAND) => Some(decode::chat_whisper_with_provenance(
+                self, type_id, reader, false,
+            )?),
+            (CHAT_SLOT, CHAT_WHISPER_ECHO_COMMAND) => Some(decode::chat_whisper_with_provenance(
+                self, type_id, reader, true,
+            )?),
+            _ => None,
+        };
+        debug_assert_eq!(
+            decoded.is_some(),
+            has_custom_incoming_decoder(route),
+            "custom incoming route {slot}:{} must provide provenance",
+            header.command_id
+        );
+        let (payload, custom_provenance) = if let Some(decoded) = decoded {
+            (decoded.payload, decoded.provenance)
+        } else {
+            let (_, payload) = self.decode_incoming_from(reader, header)?;
+            (payload, Vec::new())
+        };
+        let payload_end = reader.position();
+        let provenance = if custom_provenance.is_empty() {
+            self.trace_payload(reader.data(), type_id, payload_start, payload_end)
+        } else {
+            custom_provenance
+        };
+        Ok(DecodedIncoming {
+            type_id,
+            payload,
+            provenance,
+        })
+    }
+
+    fn trace_payload(
+        &self,
+        bytes: &[u8],
+        type_id: u32,
+        start_bit: usize,
+        end_bit: usize,
+    ) -> Vec<DecodedField> {
+        let Ok(mut reader) = BitReader::new(bytes, Some(end_bit)) else {
+            return Vec::new();
+        };
+        if reader.set_position(start_bit).is_err() {
+            return Vec::new();
+        }
+        let Ok(decoded) = self.codec.decode_traced_from(&mut reader, type_id) else {
+            return Vec::new();
+        };
+        if reader.position() == end_bit {
+            decoded.fields
+        } else {
+            Vec::new()
+        }
     }
 
     pub(crate) fn incoming_type(&self, slot: u8, command: u8) -> Result<u32> {
@@ -2022,6 +2191,44 @@ mod tests {
             )
             .unwrap();
         assert_eq!(reader.position(), packet.len() * 8);
+    }
+
+    #[test]
+    fn custom_invitation_layout_reports_exact_nested_provenance() {
+        let packet = hex::decode("f6050002991201000000010000000006acf90600415667560000").unwrap();
+        let protocol = protocol();
+        let mut reader = BitReader::new(&packet, None).unwrap();
+        let command_id = u8::try_from(reader.read(6).unwrap()).unwrap();
+        assert_eq!(reader.read(1).unwrap(), 1);
+        let service_slot = Some(u8::try_from(reader.read(4).unwrap()).unwrap());
+        let decoded = protocol
+            .decode_incoming_with_provenance_from(
+                &mut reader,
+                RoutingHeader {
+                    command_id,
+                    service_slot,
+                    bit_count: 11,
+                },
+            )
+            .unwrap();
+
+        for (path, range) in [
+            ("value.m_action.m_code", 11..13),
+            ("value.m_action.m_member.m_programId", 13..45),
+            ("value.m_action.m_member.m_region", 45..53),
+            ("value.m_action.m_member.m_realm", 53..85),
+            ("value.m_action.m_member.m_id", 85..149),
+            ("value.m_action.m_clubId", 149..181),
+            ("value.m_action.reserved", 181..192),
+            ("value.m_action.m_result", 192..208),
+        ] {
+            let field = decoded
+                .provenance
+                .iter()
+                .find(|field| field.path == path)
+                .unwrap_or_else(|| panic!("missing provenance for {path}"));
+            assert_eq!(field.start_bit..field.end_bit, range, "{path}");
+        }
     }
 
     #[test]

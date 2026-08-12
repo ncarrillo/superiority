@@ -1,7 +1,6 @@
 use crate::{
     Error, Result,
-    bsn::bits::BitReader,
-    bsn::value::BsnValue,
+    bsn::{bits::BitReader, codec::DecodedField, value::BsnValue},
     metadata::{TypeKind, TypeShape},
     native::model::{
         AccountBlockEntry, AccountBlockPage, CacheStreamItem, CacheStreamItems, ChannelDescriptor,
@@ -16,30 +15,110 @@ use crate::{
     native::protocol::Protocol,
 };
 
+pub(crate) struct DecodedPayload {
+    pub payload: Payload,
+    pub provenance: Vec<DecodedField>,
+}
+
+impl DecodedPayload {
+    fn new(payload: Payload, provenance: Vec<DecodedField>) -> Self {
+        Self {
+            payload,
+            provenance,
+        }
+    }
+}
+
+fn reflected_payload(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+    project: impl FnOnce(BsnValue) -> Result<Payload>,
+) -> Result<DecodedPayload> {
+    let decoded = protocol
+        .codec()
+        .decode_reflected_traced_from(reader, type_id, "value", 0)?;
+    Ok(DecodedPayload::new(project(decoded.value)?, decoded.fields))
+}
+
+fn traced_reflected_field(
+    protocol: &Protocol,
+    struct_type: u32,
+    field_name: &str,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<BsnValue> {
+    let field_type = protocol.member_type(struct_type, field_name)?;
+    let decoded = protocol
+        .codec()
+        .decode_reflected_traced_from(reader, field_type, path, depth)?;
+    provenance.extend(decoded.fields);
+    Ok(decoded.value)
+}
+
+fn custom_payload(
+    payload: Payload,
+    mut provenance: Vec<DecodedField>,
+    kind: &'static str,
+    summary: impl Into<String>,
+    start_bit: usize,
+    end_bit: usize,
+) -> DecodedPayload {
+    provenance.push(decoded_field("value", kind, summary, start_bit, end_bit, 0));
+    sort_provenance(&mut provenance);
+    DecodedPayload::new(payload, provenance)
+}
+
 pub(crate) fn message_frame(
     protocol: &Protocol,
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
-    let payload_type = protocol.member_type(type_id, "m_payload")?;
-    let frame_type_type = protocol.member_type(type_id, "m_frameType")?;
-    let headers_type = protocol.member_type(type_id, "m_headers")?;
+    Ok(message_frame_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+pub(crate) fn message_frame_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
     let payload = expect_bytes(
-        protocol
-            .codec()
-            .decode_reflected_from(reader, payload_type)?,
+        traced_reflected_field(
+            protocol,
+            type_id,
+            "m_payload",
+            reader,
+            "value.m_payload",
+            1,
+            &mut provenance,
+        )?,
         "message frame payload",
     )?;
     let frame_type = expect_integer(
-        protocol
-            .codec()
-            .decode_reflected_from(reader, frame_type_type)?,
+        traced_reflected_field(
+            protocol,
+            type_id,
+            "m_frameType",
+            reader,
+            "value.m_frameType",
+            1,
+            &mut provenance,
+        )?,
         "message frame type",
     )?;
-    let headers = match protocol
-        .codec()
-        .decode_reflected_from(reader, headers_type)?
-    {
+    let headers = match traced_reflected_field(
+        protocol,
+        type_id,
+        "m_headers",
+        reader,
+        "value.m_headers",
+        1,
+        &mut provenance,
+    )? {
         BsnValue::Array(values) => values
             .into_iter()
             .map(|value| match value {
@@ -49,11 +128,18 @@ pub(crate) fn message_frame(
             .collect::<Result<Vec<_>>>()?,
         _ => return Err(native_error("message frame headers are not an array")),
     };
-    Ok(Payload::MessageFrame(ConnectionMessageFrame {
-        frame_type,
-        headers,
-        payload,
-    }))
+    Ok(custom_payload(
+        Payload::MessageFrame(ConnectionMessageFrame {
+            frame_type,
+            headers,
+            payload,
+        }),
+        provenance,
+        "MessageFrame",
+        "3 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn game_site_info(
@@ -76,6 +162,49 @@ pub(crate) fn game_site_info(
     }))
 }
 
+pub(crate) fn game_site_info_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
+    traced_reflected_field(
+        protocol,
+        type_id,
+        "m_externalIp4Addr",
+        reader,
+        "value.m_externalIp4Addr",
+        1,
+        &mut provenance,
+    )?;
+    let site_data = traced_reflected_field(
+        protocol,
+        type_id,
+        "m_siteData",
+        reader,
+        "value.m_siteData",
+        1,
+        &mut provenance,
+    )?;
+    let item_count = match site_data {
+        BsnValue::Array(values) => values.len(),
+        _ => 0,
+    };
+    Ok(custom_payload(
+        Payload::StartupSummary(StartupSummary {
+            kind: "game-site-info",
+            item_count,
+            complete: None,
+        }),
+        provenance,
+        "GameSiteInfo",
+        "2 fields",
+        start_bit,
+        reader.position(),
+    ))
+}
+
 pub(crate) fn profile_settings(
     protocol: &Protocol,
     type_id: u32,
@@ -92,21 +221,65 @@ pub(crate) fn profile_settings(
     }))
 }
 
+pub(crate) fn profile_settings_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
+    for name in ["m_type", "m_path", "m_address"] {
+        traced_reflected_field(
+            protocol,
+            type_id,
+            name,
+            reader,
+            &format!("value.{name}"),
+            1,
+            &mut provenance,
+        )?;
+    }
+    Ok(custom_payload(
+        Payload::StartupSummary(StartupSummary {
+            kind: "profile-settings",
+            item_count: 1,
+            complete: None,
+        }),
+        provenance,
+        "ProfileSettings",
+        "3 fields",
+        start_bit,
+        reader.position(),
+    ))
+}
+
 pub(crate) fn profile_read(
     protocol: &Protocol,
     result_type: u32,
     token_type: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
-    let result = protocol
-        .codec()
-        .decode_reflected_from(reader, result_type)?;
-    let request_id = u32::try_from(expect_integer(
-        protocol.codec().decode_reflected_from(reader, token_type)?,
-        "profile read request id",
-    )?)
-    .map_err(|_| native_error("profile read request id is outside u32"))?;
-    let BsnValue::Choice { index, value } = result else {
+    Ok(profile_read_with_provenance(protocol, result_type, token_type, reader)?.payload)
+}
+
+pub(crate) fn profile_read_with_provenance(
+    protocol: &Protocol,
+    result_type: u32,
+    token_type: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let decoded_result =
+        protocol
+            .codec()
+            .decode_reflected_traced_from(reader, result_type, "value.result", 1)?;
+    let request =
+        protocol
+            .codec()
+            .decode_reflected_traced_from(reader, token_type, "value.request_id", 1)?;
+    let request_id = u32::try_from(expect_integer(request.value, "profile read request id")?)
+        .map_err(|_| native_error("profile read request id is outside u32"))?;
+    let BsnValue::Choice { index, value } = decoded_result.value else {
         return Err(native_error("profile read result is not a choice"));
     };
     let result = match index {
@@ -142,10 +315,16 @@ pub(crate) fn profile_read(
         3 => ProfileReadResult::Cache,
         _ => return Err(native_error("profile read result has an unknown choice")),
     };
-    Ok(Payload::ProfileRead(ProfileReadResponse {
-        request_id,
-        result,
-    }))
+    let mut provenance = decoded_result.fields;
+    provenance.extend(request.fields);
+    Ok(custom_payload(
+        Payload::ProfileRead(ProfileReadResponse { request_id, result }),
+        provenance,
+        "ProfileRead",
+        "2 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn toon_name_resolved(
@@ -177,6 +356,38 @@ pub(crate) fn toon_name_resolved(
         result,
         handle,
     }))
+}
+
+pub(crate) fn toon_name_resolved_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    reflected_payload(protocol, type_id, reader, |value| {
+        let root = value
+            .as_struct()
+            .ok_or_else(|| native_error("toon-name response is not a struct"))?;
+        let name = toon_full_name_from_value(
+            root.get("m_name")
+                .ok_or_else(|| native_error("toon-name response omits its name"))?,
+        )?;
+        let result = u16::try_from(expect_integer(
+            root.get("m_result")
+                .ok_or_else(|| native_error("toon-name response omits its result"))?
+                .clone(),
+            "toon-name result",
+        )?)
+        .map_err(|_| native_error("toon-name result is outside u16"))?;
+        let handle = toon_handle_from_value(
+            root.get("m_handle")
+                .ok_or_else(|| native_error("toon-name response omits its handle field"))?,
+        )?;
+        Ok(Payload::ToonNameResolved(ToonNameResolved {
+            name,
+            result,
+            handle,
+        }))
+    })
 }
 
 pub(crate) fn member_clan_tag(
@@ -225,36 +436,154 @@ pub(crate) fn member_clan_tag(
     }))
 }
 
+pub(crate) fn member_clan_tag_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    reflected_payload(protocol, type_id, reader, |value| {
+        let root = value
+            .as_struct()
+            .ok_or_else(|| native_error("member-clan-tag response is not a struct"))?;
+        let request = root
+            .get("GetMemberClanTags")
+            .and_then(BsnValue::as_struct)
+            .ok_or_else(|| native_error("member-clan-tag response omits its request token"))?;
+        let token = expect_u32(
+            request
+                .get("m_token")
+                .ok_or_else(|| native_error("member-clan-tag response omits its token"))?
+                .clone(),
+            "member-clan-tag token",
+        )?;
+        let result = u16::try_from(expect_integer(
+            root.get("m_result")
+                .ok_or_else(|| native_error("member-clan-tag response omits its result"))?
+                .clone(),
+            "member-clan-tag result",
+        )?)
+        .map_err(|_| native_error("member-clan-tag result is outside u16"))?;
+        let club_id = root
+            .get("m_clubId")
+            .and_then(unwrap_optional)
+            .map(|value| expect_u32(value.clone(), "member clan id"))
+            .transpose()?;
+        let tag = root
+            .get("m_clubTag")
+            .and_then(unwrap_optional)
+            .and_then(bsn_string)
+            .map(str::to_owned)
+            .filter(|tag| !tag.is_empty());
+        Ok(Payload::MemberClanTag(MemberClanTag {
+            token,
+            result,
+            club_id,
+            tag,
+        }))
+    })
+}
+
 pub(crate) fn toon_list(
     protocol: &Protocol,
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
+    Ok(toon_list_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+pub(crate) fn toon_list_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
     let displays_field = protocol.member_type(type_id, "m_toonDisplays")?;
     let display_type = protocol.array_element(displays_field)?;
     let profile_type = protocol.member_type(display_type, "m_profile")?;
     let realm_type = protocol.member_type(display_type, "m_realm")?;
-    let count = read_usize(reader, 6)?;
-    if count > 50 {
+    let payload_start = reader.position();
+    let count = read_spanned_usize(reader, 6)?;
+    if count.value > 50 {
         return Err(native_error("native ToonList contains too many displays"));
     }
-    let mut displays = Vec::with_capacity(count);
-    for _ in 0..count {
-        let name = decode_generated_utf8(reader, 7, 2, 100, 25)?;
-        decode_i32(reader)?;
-        reader.read(3)?;
-        reader.read(32)?;
-        protocol
-            .codec()
-            .decode_reflected_from(reader, profile_type)?;
-        let realm = u32::try_from(expect_integer(
-            protocol.codec().decode_reflected_from(reader, realm_type)?,
-            "toon realm",
-        )?)
-        .map_err(|_| native_error("toon realm is outside u32"))?;
-        displays.push(ToonDisplay { name, realm });
+    let mut displays = Vec::with_capacity(count.value);
+    let mut provenance = vec![decoded_field(
+        "value.displays.count",
+        "array length",
+        count.value.to_string(),
+        count.start_bit,
+        count.end_bit,
+        2,
+    )];
+    for index in 0..count.value {
+        let path = format!("value.displays[{index}]");
+        let display_start = reader.position();
+        let name = decode_spanned_generated_utf8(reader, 7, 2, 100, 25)?;
+        let last_online = read_spanned_i32(reader)?;
+        let wire_layout = read_spanned_u64(reader, 3)?;
+        let flags = read_spanned_u32(reader, 32)?;
+        let profile = protocol.codec().decode_reflected_traced_from(
+            reader,
+            profile_type,
+            &format!("{path}.profile"),
+            3,
+        )?;
+        let realm = protocol.codec().decode_reflected_traced_from(
+            reader,
+            realm_type,
+            &format!("{path}.realm"),
+            3,
+        )?;
+        let realm_value = u32::try_from(expect_integer(realm.value, "toon realm")?)
+            .map_err(|_| native_error("toon realm is outside u32"))?;
+        let display_end = reader.position();
+        displays.push(ToonDisplay {
+            name: name.value.clone(),
+            realm: realm_value,
+        });
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "Toon.Display",
+                "5 fields",
+                display_start,
+                display_end,
+                2,
+            ),
+            spanned_field(format!("{path}.name"), "string", &name, 3),
+            spanned_field(format!("{path}.last_online"), "int32", &last_online, 3),
+            spanned_field(
+                format!("{path}.wire_layout_selector"),
+                "obfuscation selector",
+                &wire_layout,
+                3,
+            ),
+            spanned_field(format!("{path}.flags"), "uint32", &flags, 3),
+        ]);
+        provenance.extend(profile.fields);
+        provenance.extend(realm.fields);
     }
-    Ok(Payload::ToonList(ToonList { displays }))
+    let payload_end = reader.position();
+    provenance.push(decoded_field(
+        "value.displays",
+        "array",
+        format!("{} items", displays.len()),
+        count.start_bit,
+        payload_end,
+        1,
+    ));
+    provenance.push(decoded_field(
+        "value",
+        "ToonList",
+        "1 field",
+        payload_start,
+        payload_end,
+        0,
+    ));
+    sort_provenance(&mut provenance);
+    Ok(DecodedPayload::new(
+        Payload::ToonList(ToonList { displays }),
+        provenance,
+    ))
 }
 
 pub(crate) fn toon_selected(
@@ -262,26 +591,54 @@ pub(crate) fn toon_selected(
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
+    Ok(toon_selected_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+pub(crate) fn toon_selected_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
     let record_address = protocol.member_type(type_id, "m_recordAddress")?;
     let handle_type = protocol.member_type(type_id, "m_toonHandle")?;
     let realm_type = protocol.member_type(type_id, "m_realm")?;
     let last_logon_type = protocol.member_type(type_id, "m_lastLogon")?;
-    protocol
-        .codec()
-        .decode_reflected_from(reader, record_address)?;
+    let start_bit = reader.position();
+    let record = protocol.codec().decode_reflected_traced_from(
+        reader,
+        record_address,
+        "value.record_address",
+        1,
+    )?;
     let mut fields = [0_u64; 4];
+    let handle_start = reader.position();
+    let mut provenance = record.fields;
     for (slot, name) in fields
         .iter_mut()
         .zip(["m_programId", "m_region", "m_realm", "m_id"])
     {
         let field_type = protocol.member_type(handle_type, name)?;
-        let value = protocol.codec().decode_reflected_from(reader, field_type)?;
-        *slot = match value {
+        let decoded = protocol.codec().decode_reflected_traced_from(
+            reader,
+            field_type,
+            &format!("value.handle.{name}"),
+            2,
+        )?;
+        provenance.extend(decoded.fields);
+        *slot = match decoded.value {
             BsnValue::FourCc(code) => u64::from(code),
             other => u64::try_from(expect_integer(other, "selected toon handle")?)
                 .map_err(|_| native_error("selected toon handle field is outside u64"))?,
         };
     }
+    provenance.push(decoded_field(
+        "value.handle",
+        "ToonHandle",
+        "4 fields",
+        handle_start,
+        reader.position(),
+        1,
+    ));
     let handle = ToonHandle {
         program_id: u32::try_from(fields[0])
             .map_err(|_| native_error("selected toon program id is outside u32"))?,
@@ -291,20 +648,34 @@ pub(crate) fn toon_selected(
             .map_err(|_| native_error("selected toon realm is outside u32"))?,
         id: fields[3],
     };
-    let realm = u32::try_from(expect_integer(
-        protocol.codec().decode_reflected_from(reader, realm_type)?,
-        "selected toon realm",
-    )?)
-    .map_err(|_| native_error("selected toon realm is outside u32"))?;
-    protocol
-        .codec()
-        .decode_reflected_from(reader, last_logon_type)?;
-    let name = decode_generated_utf8(reader, 7, 2, 100, 25)?;
-    Ok(Payload::ToonSelected(ToonSelected {
-        name,
-        realm,
-        handle,
-    }))
+    let realm_decoded =
+        protocol
+            .codec()
+            .decode_reflected_traced_from(reader, realm_type, "value.realm", 1)?;
+    let realm = u32::try_from(expect_integer(realm_decoded.value, "selected toon realm")?)
+        .map_err(|_| native_error("selected toon realm is outside u32"))?;
+    provenance.extend(realm_decoded.fields);
+    let last_logon = protocol.codec().decode_reflected_traced_from(
+        reader,
+        last_logon_type,
+        "value.last_logon",
+        1,
+    )?;
+    provenance.extend(last_logon.fields);
+    let name = decode_spanned_generated_utf8(reader, 7, 2, 100, 25)?;
+    provenance.push(spanned_field("value.name", "string", &name, 1));
+    Ok(custom_payload(
+        Payload::ToonSelected(ToonSelected {
+            name: name.value,
+            realm,
+            handle,
+        }),
+        provenance,
+        "ToonSelected",
+        "5 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn toon_welcome(
@@ -312,24 +683,97 @@ pub(crate) fn toon_welcome(
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
-    decode_field(protocol, type_id, "m_depotRegion", reader)?;
+    Ok(toon_welcome_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the retail welcome wire order is explicit"
+)]
+pub(crate) fn toon_welcome_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
+    traced_reflected_field(
+        protocol,
+        type_id,
+        "m_depotRegion",
+        reader,
+        "value.depot_region",
+        1,
+        &mut provenance,
+    )?;
 
     let achievements = protocol.member_type(type_id, "m_achievementHandles")?;
     let achievement_type = protocol.array_element(achievements)?;
-    let achievement_count = read_usize(reader, 4)?;
-    for _ in 0..achievement_count {
-        decode_field(protocol, achievement_type, "m_handle", reader)?;
-        decode_field(protocol, achievement_type, "m_program", reader)?;
+    let achievement_count = read_spanned_usize(reader, 4)?;
+    provenance.push(spanned_field(
+        "value.achievements.count",
+        "array length",
+        &achievement_count,
+        2,
+    ));
+    for index in 0..achievement_count.value {
+        let path = format!("value.achievements[{index}]");
+        let item_start = reader.position();
+        for name in ["m_handle", "m_program"] {
+            traced_reflected_field(
+                protocol,
+                achievement_type,
+                name,
+                reader,
+                &format!("{path}.{name}"),
+                3,
+                &mut provenance,
+            )?;
+        }
+        provenance.push(decoded_field(
+            path,
+            "AchievementHandle",
+            "2 fields",
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
-    decode_field(protocol, type_id, "m_isPlayingFromIGR", reader)?;
-    decode_field(protocol, type_id, "m_defaultPortrait", reader)?;
-    reader.read(31)?;
+    provenance.push(decoded_field(
+        "value.achievements",
+        "array",
+        format!("{} items", achievement_count.value),
+        achievement_count.start_bit,
+        reader.position(),
+        1,
+    ));
+    for (name, path) in [
+        ("m_isPlayingFromIGR", "value.is_playing_from_igr"),
+        ("m_defaultPortrait", "value.default_portrait"),
+    ] {
+        traced_reflected_field(protocol, type_id, name, reader, path, 1, &mut provenance)?;
+    }
+    let portrait_selector = read_spanned_u64(reader, 31)?;
+    provenance.push(spanned_field(
+        "value.portrait_wire_selector",
+        "obfuscation selector",
+        &portrait_selector,
+        1,
+    ));
     for name in [
         "m_maxGameServerConnectTimeoutMS",
         "m_programName",
         "m_programFlags",
     ] {
-        decode_field(protocol, type_id, name, reader)?;
+        traced_reflected_field(
+            protocol,
+            type_id,
+            name,
+            reader,
+            &format!("value.{name}"),
+            1,
+            &mut provenance,
+        )?;
     }
 
     let realms = protocol.member_type(type_id, "m_realmMapList")?;
@@ -337,45 +781,183 @@ pub(crate) fn toon_welcome(
     let handle_type = protocol.member_type(realm_type, "m_to")?;
     let from_list = protocol.member_type(realm_type, "m_fromList")?;
     let from_type = protocol.array_element(from_list)?;
-    let realm_count = read_usize(reader, 3)?;
-    if realm_count > 4 {
+    let realm_count = read_spanned_usize(reader, 3)?;
+    if realm_count.value > 4 {
         return Err(native_error("Welcome has too many realm mappings"));
     }
-    for _ in 0..realm_count {
-        decode_field(protocol, handle_type, "m_id", reader)?;
-        decode_field(protocol, handle_type, "m_programId", reader)?;
-        reader.read(1)?;
-        decode_field(protocol, handle_type, "m_region", reader)?;
-        let from_count = read_usize(reader, 5)?;
-        if from_count > 16 {
+    provenance.push(spanned_field(
+        "value.realm_map.count",
+        "array length",
+        &realm_count,
+        2,
+    ));
+    for index in 0..realm_count.value {
+        let path = format!("value.realm_map[{index}]");
+        let item_start = reader.position();
+        for name in ["m_id", "m_programId"] {
+            traced_reflected_field(
+                protocol,
+                handle_type,
+                name,
+                reader,
+                &format!("{path}.to.{name}"),
+                3,
+                &mut provenance,
+            )?;
+        }
+        let handle_flag = read_spanned_u64(reader, 1)?;
+        provenance.push(spanned_field(
+            format!("{path}.to.flag"),
+            "wire flag",
+            &handle_flag,
+            3,
+        ));
+        traced_reflected_field(
+            protocol,
+            handle_type,
+            "m_region",
+            reader,
+            &format!("{path}.to.m_region"),
+            3,
+            &mut provenance,
+        )?;
+        let from_count = read_spanned_usize(reader, 5)?;
+        if from_count.value > 16 {
             return Err(native_error("Welcome realm mapping is too large"));
         }
-        for _ in 0..from_count {
-            protocol.codec().decode_reflected_from(reader, from_type)?;
+        provenance.push(spanned_field(
+            format!("{path}.from.count"),
+            "array length",
+            &from_count,
+            4,
+        ));
+        for from_index in 0..from_count.value {
+            let decoded = protocol.codec().decode_reflected_traced_from(
+                reader,
+                from_type,
+                &format!("{path}.from[{from_index}]"),
+                4,
+            )?;
+            provenance.extend(decoded.fields);
         }
+        provenance.push(decoded_field(
+            path,
+            "RealmMap",
+            "2 fields",
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
+    provenance.push(decoded_field(
+        "value.realm_map",
+        "array",
+        format!("{} items", realm_count.value),
+        realm_count.start_bit,
+        reader.position(),
+        1,
+    ));
 
     let unlockables = protocol.member_type(type_id, "m_unlockablesFiles")?;
     let unlockable_type = protocol.array_element(unlockables)?;
     let handle = protocol.member_type(unlockable_type, "m_unlockDefinitionFileCacheHandle")?;
-    let unlockable_count = read_usize(reader, 8)?;
-    if unlockable_count > 128 {
+    let unlockable_count = read_spanned_usize(reader, 8)?;
+    if unlockable_count.value > 128 {
         return Err(native_error("Welcome has too many unlockable files"));
     }
-    for _ in 0..unlockable_count {
-        reader.read(4)?;
-        protocol.codec().decode_reflected_from(reader, handle)?;
+    provenance.push(spanned_field(
+        "value.unlockables.count",
+        "array length",
+        &unlockable_count,
+        2,
+    ));
+    for index in 0..unlockable_count.value {
+        let path = format!("value.unlockables[{index}]");
+        let item_start = reader.position();
+        let selector = read_spanned_u64(reader, 4)?;
+        provenance.push(spanned_field(
+            format!("{path}.wire_layout_selector"),
+            "obfuscation selector",
+            &selector,
+            3,
+        ));
+        let decoded = protocol.codec().decode_reflected_traced_from(
+            reader,
+            handle,
+            &format!("{path}.handle"),
+            3,
+        )?;
+        provenance.extend(decoded.fields);
+        provenance.push(decoded_field(
+            path,
+            "UnlockableFile",
+            "2 fields",
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
-    reader.read(3)?;
-    decode_field(protocol, type_id, "m_maxMapFavorites", reader)?;
-    decode_generated_utf8(reader, 13, 0, 4096, 1024)?;
-    decode_generated_utf8(reader, 13, 0, 4096, 1024)?;
-    decode_field(protocol, type_id, "m_currentTime", reader)?;
-    Ok(Payload::StartupSummary(StartupSummary {
-        kind: "toon-welcome",
-        item_count: achievement_count + realm_count + unlockable_count,
-        complete: None,
-    }))
+    provenance.push(decoded_field(
+        "value.unlockables",
+        "array",
+        format!("{} items", unlockable_count.value),
+        unlockable_count.start_bit,
+        reader.position(),
+        1,
+    ));
+    let trailing_selector = read_spanned_u64(reader, 3)?;
+    provenance.push(spanned_field(
+        "value.trailing_wire_selector",
+        "obfuscation selector",
+        &trailing_selector,
+        1,
+    ));
+    traced_reflected_field(
+        protocol,
+        type_id,
+        "m_maxMapFavorites",
+        reader,
+        "value.max_map_favorites",
+        1,
+        &mut provenance,
+    )?;
+    let intermediate = decode_spanned_generated_utf8(reader, 13, 0, 4096, 1024)?;
+    let final_restriction = decode_spanned_generated_utf8(reader, 13, 0, 4096, 1024)?;
+    provenance.extend([
+        spanned_field(
+            "value.intermediate_name_restriction",
+            "string",
+            &intermediate,
+            1,
+        ),
+        spanned_field(
+            "value.final_name_restriction",
+            "string",
+            &final_restriction,
+            1,
+        ),
+    ]);
+    traced_reflected_field(
+        protocol,
+        type_id,
+        "m_currentTime",
+        reader,
+        "value.current_time",
+        1,
+        &mut provenance,
+    )?;
+    Ok(custom_payload(
+        Payload::StartupSummary(StartupSummary {
+            kind: "toon-welcome",
+            item_count: achievement_count.value + realm_count.value + unlockable_count.value,
+            complete: None,
+        }),
+        provenance,
+        "ToonWelcome",
+        "13 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn chat_message(
@@ -383,23 +965,65 @@ pub(crate) fn chat_message(
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
-    decode_field(protocol, type_id, "Message", reader)?;
+    Ok(chat_message_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+pub(crate) fn chat_message_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
+    traced_reflected_field(
+        protocol,
+        type_id,
+        "Message",
+        reader,
+        "value.message",
+        1,
+        &mut provenance,
+    )?;
     let member_handle = u32::try_from(expect_integer(
-        decode_field(protocol, type_id, "m_memberHandle", reader)?,
+        traced_reflected_field(
+            protocol,
+            type_id,
+            "m_memberHandle",
+            reader,
+            "value.member_handle",
+            1,
+            &mut provenance,
+        )?,
         "chat member handle",
     )?)
     .map_err(|_| native_error("chat member handle is outside u32"))?;
-    let body = decode_generated_utf8(reader, 10, 0, 1020, 255)?;
+    let body = decode_spanned_generated_utf8(reader, 10, 0, 1020, 255)?;
+    provenance.push(spanned_field("value.m_body", "string", &body, 1));
     let channel_index = u8::try_from(expect_integer(
-        decode_field(protocol, type_id, "m_channelIndex", reader)?,
+        traced_reflected_field(
+            protocol,
+            type_id,
+            "m_channelIndex",
+            reader,
+            "value.channel_index",
+            1,
+            &mut provenance,
+        )?,
         "chat channel index",
     )?)
     .map_err(|_| native_error("chat channel index is outside u8"))?;
-    Ok(Payload::ChatMessage(ChatMessage {
-        channel_index,
-        member_handle,
-        body,
-    }))
+    Ok(custom_payload(
+        Payload::ChatMessage(ChatMessage {
+            channel_index,
+            member_handle,
+            body: body.value,
+        }),
+        provenance,
+        "ChatMessage",
+        "4 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn chat_invite(
@@ -432,21 +1056,92 @@ pub(crate) fn chat_invite(
     }))
 }
 
+pub(crate) fn chat_invite_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    reflected_payload(protocol, type_id, reader, |value| {
+        let BsnValue::Struct(invite) = value else {
+            return Err(native_error("chat invite is not a struct"));
+        };
+        let channel_index = u8::try_from(expect_integer(
+            invite
+                .get("m_channelIndex")
+                .ok_or_else(|| native_error("chat invite omits channel index"))?
+                .clone(),
+            "chat invite channel index",
+        )?)
+        .map_err(|_| native_error("chat invite channel index is outside u8"))?;
+        let inviter_presence = u32::try_from(expect_integer(
+            invite
+                .get("m_inviterPresence")
+                .ok_or_else(|| native_error("chat invite omits inviter presence"))?
+                .clone(),
+            "chat invite inviter presence",
+        )?)
+        .map_err(|_| native_error("chat invite inviter presence is outside u32"))?;
+        Ok(Payload::ChatInvite(ChatInvite {
+            channel_index,
+            inviter_presence,
+        }))
+    })
+}
+
 pub(crate) fn chat_whisper(
     protocol: &Protocol,
     type_id: u32,
     reader: &mut BitReader<'_>,
     echo: bool,
 ) -> Result<Payload> {
-    decode_field(protocol, type_id, "Whisper", reader)?;
-    let peer = decode_chat_display_name(reader)?;
-    let body = decode_generated_utf8(reader, 10, 0, 1020, 255)?;
-    let whisper = ChatWhisper { peer, body };
-    Ok(if echo {
-        Payload::ChatWhisperEcho(whisper)
-    } else {
-        Payload::ChatWhisper(whisper)
-    })
+    Ok(chat_whisper_with_provenance(protocol, type_id, reader, echo)?.payload)
+}
+
+pub(crate) fn chat_whisper_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+    echo: bool,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
+    traced_reflected_field(
+        protocol,
+        type_id,
+        "Whisper",
+        reader,
+        "value.whisper",
+        1,
+        &mut provenance,
+    )?;
+    let peer_start = reader.position();
+    let peer = trace_chat_display_name(reader, "value.peer", 2, &mut provenance)?;
+    provenance.push(decoded_field(
+        "value.peer",
+        "ToonFullName",
+        "4 fields",
+        peer_start,
+        reader.position(),
+        1,
+    ));
+    let body = decode_spanned_generated_utf8(reader, 10, 0, 1020, 255)?;
+    provenance.push(spanned_field("value.body", "string", &body, 1));
+    let whisper = ChatWhisper {
+        peer,
+        body: body.value,
+    };
+    Ok(custom_payload(
+        if echo {
+            Payload::ChatWhisperEcho(whisper)
+        } else {
+            Payload::ChatWhisper(whisper)
+        },
+        provenance,
+        if echo { "WhisperEcho" } else { "WhisperRecv" },
+        "3 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn chat_membership(
@@ -454,9 +1149,22 @@ pub(crate) fn chat_membership(
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
-    let end_of_initial = reader.read(1)? != 0;
-    let channel_index = read_u8(reader, 3)?;
-    if usize::from(channel_index) >= crate::native::protocol::CHANNEL_INDEX_COUNT {
+    Ok(chat_membership_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential step per field in the recovered wire layout"
+)]
+pub(crate) fn chat_membership_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let end_of_initial = read_spanned_u64(reader, 1)?;
+    let channel_index = read_spanned_u8(reader, 3)?;
+    if usize::from(channel_index.value) >= crate::native::protocol::CHANNEL_INDEX_COUNT {
         return Err(native_error("chat membership channel index is invalid"));
     }
     let change_array = protocol.member_type(type_id, "m_changes")?;
@@ -473,45 +1181,105 @@ pub(crate) fn chat_membership(
         return Err(native_error("chat member status type is not a choice"));
     }
 
-    let count = read_usize(reader, 6)? + 1;
-    let mut changes = Vec::with_capacity(count);
-    for _ in 0..count {
-        match reader.read(2)? {
-            0 => changes.push(MembershipChange {
-                kind: MembershipKind::Leave,
-                member_handle: read_u32(reader, 32)?,
-                presence_id: None,
-                display_name: None,
-                toon_name: None,
-                reason: Some(read_u16(reader, 16)?),
-            }),
+    let count = read_spanned_usize(reader, 6)?;
+    let change_count = count.value + 1;
+    let mut provenance = vec![
+        spanned_field("value.end_of_initial", "bool", &end_of_initial, 1),
+        spanned_field("value.channel_index", "uint3", &channel_index, 1),
+        decoded_field(
+            "value.changes.count",
+            "array length minus one",
+            change_count.to_string(),
+            count.start_bit,
+            count.end_bit,
+            2,
+        ),
+    ];
+    let mut changes = Vec::with_capacity(change_count);
+    for index in 0..change_count {
+        let path = format!("value.changes[{index}]");
+        let item_start = reader.position();
+        let choice = read_spanned_u64(reader, 2)?;
+        provenance.push(spanned_field(
+            format!("{path}.kind"),
+            "choice selector",
+            &choice,
+            3,
+        ));
+        match choice.value {
+            0 => {
+                let member_handle = read_spanned_u32(reader, 32)?;
+                let reason = read_spanned_u64(reader, 16)?;
+                provenance.extend([
+                    spanned_field(format!("{path}.member_handle"), "uint32", &member_handle, 3),
+                    spanned_field(format!("{path}.reason"), "uint16", &reason, 3),
+                ]);
+                changes.push(MembershipChange {
+                    kind: MembershipKind::Leave,
+                    member_handle: member_handle.value,
+                    presence_id: None,
+                    display_name: None,
+                    toon_name: None,
+                    reason: Some(u16::try_from(reason.value).expect("16-bit field fits in u16")),
+                });
+            }
             1 => {
-                let member_handle = read_u32(reader, 32)?;
-                let presence_id = read_u32(reader, 32)?;
-                let status_count = read_usize(reader, 3)?;
+                let member_handle = read_spanned_u32(reader, 32)?;
+                let presence_id = read_spanned_u32(reader, 32)?;
+                let status_count = read_spanned_usize(reader, 3)?;
+                provenance.extend([
+                    spanned_field(format!("{path}.member_handle"), "uint32", &member_handle, 3),
+                    spanned_field(format!("{path}.presence_id"), "uint32", &presence_id, 3),
+                    spanned_field(
+                        format!("{path}.statuses.count"),
+                        "array length",
+                        &status_count,
+                        4,
+                    ),
+                ]);
                 let mut display_name = None;
                 let mut toon_name = None;
-                for _ in 0..status_count {
-                    if let Some(name) = decode_member_status(protocol, &status_shape, reader)? {
+                for status_index in 0..status_count.value {
+                    if let Some(name) = trace_member_status(
+                        protocol,
+                        &status_shape,
+                        reader,
+                        &format!("{path}.statuses[{status_index}]"),
+                        4,
+                        &mut provenance,
+                    )? {
                         display_name = Some(name.name.clone());
                         toon_name = Some(name);
                     }
                 }
                 changes.push(MembershipChange {
                     kind: MembershipKind::Join,
-                    member_handle,
-                    presence_id: Some(presence_id),
+                    member_handle: member_handle.value,
+                    presence_id: Some(presence_id.value),
                     display_name,
                     toon_name,
                     reason: None,
                 });
             }
             2 => {
-                let member_handle = read_u32(reader, 32)?;
-                let toon_name = decode_member_status(protocol, &status_shape, reader)?;
+                let member_handle = read_spanned_u32(reader, 32)?;
+                provenance.push(spanned_field(
+                    format!("{path}.member_handle"),
+                    "uint32",
+                    &member_handle,
+                    3,
+                ));
+                let toon_name = trace_member_status(
+                    protocol,
+                    &status_shape,
+                    reader,
+                    &format!("{path}.status"),
+                    3,
+                    &mut provenance,
+                )?;
                 changes.push(MembershipChange {
                     kind: MembershipKind::Status,
-                    member_handle,
+                    member_handle: member_handle.value,
                     presence_id: None,
                     display_name: toon_name.as_ref().map(|name| name.name.clone()),
                     toon_name,
@@ -520,34 +1288,134 @@ pub(crate) fn chat_membership(
             }
             _ => return Err(native_error("chat membership change has an unknown choice")),
         }
+        provenance.push(decoded_field(
+            path,
+            "MembershipChange",
+            match choice.value {
+                0 => "Leave",
+                1 => "Join",
+                2 => "Status",
+                _ => unreachable!(),
+            },
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
-    Ok(Payload::ChatMembership(ChatMembership {
-        channel_index,
-        end_of_initial,
-        changes,
-    }))
+    provenance.push(decoded_field(
+        "value.changes",
+        "array",
+        format!("{} items", changes.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::ChatMembership(ChatMembership {
+            channel_index: channel_index.value,
+            end_of_initial: end_of_initial.value != 0,
+            changes,
+        }),
+        provenance,
+        "ChatMembership",
+        "3 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn friends_list(protocol: &Protocol, reader: &mut BitReader<'_>) -> Result<Payload> {
+    Ok(friends_list_with_provenance(protocol, reader)?.payload)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential step per field in the recovered wire layout"
+)]
+pub(crate) fn friends_list_with_provenance(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let complete_start = reader.position();
     let complete = if reader.read(1)? == 0 {
         None
     } else {
         Some(reader.read(1)? != 0)
     };
-    let count = read_usize(reader, 7)?;
-    if count > 64 {
+    let complete_end = reader.position();
+    let count = read_spanned_usize(reader, 7)?;
+    if count.value > 64 {
         return Err(native_error("friends snapshot has too many updates"));
     }
-    let mut updates = Vec::with_capacity(count);
-    for _ in 0..count {
-        let operation = match reader.read(2)? {
+    let mut provenance = vec![
+        decoded_field(
+            "value.complete",
+            "optional bool",
+            complete.map_or_else(|| "none".to_owned(), |value| value.to_string()),
+            complete_start,
+            complete_end,
+            1,
+        ),
+        spanned_field("value.updates.count", "array length", &count, 2),
+    ];
+    let mut updates = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.updates[{index}]");
+        let update_start = reader.position();
+        let operation_start = reader.position();
+        let operation_index = reader.read(2)?;
+        let operation_end = reader.position();
+        let operation = match operation_index {
             0 => SocialOperation::Add,
             1 => {
+                let identity_start = reader.position();
                 let identity = if reader.read(1)? == 0 {
                     FriendIdentity::Account(read_u32(reader, 32)?)
                 } else {
-                    decode_toon_handle(protocol, reader)?
+                    trace_toon_handle(
+                        protocol,
+                        reader,
+                        &format!("{path}.entry.identity"),
+                        3,
+                        &mut provenance,
+                    )?
                 };
+                let identity_end = reader.position();
+                provenance.extend([
+                    decoded_field(
+                        format!("{path}.operation"),
+                        "choice selector",
+                        "Remove",
+                        operation_start,
+                        operation_end,
+                        2,
+                    ),
+                    decoded_field(
+                        format!("{path}.entry.identity"),
+                        "identity",
+                        format!("{identity:?}"),
+                        identity_start,
+                        identity_end,
+                        3,
+                    ),
+                    decoded_field(
+                        format!("{path}.entry"),
+                        "FriendEntry",
+                        "identity only",
+                        identity_start,
+                        identity_end,
+                        2,
+                    ),
+                    decoded_field(
+                        path,
+                        "FriendUpdate",
+                        "Remove",
+                        update_start,
+                        identity_end,
+                        1,
+                    ),
+                ]);
                 updates.push(FriendUpdate {
                     operation: SocialOperation::Remove,
                     entry: FriendEntry {
@@ -568,50 +1436,357 @@ pub(crate) fn friends_list(protocol: &Protocol, reader: &mut BitReader<'_>) -> R
                 ));
             }
         };
-        updates.push(FriendUpdate {
-            operation,
-            entry: decode_friend_container(protocol, reader)?,
-        });
+        provenance.push(decoded_field(
+            format!("{path}.operation"),
+            "choice selector",
+            format!("{operation:?}"),
+            operation_start,
+            operation_end,
+            2,
+        ));
+        let entry = trace_friend_container(
+            protocol,
+            reader,
+            &format!("{path}.entry"),
+            2,
+            &mut provenance,
+        )?;
+        let entry_end = reader.position();
+        provenance.push(decoded_field(
+            path,
+            "FriendUpdate",
+            format!("{operation:?}"),
+            update_start,
+            entry_end,
+            1,
+        ));
+        updates.push(FriendUpdate { operation, entry });
     }
-    Ok(Payload::Friends(FriendsPage { updates, complete }))
+    provenance.push(decoded_field(
+        "value.updates",
+        "array",
+        format!("{} items", updates.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::Friends(FriendsPage { updates, complete }),
+        provenance,
+        "FriendsPage",
+        "2 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn friend_toons(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<Payload> {
+    Ok(friend_toons_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+pub(crate) fn friend_toons_with_provenance(
     _protocol: &Protocol,
     _type_id: u32,
     reader: &mut BitReader<'_>,
-) -> Result<Payload> {
+) -> Result<DecodedPayload> {
+    let payload_start = reader.position();
+    let count_start = reader.position();
     let count = read_usize(reader, 7)?;
     if count > 100 {
         return Err(native_error(
             "friend toon notification has too many entries",
         ));
     }
+    let mut traces = Vec::with_capacity(count);
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let region = read_u8(reader, 8)?;
-        let program_id = read_u32(reader, 32)?;
-        let realm = read_u32(reader, 32)?;
-        let name = decode_generated_utf8(reader, 7, 2, 100, 25)?;
-        let profile = ProfileAddress {
-            label: read_u32(reader, 32)?,
-            id: reader.read(64)?,
+        let entry_start = reader.position();
+        let region = read_spanned_u8(reader, 8)?;
+        let program_id = read_spanned_u32(reader, 32)?;
+        let realm = read_spanned_u32(reader, 32)?;
+        let name = decode_spanned_generated_utf8(reader, 7, 2, 100, 25)?;
+        let profile_start = reader.position();
+        let profile = ProfileAddressTrace {
+            label: read_spanned_u32(reader, 32)?,
+            id: read_spanned_u64(reader, 64)?,
         };
-        let account_id = read_u32(reader, 32)?;
+        let profile_end = reader.position();
+        let account_id = read_spanned_u32(reader, 32)?;
+        let entry_end = reader.position();
         entries.push(FriendToon {
-            account_id,
-            program_id,
-            profile: (profile.label != 0 || profile.id != 0).then_some(profile),
+            account_id: account_id.value,
+            program_id: program_id.value,
+            profile: (profile.label.value != 0 || profile.id.value != 0).then_some(
+                ProfileAddress {
+                    label: profile.label.value,
+                    id: profile.id.value,
+                },
+            ),
             toon_name: ToonFullName {
-                region,
-                program_id,
-                realm,
-                name,
+                region: region.value,
+                program_id: program_id.value,
+                realm: realm.value,
+                name: name.value.clone(),
             },
         });
+        traces.push(FriendToonTrace {
+            entry_start,
+            entry_end,
+            region,
+            program_id,
+            realm,
+            name,
+            profile,
+            profile_start,
+            profile_end,
+            account_id,
+        });
     }
-    let complete = reader.read(1)? != 0;
-    Ok(Payload::FriendToons(FriendToonPage { entries, complete }))
+    let entries_end = reader.position();
+    let complete = read_spanned_u64(reader, 1)?;
+    let payload = Payload::FriendToons(FriendToonPage {
+        entries,
+        complete: complete.value != 0,
+    });
+    let provenance = friend_toon_provenance(
+        &traces,
+        count_start,
+        entries_end,
+        &complete,
+        payload_start,
+        reader.position(),
+    );
+    Ok(DecodedPayload::new(payload, provenance))
+}
+
+#[derive(Clone, Debug)]
+struct SpannedValue<T> {
+    value: T,
+    start_bit: usize,
+    end_bit: usize,
+}
+
+#[derive(Clone, Debug)]
+struct FriendToonTrace {
+    entry_start: usize,
+    entry_end: usize,
+    region: SpannedValue<u8>,
+    program_id: SpannedValue<u32>,
+    realm: SpannedValue<u32>,
+    name: SpannedValue<String>,
+    profile: ProfileAddressTrace,
+    profile_start: usize,
+    profile_end: usize,
+    account_id: SpannedValue<u32>,
+}
+
+#[derive(Clone, Debug)]
+struct ProfileAddressTrace {
+    label: SpannedValue<u32>,
+    id: SpannedValue<u64>,
+}
+
+fn friend_toon_provenance(
+    entries: &[FriendToonTrace],
+    count_start: usize,
+    entries_end: usize,
+    complete: &SpannedValue<u64>,
+    payload_start: usize,
+    payload_end: usize,
+) -> Vec<DecodedField> {
+    let mut fields = vec![decoded_field(
+        "value",
+        "FriendToons",
+        format!("{} entries", entries.len()),
+        payload_start,
+        payload_end,
+        0,
+    )];
+    fields.push(decoded_field(
+        "value.entries",
+        "array",
+        format!("{} items", entries.len()),
+        count_start,
+        entries_end,
+        1,
+    ));
+    for (index, entry) in entries.iter().enumerate() {
+        let path = format!("value.entries[{index}]");
+        fields.extend(friend_toon_entry_fields(&path, entry));
+    }
+    fields.push(decoded_field(
+        "value.complete",
+        "bool",
+        (complete.value != 0).to_string(),
+        complete.start_bit,
+        complete.end_bit,
+        1,
+    ));
+    fields
+}
+
+fn friend_toon_entry_fields(path: &str, entry: &FriendToonTrace) -> Vec<DecodedField> {
+    let profile_path = format!("{path}.profile");
+    let toon_path = format!("{path}.toon_name");
+    vec![
+        decoded_field(
+            path,
+            "object",
+            "4 fields",
+            entry.entry_start,
+            entry.entry_end,
+            2,
+        ),
+        spanned_field(format!("{path}.account_id"), "uint32", &entry.account_id, 3),
+        spanned_field(format!("{path}.program_id"), "fourcc", &entry.program_id, 3),
+        decoded_field(
+            profile_path.clone(),
+            "object",
+            "2 fields",
+            entry.profile_start,
+            entry.profile_end,
+            3,
+        ),
+        spanned_field(
+            format!("{profile_path}.label"),
+            "uint32",
+            &entry.profile.label,
+            4,
+        ),
+        spanned_field(format!("{profile_path}.id"), "uint64", &entry.profile.id, 4),
+        decoded_field(
+            toon_path.clone(),
+            "object",
+            "4 fields",
+            entry.region.start_bit,
+            entry.name.end_bit,
+            3,
+        ),
+        spanned_field(format!("{toon_path}.region"), "uint8", &entry.region, 4),
+        spanned_field(
+            format!("{toon_path}.program_id"),
+            "fourcc",
+            &entry.program_id,
+            4,
+        ),
+        spanned_field(format!("{toon_path}.realm"), "uint32", &entry.realm, 4),
+        spanned_field(format!("{toon_path}.name"), "string", &entry.name, 4),
+    ]
+}
+
+fn decoded_field(
+    path: impl Into<String>,
+    kind: &'static str,
+    value: impl Into<String>,
+    start_bit: usize,
+    end_bit: usize,
+    depth: usize,
+) -> DecodedField {
+    DecodedField {
+        path: path.into(),
+        kind,
+        value: value.into(),
+        start_bit,
+        end_bit,
+        depth,
+    }
+}
+
+fn spanned_field<T: ToString>(
+    path: impl Into<String>,
+    kind: &'static str,
+    value: &SpannedValue<T>,
+    depth: usize,
+) -> DecodedField {
+    decoded_field(
+        path,
+        kind,
+        value.value.to_string(),
+        value.start_bit,
+        value.end_bit,
+        depth,
+    )
+}
+
+fn read_spanned_u64(reader: &mut BitReader<'_>, width: usize) -> Result<SpannedValue<u64>> {
+    let start_bit = reader.position();
+    let value = reader.read(width)?;
+    Ok(SpannedValue {
+        value,
+        start_bit,
+        end_bit: reader.position(),
+    })
+}
+
+fn read_spanned_usize(reader: &mut BitReader<'_>, width: usize) -> Result<SpannedValue<usize>> {
+    let value = read_spanned_u64(reader, width)?;
+    Ok(SpannedValue {
+        value: usize::try_from(value.value).map_err(|_| native_error("integer exceeds usize"))?,
+        start_bit: value.start_bit,
+        end_bit: value.end_bit,
+    })
+}
+
+fn read_spanned_u32(reader: &mut BitReader<'_>, width: usize) -> Result<SpannedValue<u32>> {
+    let value = read_spanned_u64(reader, width)?;
+    Ok(SpannedValue {
+        value: u32::try_from(value.value).map_err(|_| native_error("integer exceeds u32"))?,
+        start_bit: value.start_bit,
+        end_bit: value.end_bit,
+    })
+}
+
+fn read_spanned_u8(reader: &mut BitReader<'_>, width: usize) -> Result<SpannedValue<u8>> {
+    let value = read_spanned_u64(reader, width)?;
+    Ok(SpannedValue {
+        value: u8::try_from(value.value).map_err(|_| native_error("integer exceeds u8"))?,
+        start_bit: value.start_bit,
+        end_bit: value.end_bit,
+    })
+}
+
+fn read_spanned_i32(reader: &mut BitReader<'_>) -> Result<SpannedValue<i32>> {
+    let value = read_spanned_u32(reader, 32)?;
+    Ok(SpannedValue {
+        value: i32::from_ne_bytes((value.value ^ 0x8000_0000).to_ne_bytes()),
+        start_bit: value.start_bit,
+        end_bit: value.end_bit,
+    })
+}
+
+fn sort_provenance(fields: &mut [DecodedField]) {
+    fields.sort_by(|left, right| {
+        left.start_bit
+            .cmp(&right.start_bit)
+            .then_with(|| left.depth.cmp(&right.depth))
+            .then_with(|| right.end_bit.cmp(&left.end_bit))
+    });
+}
+
+fn decode_spanned_generated_utf8(
+    reader: &mut BitReader<'_>,
+    length_bits: usize,
+    minimum_bytes: usize,
+    maximum_bytes: usize,
+    maximum_characters: usize,
+) -> Result<SpannedValue<String>> {
+    let start_bit = reader.position();
+    let value = decode_generated_utf8(
+        reader,
+        length_bits,
+        minimum_bytes,
+        maximum_bytes,
+        maximum_characters,
+    )?;
+    Ok(SpannedValue {
+        value,
+        start_bit,
+        end_bit: reader.position(),
+    })
 }
 
 pub(crate) fn profile_address_query(
@@ -619,7 +1794,18 @@ pub(crate) fn profile_address_query(
     type_id: u32,
     reader: &mut BitReader<'_>,
 ) -> Result<Payload> {
-    let value = protocol.codec().decode_reflected_from(reader, type_id)?;
+    Ok(profile_address_query_with_provenance(protocol, type_id, reader)?.payload)
+}
+
+pub(crate) fn profile_address_query_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let decoded = protocol
+        .codec()
+        .decode_reflected_traced_from(reader, type_id, "value", 0)?;
+    let value = decoded.value;
     let BsnValue::Struct(root) = value else {
         return Err(native_error(
             "profile address query response is not a struct",
@@ -678,145 +1864,440 @@ pub(crate) fn profile_address_query(
             )));
         }
     };
-    Ok(Payload::ProfileAddressQuery(
-        crate::native::model::ProfileAddressQueryResponse {
+    Ok(DecodedPayload::new(
+        Payload::ProfileAddressQuery(crate::native::model::ProfileAddressQueryResponse {
             request_id,
             address,
             error,
-        },
+        }),
+        decoded.fields,
     ))
 }
 
 pub(crate) fn account_blocks(protocol: &Protocol, reader: &mut BitReader<'_>) -> Result<Payload> {
+    Ok(account_blocks_with_provenance(protocol, reader)?.payload)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential step per field in the recovered wire layout"
+)]
+pub(crate) fn account_blocks_with_provenance(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let complete_start = reader.position();
     let complete = if reader.read(1)? == 0 {
         None
     } else {
         Some(reader.read(1)? != 0)
     };
-    let count = read_usize(reader, 7)?;
-    if count > 64 {
+    let complete_end = reader.position();
+    let count = read_spanned_usize(reader, 7)?;
+    if count.value > 64 {
         return Err(native_error("account block snapshot is too large"));
     }
     let account_type = protocol
         .codec()
         .schema()
         .unique_type_id("Battlenet::Friends::AccountBlockContainer")?;
-    let mut entries = Vec::with_capacity(count);
-    for _ in 0..count {
-        reader.read(9)?;
-        let account_id = read_u32(reader, 32)?;
+    let mut provenance = vec![
+        decoded_field(
+            "value.complete",
+            "optional bool",
+            complete.map_or_else(|| "none".to_owned(), |value| value.to_string()),
+            complete_start,
+            complete_end,
+            1,
+        ),
+        spanned_field("value.entries.count", "array length", &count, 2),
+    ];
+    let mut entries = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.entries[{index}]");
+        let item_start = reader.position();
+        let selector = read_spanned_u64(reader, 9)?;
+        let account_id = read_spanned_u32(reader, 32)?;
+        let nickname_start = reader.position();
         let nickname = (reader.read(1)? != 0)
             .then(|| decode_generated_utf8(reader, 7, 0, 108, 27))
             .transpose()?;
-        reader.read(20)?;
+        let nickname_end = reader.position();
+        let reserved = read_spanned_u64(reader, 20)?;
         let full_name = protocol.member_type(account_type, "m_fullName")?;
+        let full_name_start = reader.position();
         let full_name = if reader.read(1)? != 0 {
             let element = optional_element(protocol, full_name)?;
-            full_name_from_value(&protocol.codec().decode_reflected_from(reader, element)?)
+            let decoded = protocol.codec().decode_reflected_traced_from(
+                reader,
+                element,
+                &format!("{path}.full_name.value"),
+                4,
+            )?;
+            provenance.extend(decoded.fields);
+            full_name_from_value(&decoded.value)
         } else {
             None
         };
-        let role = read_u32(reader, 32)?;
+        let full_name_end = reader.position();
+        let role = read_spanned_u32(reader, 32)?;
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "AccountBlockEntry",
+                "6 fields",
+                item_start,
+                reader.position(),
+                2,
+            ),
+            spanned_field(
+                format!("{path}.wire_layout_selector"),
+                "obfuscation selector",
+                &selector,
+                3,
+            ),
+            spanned_field(format!("{path}.account_id"), "uint32", &account_id, 3),
+            decoded_field(
+                format!("{path}.nickname"),
+                "optional string",
+                nickname.clone().unwrap_or_else(|| "none".to_owned()),
+                nickname_start,
+                nickname_end,
+                3,
+            ),
+            spanned_field(format!("{path}.reserved"), "reserved bits", &reserved, 3),
+            decoded_field(
+                format!("{path}.full_name"),
+                "optional name",
+                full_name.clone().unwrap_or_else(|| "none".to_owned()),
+                full_name_start,
+                full_name_end,
+                3,
+            ),
+            spanned_field(format!("{path}.role"), "uint32", &role, 3),
+        ]);
         entries.push(AccountBlockEntry {
-            account_id,
+            account_id: account_id.value,
             nickname,
             full_name,
-            role,
+            role: role.value,
         });
     }
-    Ok(Payload::AccountBlocks(AccountBlockPage {
-        entries,
-        complete,
-    }))
+    provenance.push(decoded_field(
+        "value.entries",
+        "array",
+        format!("{} items", entries.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::AccountBlocks(AccountBlockPage { entries, complete }),
+        provenance,
+        "AccountBlocks",
+        "2 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn toon_blocks(reader: &mut BitReader<'_>) -> Result<Payload> {
-    let count = read_usize(reader, 7)?;
-    if count != 0 {
+    Ok(toon_blocks_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn toon_blocks_with_provenance(reader: &mut BitReader<'_>) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let count = read_spanned_usize(reader, 7)?;
+    if count.value != 0 {
         return Err(native_error(
             "non-empty toon-block snapshots are not supported",
         ));
     }
+    let complete_start = reader.position();
     let complete = if reader.read(1)? == 0 {
         None
     } else {
         Some(reader.read(1)? != 0)
     };
-    Ok(Payload::StartupSummary(StartupSummary {
-        kind: "toon-blocks",
-        item_count: 0,
-        complete,
-    }))
+    let complete_end = reader.position();
+    Ok(custom_payload(
+        Payload::StartupSummary(StartupSummary {
+            kind: "toon-blocks",
+            item_count: 0,
+            complete,
+        }),
+        vec![
+            spanned_field("value.count", "array length", &count, 1),
+            decoded_field(
+                "value.complete",
+                "optional bool",
+                complete.map_or_else(|| "none".to_owned(), |value| value.to_string()),
+                complete_start,
+                complete_end,
+                1,
+            ),
+        ],
+        "ToonBlocks",
+        "2 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn cache_stream_items(reader: &mut BitReader<'_>) -> Result<Payload> {
-    let count = read_usize(reader, 6)?;
-    if count > 49 {
+    Ok(cache_stream_items_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn cache_stream_items_with_provenance(
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let count = read_spanned_usize(reader, 6)?;
+    if count.value > 49 {
         return Err(native_error("cache response contains too many items"));
     }
-    let mut items = Vec::with_capacity(count);
-    for _ in 0..count {
-        reader.read(23)?;
+    let mut provenance = vec![spanned_field(
+        "value.items.count",
+        "array length",
+        &count,
+        2,
+    )];
+    let mut items = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.items[{index}]");
+        let item_start = reader.position();
+        let selector = read_spanned_u64(reader, 23)?;
+        let handle_start = reader.position();
         let handle: [u8; 40] = reader
             .read_bytes(40, true)?
             .try_into()
             .expect("exactly forty bytes were read");
-        let publication_time = decode_i32(reader)?;
+        let handle_end = reader.position();
+        let publication_time = read_spanned_i32(reader)?;
         items.push(CacheStreamItem {
-            publication_time,
+            publication_time: publication_time.value,
             content_handle: handle,
         });
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "CacheStreamItem",
+                "3 fields",
+                item_start,
+                reader.position(),
+                2,
+            ),
+            spanned_field(
+                format!("{path}.wire_layout_selector"),
+                "obfuscation selector",
+                &selector,
+                3,
+            ),
+            decoded_field(
+                format!("{path}.content_handle"),
+                "bytes",
+                "40 bytes",
+                handle_start,
+                handle_end,
+                3,
+            ),
+            spanned_field(
+                format!("{path}.publication_time"),
+                "int32",
+                &publication_time,
+                3,
+            ),
+        ]);
     }
-    let token = read_u32(reader, 32)?;
-    let total_items = read_u16(reader, 16)?;
-    let offset = read_u16(reader, 16)?;
-    Ok(Payload::CacheStreamItems(CacheStreamItems {
-        items,
-        offset,
-        total_items,
-        token,
-    }))
+    let items_end = reader.position();
+    let token = read_spanned_u32(reader, 32)?;
+    let total_items = read_spanned_u64(reader, 16)?;
+    let offset = read_spanned_u64(reader, 16)?;
+    provenance.extend([
+        decoded_field(
+            "value.items",
+            "array",
+            format!("{} items", items.len()),
+            count.start_bit,
+            items_end,
+            1,
+        ),
+        spanned_field("value.token", "uint32", &token, 1),
+        spanned_field("value.total_items", "uint16", &total_items, 1),
+        spanned_field("value.offset", "uint16", &offset, 1),
+    ]);
+    Ok(custom_payload(
+        Payload::CacheStreamItems(CacheStreamItems {
+            items,
+            offset: u16::try_from(offset.value).expect("16-bit field fits in u16"),
+            total_items: u16::try_from(total_items.value).expect("16-bit field fits in u16"),
+            token: token.value,
+        }),
+        provenance,
+        "CacheStreamItems",
+        "4 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn conference_descriptions(reader: &mut BitReader<'_>) -> Result<Payload> {
-    let is_last = reader.read(1)? != 0;
-    reader.read(27)?;
-    if reader.read(1)? != 0 {
-        reader.read(32)?;
-    }
-    let count = read_usize(reader, 6)?;
-    let mut entries = Vec::with_capacity(count);
-    for _ in 0..count {
-        reader.read(23)?;
+    Ok(conference_descriptions_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn conference_descriptions_with_provenance(
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let is_last = read_spanned_u64(reader, 1)?;
+    let reserved = read_spanned_u64(reader, 27)?;
+    let token_start = reader.position();
+    let token_present = reader.read(1)? != 0;
+    let token = if token_present {
+        Some(reader.read(32)?)
+    } else {
+        None
+    };
+    let token_end = reader.position();
+    let count = read_spanned_usize(reader, 6)?;
+    let mut provenance = vec![
+        spanned_field("value.is_last", "bool", &is_last, 1),
+        spanned_field("value.reserved", "reserved bits", &reserved, 1),
+        decoded_field(
+            "value.token",
+            "optional uint32",
+            token.map_or_else(|| "none".to_owned(), |value| value.to_string()),
+            token_start,
+            token_end,
+            1,
+        ),
+        spanned_field("value.entries.count", "array length", &count, 2),
+    ];
+    let mut entries = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.entries[{index}]");
+        let item_start = reader.position();
+        let selector = read_spanned_u64(reader, 23)?;
+        let identifier = read_spanned_u32(reader, 32)?;
+        let sort_order = read_spanned_u64(reader, 16)?;
+        let marker = read_spanned_u64(reader, 1)?;
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "ConferenceDescription",
+                "4 fields",
+                item_start,
+                reader.position(),
+                2,
+            ),
+            spanned_field(
+                format!("{path}.wire_layout_selector"),
+                "obfuscation selector",
+                &selector,
+                3,
+            ),
+            spanned_field(format!("{path}.identifier"), "uint32", &identifier, 3),
+            spanned_field(format!("{path}.sort_order"), "uint16", &sort_order, 3),
+            spanned_field(format!("{path}.marker"), "bool", &marker, 3),
+        ]);
         entries.push(ConferenceDescription {
-            identifier: read_u32(reader, 32)?,
-            sort_order: read_u16(reader, 16)?,
-            marker: reader.read(1)? != 0,
+            identifier: identifier.value,
+            sort_order: u16::try_from(sort_order.value).expect("16-bit field fits in u16"),
+            marker: marker.value != 0,
         });
     }
-    Ok(Payload::ConferenceDescriptions(ConferenceDescriptions {
-        entries,
-        is_last,
-    }))
+    provenance.push(decoded_field(
+        "value.entries",
+        "array",
+        format!("{} items", entries.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::ConferenceDescriptions(ConferenceDescriptions {
+            entries,
+            is_last: is_last.value != 0,
+        }),
+        provenance,
+        "ConferenceDescriptions",
+        "4 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn channel_list(reader: &mut BitReader<'_>) -> Result<Payload> {
-    reader.read(27)?;
-    reader.read(1)?;
-    reader.read(9)?;
-    let count = read_usize(reader, 6)?;
-    let mut entries = Vec::with_capacity(count);
-    for _ in 0..count {
-        let kind = read_u8(reader, 8)?;
-        let index = read_u16(reader, 16)?;
-        reader.read(24)?;
+    Ok(channel_list_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn channel_list_with_provenance(reader: &mut BitReader<'_>) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let reserved = read_spanned_u64(reader, 27)?;
+    let flag = read_spanned_u64(reader, 1)?;
+    let selector = read_spanned_u64(reader, 9)?;
+    let count = read_spanned_usize(reader, 6)?;
+    let mut provenance = vec![
+        spanned_field("value.reserved", "reserved bits", &reserved, 1),
+        spanned_field("value.flag", "wire flag", &flag, 1),
+        spanned_field(
+            "value.wire_layout_selector",
+            "obfuscation selector",
+            &selector,
+            1,
+        ),
+        spanned_field("value.entries.count", "array length", &count, 2),
+    ];
+    let mut entries = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.entries[{index}]");
+        let item_start = reader.position();
+        let kind = read_spanned_u8(reader, 8)?;
+        let channel_index = read_spanned_u64(reader, 16)?;
+        let item_reserved = read_spanned_u64(reader, 24)?;
+        let identifier = read_spanned_u64(reader, 16)?;
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "ChannelDescriptor",
+                "4 fields",
+                item_start,
+                reader.position(),
+                2,
+            ),
+            spanned_field(format!("{path}.kind"), "uint8", &kind, 3),
+            spanned_field(format!("{path}.index"), "uint16", &channel_index, 3),
+            spanned_field(
+                format!("{path}.reserved"),
+                "reserved bits",
+                &item_reserved,
+                3,
+            ),
+            spanned_field(format!("{path}.identifier"), "uint16", &identifier, 3),
+        ]);
         entries.push(ChannelDescriptor {
-            kind,
-            index,
-            identifier: read_u16(reader, 16)?,
+            kind: kind.value,
+            index: u16::try_from(channel_index.value).expect("16-bit field fits in u16"),
+            identifier: u16::try_from(identifier.value).expect("16-bit field fits in u16"),
         });
     }
-    Ok(Payload::ChannelList(ChannelList { entries }))
+    provenance.push(decoded_field(
+        "value.entries",
+        "array",
+        format!("{} items", entries.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::ChannelList(ChannelList { entries }),
+        provenance,
+        "ChannelList",
+        "4 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn chat_join(reader: &mut BitReader<'_>) -> Result<Payload> {
@@ -873,138 +2354,701 @@ pub(crate) fn chat_join(reader: &mut BitReader<'_>) -> Result<Payload> {
     }))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the success and failure wire arms are clearest in one decoder"
+)]
+pub(crate) fn chat_join_with_provenance(reader: &mut BitReader<'_>) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let mut provenance = Vec::new();
+    let success = trace_integer(
+        reader,
+        &mut provenance,
+        "value.success",
+        "bool (inverted)",
+        1,
+        1,
+    )? == 0;
+    provenance
+        .last_mut()
+        .expect("the success trace was just appended")
+        .value = success.to_string();
+    let payload = if success {
+        let member_handle = u32::try_from(trace_integer(
+            reader,
+            &mut provenance,
+            "value.member_handle",
+            "uint32",
+            32,
+            1,
+        )?)
+        .expect("32-bit field fits in u32");
+        let channel_index = u8::try_from(trace_integer(
+            reader,
+            &mut provenance,
+            "value.channel_index",
+            "uint3",
+            3,
+            1,
+        )?)
+        .expect("three-bit field fits in u8");
+        if usize::from(channel_index) >= crate::native::protocol::CHANNEL_INDEX_COUNT {
+            return Err(native_error("chat join channel index is invalid"));
+        }
+        trace_integer(
+            reader,
+            &mut provenance,
+            "value.conference_id",
+            "uint32",
+            32,
+            1,
+        )?;
+        trace_integer(reader, &mut provenance, "value.owner_id", "uint32", 32, 1)?;
+        let channel_type = u8::try_from(trace_integer(
+            reader,
+            &mut provenance,
+            "value.channel_type",
+            "uint4",
+            4,
+            1,
+        )?)
+        .expect("four-bit field fits in u8");
+        let channel_name_id = trace_channel_name(reader, &mut provenance)?;
+        trace_optional_config(reader, &mut provenance)?;
+        trace_optional_bits(reader, &mut provenance, "value.reserved", 32, 1)?;
+        let token = trace_optional_bits(reader, &mut provenance, "value.token", 32, 1)?
+            .map(|value| u32::try_from(value).expect("32-bit field fits in u32"));
+        Payload::ChatJoin(ChatJoin {
+            success: true,
+            channel_index: Some(channel_index),
+            member_handle: Some(member_handle),
+            channel_type: Some(channel_type),
+            channel_name_id,
+            reason: None,
+            token,
+        })
+    } else {
+        let reason = u16::try_from(trace_integer(
+            reader,
+            &mut provenance,
+            "value.reason",
+            "uint16",
+            16,
+            1,
+        )?)
+        .expect("16-bit field fits in u16");
+        let channel_type =
+            trace_optional_bits(reader, &mut provenance, "value.channel_type", 4, 1)?
+                .map(|value| u8::try_from(value).expect("four-bit field fits in u8"));
+        let token = trace_optional_bits(reader, &mut provenance, "value.token", 32, 1)?
+            .map(|value| u32::try_from(value).expect("32-bit field fits in u32"));
+        Payload::ChatJoin(ChatJoin {
+            success: false,
+            channel_index: None,
+            member_handle: None,
+            channel_type,
+            channel_name_id: None,
+            reason: Some(reason),
+            token,
+        })
+    };
+    provenance.push(DecodedField {
+        path: "value".to_owned(),
+        kind: "Chat.JoinNotify2",
+        value: if success { "success" } else { "failure" }.to_owned(),
+        start_bit,
+        end_bit: reader.position(),
+        depth: 0,
+    });
+    provenance.sort_by(|left, right| {
+        left.start_bit
+            .cmp(&right.start_bit)
+            .then_with(|| left.depth.cmp(&right.depth))
+            .then_with(|| right.end_bit.cmp(&left.end_bit))
+    });
+    Ok(DecodedPayload::new(payload, provenance))
+}
+
+fn trace_channel_name(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<DecodedField>,
+) -> Result<Option<u16>> {
+    let container_start = reader.position();
+    let present = trace_integer(
+        reader,
+        fields,
+        "value.channel_name.present",
+        "optional flag",
+        1,
+        2,
+    )? != 0;
+    if !present {
+        return Ok(None);
+    }
+    trace_integer(reader, fields, "value.channel_name.region", "uint16", 16, 2)?;
+    trace_integer(
+        reader,
+        fields,
+        "value.channel_name.namespace",
+        "uint29",
+        29,
+        2,
+    )?;
+    let variant = trace_integer(
+        reader,
+        fields,
+        "value.channel_name.kind",
+        "choice selector",
+        2,
+        2,
+    )?;
+    let id = match variant {
+        2 => {
+            trace_integer(reader, fields, "value.channel_name.locale", "fourcc", 32, 2)?;
+            Some(
+                u16::try_from(trace_integer(
+                    reader,
+                    fields,
+                    "value.channel_name.id",
+                    "uint16",
+                    16,
+                    2,
+                )?)
+                .expect("16-bit field fits in u16"),
+            )
+        }
+        1 | 3 => {
+            trace_integer(reader, fields, "value.channel_name.index", "uint16", 16, 2)?;
+            trace_integer(reader, fields, "value.channel_name.owner", "uint32", 32, 2)?;
+            None
+        }
+        0 => {
+            let start_bit = reader.position();
+            let value = decode_generated_utf8(reader, 7, 0, 124, 31)?;
+            fields.push(DecodedField {
+                path: "value.channel_name.literal".to_owned(),
+                kind: "utf8",
+                value,
+                start_bit,
+                end_bit: reader.position(),
+                depth: 2,
+            });
+            None
+        }
+        _ => unreachable!("two bits have only four values"),
+    };
+    fields.push(DecodedField {
+        path: "value.channel_name".to_owned(),
+        kind: "optional choice",
+        value: "present".to_owned(),
+        start_bit: container_start,
+        end_bit: reader.position(),
+        depth: 1,
+    });
+    Ok(id)
+}
+
+fn trace_optional_config(reader: &mut BitReader<'_>, fields: &mut Vec<DecodedField>) -> Result<()> {
+    let path = "value.channel_config";
+    let start_bit = reader.position();
+    let present = trace_integer(
+        reader,
+        fields,
+        &format!("{path}.present"),
+        "optional flag",
+        1,
+        2,
+    )? != 0;
+    if present {
+        decode_channel_config(reader)?;
+    }
+    fields.push(DecodedField {
+        path: path.to_owned(),
+        kind: "optional",
+        value: if present { "present" } else { "none" }.to_owned(),
+        start_bit,
+        end_bit: reader.position(),
+        depth: 1,
+    });
+    Ok(())
+}
+
+fn trace_optional_bits(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<DecodedField>,
+    path: &str,
+    value_bits: usize,
+    depth: usize,
+) -> Result<Option<u64>> {
+    let start_bit = reader.position();
+    let present = trace_integer(
+        reader,
+        fields,
+        &format!("{path}.present"),
+        "optional flag",
+        1,
+        depth + 1,
+    )? != 0;
+    let value = present
+        .then(|| {
+            trace_integer(
+                reader,
+                fields,
+                &format!("{path}.value"),
+                "bits",
+                value_bits,
+                depth + 1,
+            )
+        })
+        .transpose()?;
+    fields.push(DecodedField {
+        path: path.to_owned(),
+        kind: "optional",
+        value: if present { "present" } else { "none" }.to_owned(),
+        start_bit,
+        end_bit: reader.position(),
+        depth,
+    });
+    Ok(value)
+}
+
+fn trace_integer(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<DecodedField>,
+    path: &str,
+    kind: &'static str,
+    width: usize,
+    depth: usize,
+) -> Result<u64> {
+    let start_bit = reader.position();
+    let value = reader.read(width)?;
+    fields.push(DecodedField {
+        path: path.to_owned(),
+        kind,
+        value: value.to_string(),
+        start_bit,
+        end_bit: reader.position(),
+        depth,
+    });
+    Ok(value)
+}
+
 pub(crate) fn presence_fields(reader: &mut BitReader<'_>) -> Result<Payload> {
-    let count = read_usize(reader, 7)?;
-    if count > 100 {
+    Ok(presence_fields_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn presence_fields_with_provenance(
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let count = read_spanned_usize(reader, 7)?;
+    if count.value > 100 {
         return Err(native_error(
             "presence announcement contains too many field definitions",
         ));
     }
-    let mut entries = Vec::with_capacity(count);
-    for _ in 0..count {
-        let client_only = reader.read(1)? != 0;
-        let writable = reader.read(1)? != 0;
-        let ephemeral = reader.read(1)? != 0;
-        let fixed_size = if reader.read(1)? == 0 {
-            Some(read_u16(reader, 16)?)
-        } else {
+    let mut provenance = vec![spanned_field(
+        "value.entries.count",
+        "array length",
+        &count,
+        2,
+    )];
+    let mut entries = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.entries[{index}]");
+        let item_start = reader.position();
+        let client_only = read_spanned_u64(reader, 1)?;
+        let writable = read_spanned_u64(reader, 1)?;
+        let ephemeral = read_spanned_u64(reader, 1)?;
+        let fixed_start = reader.position();
+        let fixed_absent = reader.read(1)? != 0;
+        let fixed_size = if fixed_absent {
             None
+        } else {
+            Some(reader.read(16)?)
         };
-        let server_only = reader.read(1)? != 0;
-        let identifier = read_u8(reader, 8)?;
-        if identifier > 25 && identifier != u8::MAX {
+        let fixed_end = reader.position();
+        let server_only = read_spanned_u64(reader, 1)?;
+        let identifier = read_spanned_u8(reader, 8)?;
+        if identifier.value > 25 && identifier.value != u8::MAX {
             return Err(native_error(
                 "presence announcement contains an unknown field type",
             ));
         }
         let mut flags = 0;
-        if writable {
+        if writable.value != 0 {
             flags |= PresenceFieldFlags::WRITABLE;
         }
-        if ephemeral {
+        if ephemeral.value != 0 {
             flags |= PresenceFieldFlags::EPHEMERAL;
         }
-        if server_only {
+        if server_only.value != 0 {
             flags |= PresenceFieldFlags::SERVER_ONLY;
         }
-        if client_only {
+        if client_only.value != 0 {
             flags |= PresenceFieldFlags::CLIENT_ONLY;
         }
+        let handle = read_spanned_u32(reader, 32)?;
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "PresenceField",
+                "7 fields",
+                item_start,
+                reader.position(),
+                2,
+            ),
+            spanned_field(format!("{path}.client_only"), "bool", &client_only, 3),
+            spanned_field(format!("{path}.writable"), "bool", &writable, 3),
+            spanned_field(format!("{path}.ephemeral"), "bool", &ephemeral, 3),
+            decoded_field(
+                format!("{path}.fixed_size"),
+                "optional uint16",
+                fixed_size.map_or_else(|| "none".to_owned(), |value| value.to_string()),
+                fixed_start,
+                fixed_end,
+                3,
+            ),
+            spanned_field(format!("{path}.server_only"), "bool", &server_only, 3),
+            spanned_field(format!("{path}.identifier"), "uint8", &identifier, 3),
+            spanned_field(format!("{path}.handle"), "uint32", &handle, 3),
+        ]);
         entries.push(PresenceField {
-            handle: read_u32(reader, 32)?,
-            identifier,
+            handle: handle.value,
+            identifier: identifier.value,
             flags: PresenceFieldFlags::from_bits(flags),
-            fixed_size,
+            fixed_size: fixed_size
+                .map(|value| u16::try_from(value).expect("16-bit field fits in u16")),
         });
     }
-    Ok(Payload::PresenceFields(PresenceFields { entries }))
+    provenance.push(decoded_field(
+        "value.entries",
+        "array",
+        format!("{} items", entries.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::PresenceFields(PresenceFields { entries }),
+        provenance,
+        "PresenceFields",
+        "1 field",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn presence_update(reader: &mut BitReader<'_>) -> Result<Payload> {
-    reader.read(19)?;
-    // the generated presence flag is zero while online.
-    let online = reader.read(1)? == 0;
-    let local_presence_id = read_u32(reader, 32)?;
-    let master_presence_id = read_u32(reader, 32)?;
-    let field_bytes = read_usize(reader, 11)?;
-    if field_bytes > 1024 {
+    Ok(presence_update_with_provenance(reader)?.payload)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential step per field in the recovered wire layout"
+)]
+pub(crate) fn presence_update_with_provenance(
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let prefix = read_spanned_u64(reader, 19)?;
+    let online_wire = read_spanned_u64(reader, 1)?;
+    let online = online_wire.value == 0;
+    let local_presence_id = read_spanned_u32(reader, 32)?;
+    let master_presence_id = read_spanned_u32(reader, 32)?;
+    let field_bytes = read_spanned_usize(reader, 11)?;
+    if field_bytes.value > 1024 {
         return Err(native_error("presence update field data is too large"));
     }
-    let field_data = reader.read_bytes(field_bytes, true)?;
-    reader.read(11)?;
-    let cleared_count = read_usize(reader, 4)?;
-    let cleared_handles = (0..cleared_count)
-        .map(|_| read_u32(reader, 32))
-        .collect::<Result<Vec<_>>>()?;
-    let handle_count = read_usize(reader, 4)?;
-    let handles = (0..handle_count)
-        .map(|_| read_u32(reader, 32))
-        .collect::<Result<Vec<_>>>()?;
-    let variable_size_count = read_usize(reader, 4)?;
-    let variable_sizes = (0..variable_size_count)
-        .map(|_| read_u16(reader, 16))
-        .collect::<Result<Vec<_>>>()?;
-    if reader.read(1)? != 0 {
-        reader.read(1)?;
-        read_u32(reader, 32)?;
+    let field_start = reader.position();
+    let field_data = reader.read_bytes(field_bytes.value, true)?;
+    let field_end = reader.position();
+    let reserved = read_spanned_u64(reader, 11)?;
+    let mut provenance = vec![
+        spanned_field(
+            "value.wire_layout_selector",
+            "obfuscation selector",
+            &prefix,
+            1,
+        ),
+        decoded_field(
+            "value.online",
+            "bool (inverted)",
+            online.to_string(),
+            online_wire.start_bit,
+            online_wire.end_bit,
+            1,
+        ),
+        spanned_field("value.local_presence_id", "uint32", &local_presence_id, 1),
+        spanned_field("value.master_presence_id", "uint32", &master_presence_id, 1),
+        decoded_field(
+            "value.field_data",
+            "bytes",
+            format!("{} bytes", field_data.len()),
+            field_start,
+            field_end,
+            1,
+        ),
+        spanned_field("value.reserved", "reserved bits", &reserved, 1),
+    ];
+    let cleared_handles = trace_integer_array(
+        reader,
+        &mut provenance,
+        "value.cleared_handles",
+        4,
+        32,
+        "uint32",
+    )?
+    .into_iter()
+    .map(|value| u32::try_from(value).expect("32-bit field fits in u32"))
+    .collect();
+    let handles = trace_integer_array(reader, &mut provenance, "value.handles", 4, 32, "uint32")?
+        .into_iter()
+        .map(|value| u32::try_from(value).expect("32-bit field fits in u32"))
+        .collect();
+    let variable_sizes = trace_integer_array(
+        reader,
+        &mut provenance,
+        "value.variable_sizes",
+        4,
+        16,
+        "uint16",
+    )?
+    .into_iter()
+    .map(|value| u16::try_from(value).expect("16-bit field fits in u16"))
+    .collect();
+    let optional_start = reader.position();
+    let optional = if reader.read(1)? != 0 {
+        let flag = reader.read(1)?;
+        let id = reader.read(32)?;
+        format!("flag {flag}, id {id}")
+    } else {
+        "none".to_owned()
+    };
+    provenance.push(decoded_field(
+        "value.optional_target",
+        "optional",
+        optional,
+        optional_start,
+        reader.position(),
+        1,
+    ));
+    let suffix = read_spanned_u64(reader, 8)?;
+    provenance.push(spanned_field(
+        "value.trailing_selector",
+        "obfuscation selector",
+        &suffix,
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::PresenceUpdate(PresenceUpdate {
+            local_presence_id: local_presence_id.value,
+            master_presence_id: master_presence_id.value,
+            field_data,
+            cleared_handles,
+            handles,
+            variable_sizes,
+            online,
+        }),
+        provenance,
+        "PresenceUpdate",
+        "10 fields",
+        start_bit,
+        reader.position(),
+    ))
+}
+
+fn trace_integer_array(
+    reader: &mut BitReader<'_>,
+    provenance: &mut Vec<DecodedField>,
+    path: &str,
+    count_bits: usize,
+    item_bits: usize,
+    item_kind: &'static str,
+) -> Result<Vec<u64>> {
+    let start_bit = reader.position();
+    let count = read_spanned_usize(reader, count_bits)?;
+    provenance.push(spanned_field(
+        format!("{path}.count"),
+        "array length",
+        &count,
+        2,
+    ));
+    let mut values = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let item = read_spanned_u64(reader, item_bits)?;
+        provenance.push(spanned_field(
+            format!("{path}[{index}]"),
+            item_kind,
+            &item,
+            2,
+        ));
+        values.push(item.value);
     }
-    reader.read(8)?;
-    Ok(Payload::PresenceUpdate(PresenceUpdate {
-        local_presence_id,
-        master_presence_id,
-        field_data,
-        cleared_handles,
-        handles,
-        variable_sizes,
-        online,
-    }))
+    provenance.push(decoded_field(
+        path,
+        "array",
+        format!("{} items", values.len()),
+        start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(values)
 }
 
 pub(crate) fn current_season(reader: &mut BitReader<'_>) -> Result<Payload> {
-    if reader.read(1)? != 0 {
-        let error = reader.read(16)?;
-        return Ok(Payload::StartupSummary(StartupSummary {
-            kind: "current-season-error",
-            item_count: usize::try_from(error).expect("16-bit value fits usize"),
-            complete: None,
-        }));
+    Ok(current_season_with_provenance(reader)?.payload)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential step per field in the recovered wire layout"
+)]
+pub(crate) fn current_season_with_provenance(reader: &mut BitReader<'_>) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let failure = read_spanned_u64(reader, 1)?;
+    let mut provenance = vec![spanned_field("value.failure", "bool", &failure, 1)];
+    if failure.value != 0 {
+        let error = read_spanned_u64(reader, 16)?;
+        provenance.push(spanned_field("value.error", "uint16", &error, 1));
+        return Ok(custom_payload(
+            Payload::StartupSummary(StartupSummary {
+                kind: "current-season-error",
+                item_count: usize::try_from(error.value).expect("16-bit value fits usize"),
+                complete: None,
+            }),
+            provenance,
+            "CurrentSeason",
+            "failure",
+            start_bit,
+            reader.position(),
+        ));
     }
-    let authority = reader.read(1)? != 0;
-    let ranked = read_usize(reader, 7)?;
-    if ranked > 100 {
+    let authority = read_spanned_u64(reader, 1)?;
+    provenance.push(spanned_field("value.authority", "bool", &authority, 1));
+    let ranked = read_spanned_usize(reader, 7)?;
+    if ranked.value > 100 {
         return Err(native_error("current season has too many matchmakers"));
     }
-    for _ in 0..ranked {
+    let ranked_start = ranked.start_bit;
+    provenance.push(spanned_field(
+        "value.ranked.count",
+        "array length",
+        &ranked,
+        2,
+    ));
+    for index in 0..ranked.value {
+        let item_start = reader.position();
         decode_ranked_matchmaker(reader)?;
+        provenance.push(decoded_field(
+            format!("value.ranked[{index}]"),
+            "RankedMatchmaker",
+            "wire record",
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
-    let leagues = read_usize(reader, 9)?;
-    if leagues > 448 {
+    provenance.push(decoded_field(
+        "value.ranked",
+        "array",
+        format!("{} items", ranked.value),
+        ranked_start,
+        reader.position(),
+        1,
+    ));
+    let leagues = read_spanned_usize(reader, 9)?;
+    if leagues.value > 448 {
         return Err(native_error("current season has too many leagues"));
     }
-    for _ in 0..leagues {
+    let leagues_start = leagues.start_bit;
+    provenance.push(spanned_field(
+        "value.leagues.count",
+        "array length",
+        &leagues,
+        2,
+    ));
+    for index in 0..leagues.value {
+        let item_start = reader.position();
         decode_profile_address(reader)?;
         reader.read(8)?;
         decode_league_key(reader)?;
+        provenance.push(decoded_field(
+            format!("value.leagues[{index}]"),
+            "League",
+            "wire record",
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
+    provenance.push(decoded_field(
+        "value.leagues",
+        "array",
+        format!("{} items", leagues.value),
+        leagues_start,
+        reader.position(),
+        1,
+    ));
+    let season_start = reader.position();
     decode_season_info(reader)?;
-    let configurations = read_usize(reader, 9)?;
-    if configurations > 448 {
+    provenance.push(decoded_field(
+        "value.season",
+        "SeasonInfo",
+        "wire record",
+        season_start,
+        reader.position(),
+        1,
+    ));
+    let configurations = read_spanned_usize(reader, 9)?;
+    if configurations.value > 448 {
         return Err(native_error(
             "current season has too many league configurations",
         ));
     }
-    for _ in 0..configurations {
+    let configurations_start = configurations.start_bit;
+    provenance.push(spanned_field(
+        "value.configurations.count",
+        "array length",
+        &configurations,
+        2,
+    ));
+    for index in 0..configurations.value {
+        let item_start = reader.position();
         decode_league_key(reader)?;
         reader.read(64)?;
         if reader.read(1)? != 0 {
             reader.read(32)?;
         }
+        provenance.push(decoded_field(
+            format!("value.configurations[{index}]"),
+            "LeagueConfiguration",
+            "wire record",
+            item_start,
+            reader.position(),
+            2,
+        ));
     }
-    Ok(Payload::StartupSummary(StartupSummary {
-        kind: "current-season",
-        item_count: ranked + leagues + configurations,
-        complete: Some(authority),
-    }))
+    provenance.push(decoded_field(
+        "value.configurations",
+        "array",
+        format!("{} items", configurations.value),
+        configurations_start,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::StartupSummary(StartupSummary {
+            kind: "current-season",
+            item_count: ranked.value + leagues.value + configurations.value,
+            complete: Some(authority.value != 0),
+        }),
+        provenance,
+        "CurrentSeason",
+        "5 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn club_invite_action(
@@ -1040,6 +3084,45 @@ pub(crate) fn club_invite_action(
         member_realm: member.realm,
         member_id: member.id,
     }))
+}
+
+pub(crate) fn club_invite_action_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let decoded = protocol.codec().decode_traced_from(reader, type_id)?;
+    let root = decoded
+        .value
+        .as_struct()
+        .ok_or_else(|| native_error("client club invitation is not a struct"))?;
+    let action = root
+        .get("m_action")
+        .and_then(BsnValue::as_struct)
+        .ok_or_else(|| native_error("client club invitation omits its action"))?;
+    let club_id = expect_u32(
+        action
+            .get("m_clubId")
+            .ok_or_else(|| native_error("club invitation omits its group id"))?
+            .clone(),
+        "club invitation group id",
+    )?;
+    let member = toon_handle_from_value(
+        action
+            .get("m_member")
+            .ok_or_else(|| native_error("club invitation omits its member"))?,
+    )?
+    .ok_or_else(|| native_error("club invitation member is absent"))?;
+    Ok(DecodedPayload::new(
+        Payload::ClubInviteAction(ClubInviteAction {
+            club_id,
+            program: member.program_id,
+            member_kind: member.region,
+            member_realm: member.realm,
+            member_id: member.id,
+        }),
+        decoded.fields,
+    ))
 }
 
 pub(crate) fn club_info(
@@ -1083,6 +3166,18 @@ pub(crate) fn club_search(
     let mut ids = Vec::new();
     collect_club_ids(&value, &mut ids);
     Ok(Payload::ClubSearch(ids))
+}
+
+pub(crate) fn club_search_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    reflected_payload(protocol, type_id, reader, |value| {
+        let mut ids = Vec::new();
+        collect_club_ids(&value, &mut ids);
+        Ok(Payload::ClubSearch(ids))
+    })
 }
 
 fn collect_club_ids(value: &BsnValue, ids: &mut Vec<u32>) {
@@ -1244,15 +3339,6 @@ fn walk_club_elements(
     Ok((clubs, traces, start, incomplete))
 }
 
-pub(crate) fn club_summary_traces(bytes: &[u8], total: usize) -> Vec<ClubSummaryTrace> {
-    let Ok(mut reader) = BitReader::new(bytes, Some(total)) else {
-        return Vec::new();
-    };
-    walk_club_elements(&mut reader, total)
-        .map(|(_, traces, _, incomplete)| if incomplete { Vec::new() } else { traces })
-        .unwrap_or_default()
-}
-
 fn incomplete_club_frame(buffer_bits: usize) -> Error {
     Error::IncompleteFrame(format!(
         "club record runs past the {} bytes buffered",
@@ -1289,19 +3375,188 @@ pub(crate) fn club_summaries(
     Ok(Payload::ClubSummaries(clubs))
 }
 
+pub(crate) fn club_summaries_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let buffer_bits = reader.data().len() * 8;
+    let walked = protocol.codec().decode_from(reader, type_id);
+    let total = match &walked {
+        Ok(_) => reader.position(),
+        Err(_) => buffer_bits,
+    };
+    reader.set_position(start_bit)?;
+    let Ok((clubs, traces, elements_end, incomplete)) = walk_club_elements(reader, total) else {
+        return Err(incomplete_club_frame(buffer_bits));
+    };
+    if incomplete {
+        return Err(incomplete_club_frame(buffer_bits));
+    }
+    let tail = 32 + 8 + clubs.len() * 8 + 1;
+    let end_bit = (elements_end + tail).div_ceil(8) * 8;
+    if end_bit > buffer_bits {
+        return Err(incomplete_club_frame(buffer_bits));
+    }
+    reader.set_position(end_bit)?;
+    let provenance = club_summary_provenance(&clubs, &traces, start_bit, end_bit);
+    Ok(DecodedPayload::new(
+        Payload::ClubSummaries(clubs),
+        provenance,
+    ))
+}
+
+pub(crate) fn club_info_with_provenance(
+    protocol: &Protocol,
+    type_id: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let buffer_bits = reader.data().len() * 8;
+    let walked_end = match protocol.codec().decode_from(reader, type_id) {
+        Ok(_) => Some(reader.position()),
+        Err(_) => None,
+    };
+    reader.set_position(start_bit)?;
+    let Ok((clubs, traces, elements_end, incomplete)) =
+        walk_club_elements(reader, walked_end.unwrap_or(buffer_bits))
+    else {
+        return Err(incomplete_club_frame(buffer_bits));
+    };
+    if incomplete {
+        return Err(incomplete_club_frame(buffer_bits));
+    }
+    let end_bit = (elements_end + 1).div_ceil(8) * 8;
+    if end_bit > buffer_bits {
+        return Err(Error::IncompleteFrame(format!(
+            "club info needs {} bytes, {} buffered",
+            end_bit / 8,
+            buffer_bits / 8
+        )));
+    }
+    reader.set_position(end_bit)?;
+    let provenance = club_summary_provenance(&clubs, &traces, start_bit, end_bit);
+    Ok(DecodedPayload::new(Payload::ClubInfo(clubs), provenance))
+}
+
+fn club_summary_provenance(
+    clubs: &[ClubSummary],
+    traces: &[ClubSummaryTrace],
+    start_bit: usize,
+    end_bit: usize,
+) -> Vec<DecodedField> {
+    if traces.len() != clubs.len() {
+        return Vec::new();
+    }
+    let mut fields = vec![DecodedField {
+        path: "value".to_owned(),
+        kind: "array",
+        value: if clubs.len() == 1 {
+            "1 item".to_owned()
+        } else {
+            format!("{} items", clubs.len())
+        },
+        start_bit,
+        end_bit,
+        depth: 0,
+    }];
+    for (index, (club, trace)) in clubs.iter().zip(traces).enumerate() {
+        let path = format!("value[{index}]");
+        fields.push(DecodedField {
+            path: path.clone(),
+            kind: "object",
+            value: "5 fields".to_owned(),
+            start_bit: trace.item.start,
+            end_bit: trace.item.end,
+            depth: 1,
+        });
+        fields.extend([
+            traced_club_field(
+                format!("{path}.club_id"),
+                "uint32",
+                club.club_id.to_string(),
+                &trace.club_id,
+            ),
+            traced_club_field(
+                format!("{path}.name"),
+                "string",
+                club.name.clone().unwrap_or_default(),
+                &trace.name,
+            ),
+            traced_club_field(
+                format!("{path}.kind"),
+                "uint8",
+                club.kind.to_string(),
+                &trace.kind,
+            ),
+            traced_club_field(
+                format!("{path}.category"),
+                "uint8",
+                club.category.to_string(),
+                &trace.category,
+            ),
+            traced_club_field(
+                format!("{path}.private"),
+                "bool",
+                club.private.to_string(),
+                &trace.private,
+            ),
+        ]);
+    }
+    fields
+}
+
+fn traced_club_field(
+    path: String,
+    kind: &'static str,
+    value: String,
+    range: &std::ops::Range<usize>,
+) -> DecodedField {
+    DecodedField {
+        path,
+        kind,
+        value,
+        start_bit: range.start,
+        end_bit: range.end,
+        depth: 2,
+    }
+}
+
 pub(crate) fn club_settings(reader: &mut BitReader<'_>) -> Result<Payload> {
-    decode_generated_utf8(reader, 13, 0, 4096, 1024)?;
-    decode_generated_utf8(reader, 13, 0, 4096, 1024)?;
-    reader.read(32)?;
-    reader.read(32)?;
-    decode_i32(reader)?;
-    decode_i32(reader)?;
-    decode_i32(reader)?;
-    Ok(Payload::StartupSummary(StartupSummary {
-        kind: "club-settings",
-        item_count: 0,
-        complete: None,
-    }))
+    Ok(club_settings_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn club_settings_with_provenance(reader: &mut BitReader<'_>) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let description = decode_spanned_generated_utf8(reader, 13, 0, 4096, 1024)?;
+    let message = decode_spanned_generated_utf8(reader, 13, 0, 4096, 1024)?;
+    let first = read_spanned_u32(reader, 32)?;
+    let second = read_spanned_u32(reader, 32)?;
+    let first_signed = read_spanned_i32(reader)?;
+    let second_signed = read_spanned_i32(reader)?;
+    let third_signed = read_spanned_i32(reader)?;
+    let provenance = vec![
+        spanned_field("value.description", "string", &description, 1),
+        spanned_field("value.message", "string", &message, 1),
+        spanned_field("value.setting_0", "uint32", &first, 1),
+        spanned_field("value.setting_1", "uint32", &second, 1),
+        spanned_field("value.setting_2", "int32", &first_signed, 1),
+        spanned_field("value.setting_3", "int32", &second_signed, 1),
+        spanned_field("value.setting_4", "int32", &third_signed, 1),
+    ];
+    Ok(custom_payload(
+        Payload::StartupSummary(StartupSummary {
+            kind: "club-settings",
+            item_count: 0,
+            complete: None,
+        }),
+        provenance,
+        "ClubSettings",
+        "7 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn decode_generated_utf8(
@@ -1326,36 +3581,6 @@ pub(crate) fn decode_generated_utf8(
     Ok(value)
 }
 
-fn decode_field(
-    protocol: &Protocol,
-    struct_type: u32,
-    name: &str,
-    reader: &mut BitReader<'_>,
-) -> Result<BsnValue> {
-    let field_type = protocol.member_type(struct_type, name)?;
-    let start_position = reader.position();
-    protocol
-        .codec()
-        .decode_reflected_from(reader, field_type)
-        .map_err(|error| match error {
-            Error::IncompleteFrame(_) => error,
-            Error::BsnWire(message) => {
-                let struct_name = protocol
-                    .codec()
-                    .schema()
-                    .type_metadata(struct_type)
-                    .ok()
-                    .and_then(|metadata| metadata.name)
-                    .unwrap_or_else(|| "unnamed".to_owned());
-                Error::BsnWire(format!(
-                    "{message}; field {struct_name}.{name}, bits {start_position}..{}",
-                    reader.position()
-                ))
-            }
-            other => other,
-        })
-}
-
 fn choice_variant(shape: &TypeShape, index: i128) -> Result<u32> {
     let position = shape
         .index_values
@@ -1365,19 +3590,43 @@ fn choice_variant(shape: &TypeShape, index: i128) -> Result<u32> {
     Ok(shape.member_types[position])
 }
 
-fn decode_member_status(
+fn trace_member_status(
     protocol: &Protocol,
     status_shape: &TypeShape,
     reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
 ) -> Result<Option<ToonFullName>> {
-    let choice = i128::from(reader.read(3)?);
-    let variant = choice_variant(status_shape, choice)?;
-    match choice {
+    let start_bit = reader.position();
+    let choice = read_spanned_u64(reader, 3)?;
+    let variant = choice_variant(status_shape, i128::from(choice.value))?;
+    provenance.push(spanned_field(
+        format!("{path}.kind"),
+        "choice selector",
+        &choice,
+        depth + 1,
+    ));
+    let name = match choice.value {
         0 | 1 => {
-            protocol.codec().decode_reflected_from(reader, variant)?;
+            let decoded = protocol.codec().decode_reflected_traced_from(
+                reader,
+                variant,
+                &format!("{path}.value"),
+                depth + 1,
+            )?;
+            provenance.extend(decoded.fields);
+            None
         }
         2 => {
-            reader.read(8)?;
+            let value = read_spanned_u64(reader, 8)?;
+            provenance.push(spanned_field(
+                format!("{path}.value"),
+                "uint8",
+                &value,
+                depth + 1,
+            ));
+            None
         }
         3 => {
             let wrapper = protocol.peel_alias(variant)?;
@@ -1387,82 +3636,233 @@ fn decode_member_status(
                 .first()
                 .ok_or_else(|| native_error("talker status wrapper is empty"))?;
             let identifier = protocol.member_type(inner, "m_id")?;
-            protocol.codec().decode_reflected_from(reader, identifier)?;
-            reader.read(1)?;
+            let decoded = protocol.codec().decode_reflected_traced_from(
+                reader,
+                identifier,
+                &format!("{path}.id"),
+                depth + 1,
+            )?;
+            provenance.extend(decoded.fields);
+            let flag = read_spanned_u64(reader, 1)?;
+            provenance.push(spanned_field(
+                format!("{path}.flag"),
+                "bool",
+                &flag,
+                depth + 1,
+            ));
+            None
         }
         4 | 6 => {
-            reader.read(1)?;
+            let value = read_spanned_u64(reader, 1)?;
+            provenance.push(spanned_field(
+                format!("{path}.value"),
+                "bool",
+                &value,
+                depth + 1,
+            ));
+            None
         }
-        5 => return Ok(Some(decode_chat_display_name(reader)?)),
-        7 => {}
+        5 => Some(trace_chat_display_name(
+            reader,
+            path,
+            depth + 1,
+            provenance,
+        )?),
+        7 => None,
         _ => return Err(native_error("chat member status has an unknown choice")),
-    }
-    Ok(None)
+    };
+    provenance.push(decoded_field(
+        path,
+        "MemberStatus",
+        format!("variant {}", choice.value),
+        start_bit,
+        reader.position(),
+        depth,
+    ));
+    Ok(name)
 }
 
-fn decode_chat_display_name(reader: &mut BitReader<'_>) -> Result<ToonFullName> {
+fn trace_chat_display_name(
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<ToonFullName> {
+    let region = read_spanned_u8(reader, 8)?;
+    let program_id = read_spanned_u32(reader, 32)?;
+    let realm = read_spanned_u32(reader, 32)?;
+    let name = decode_spanned_generated_utf8(reader, 7, 2, 100, 25)?;
+    provenance.extend([
+        spanned_field(format!("{path}.region"), "uint8", &region, depth),
+        spanned_field(format!("{path}.program_id"), "fourcc", &program_id, depth),
+        spanned_field(format!("{path}.realm"), "uint32", &realm, depth),
+        spanned_field(format!("{path}.name"), "string", &name, depth),
+    ]);
     Ok(ToonFullName {
-        region: read_u8(reader, 8)?,
-        program_id: read_u32(reader, 32)?,
-        realm: read_u32(reader, 32)?,
-        name: decode_generated_utf8(reader, 7, 2, 100, 25)?,
+        region: region.value,
+        program_id: program_id.value,
+        realm: realm.value,
+        name: name.value,
     })
 }
 
-fn decode_friend_container(protocol: &Protocol, reader: &mut BitReader<'_>) -> Result<FriendEntry> {
-    match reader.read(2)? {
-        0 => decode_friend_character(protocol, reader),
-        1 => decode_friend_account(protocol, reader),
+fn trace_friend_container(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<FriendEntry> {
+    let start_bit = reader.position();
+    let choice = read_spanned_u64(reader, 2)?;
+    provenance.push(spanned_field(
+        format!("{path}.kind"),
+        "choice selector",
+        &choice,
+        depth + 1,
+    ));
+    let entry = match choice.value {
+        0 => trace_friend_character(protocol, reader, path, depth, provenance)?,
+        1 => trace_friend_account(protocol, reader, path, depth, provenance)?,
         2 => {
-            let account_id = read_u32(reader, 32)?;
-            if reader.read(1)? != 0 {
-                decode_friend_custom_message(reader)?;
-            }
-            decode_i32(reader)?;
-            Ok(FriendEntry {
-                identity: FriendIdentity::Account(account_id),
+            let account_id = read_spanned_u32(reader, 32)?;
+            provenance.push(spanned_field(
+                format!("{path}.identity.account_id"),
+                "uint32",
+                &account_id,
+                depth + 1,
+            ));
+            trace_friend_custom_message(reader, path, depth + 1, provenance)?;
+            let last_online = read_spanned_i32(reader)?;
+            provenance.push(spanned_field(
+                format!("{path}.last_online"),
+                "int32",
+                &last_online,
+                depth + 1,
+            ));
+            FriendEntry {
+                identity: FriendIdentity::Account(account_id.value),
                 display_name: None,
                 full_name: None,
                 note: None,
                 profile: None,
                 toon_name: None,
-            })
+            }
         }
-        _ => Err(native_error(
-            "friends update contains an unknown container choice",
-        )),
-    }
+        _ => {
+            return Err(native_error(
+                "friends update contains an unknown container choice",
+            ));
+        }
+    };
+    provenance.push(decoded_field(
+        path,
+        "FriendEntry",
+        format!("variant {}", choice.value),
+        start_bit,
+        reader.position(),
+        depth,
+    ));
+    Ok(entry)
 }
 
-fn decode_friend_account(protocol: &Protocol, reader: &mut BitReader<'_>) -> Result<FriendEntry> {
+fn trace_friend_account(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<FriendEntry> {
     let account_type = protocol
         .codec()
         .schema()
         .unique_type_id("Battlenet::Friends::FriendContainer5::Account")?;
-    let account_id = read_u32(reader, 32)?;
+    let account_id = read_spanned_u32(reader, 32)?;
+    provenance.push(spanned_field(
+        format!("{path}.identity.account_id"),
+        "uint32",
+        &account_id,
+        depth + 1,
+    ));
+    let full_name_start = reader.position();
     let full_name = if reader.read(1)? != 0 {
-        let full_name = protocol.member_type(account_type, "m_fullName")?;
-        let element = optional_element(protocol, full_name)?;
-        full_name_from_value(&protocol.codec().decode_reflected_from(reader, element)?)
+        let full_name_type = protocol.member_type(account_type, "m_fullName")?;
+        let element = optional_element(protocol, full_name_type)?;
+        let decoded = protocol.codec().decode_reflected_traced_from(
+            reader,
+            element,
+            &format!("{path}.full_name.value"),
+            depth + 2,
+        )?;
+        provenance.extend(decoded.fields);
+        full_name_from_value(&decoded.value)
     } else {
         None
     };
-    let display_name = (reader.read(1)? != 0)
-        .then(|| decode_generated_utf8(reader, 7, 0, 108, 27))
-        .transpose()?;
-    let profile =
-        profile_address_from_value(&decode_field(protocol, account_type, "m_profile", reader)?)?;
-    if reader.read(1)? != 0 {
-        decode_friend_custom_message(reader)?;
-    }
-    let note = (reader.read(1)? != 0)
-        .then(|| decode_generated_utf8(reader, 9, 0, 508, 127))
-        .transpose()?;
-    decode_i32(reader)?;
-    reader.read(64)?;
-    reader.read(32)?;
+    provenance.push(decoded_field(
+        format!("{path}.full_name"),
+        "optional name",
+        full_name.clone().unwrap_or_else(|| "none".to_owned()),
+        full_name_start,
+        reader.position(),
+        depth + 1,
+    ));
+    let display_name = trace_optional_utf8(
+        reader,
+        provenance,
+        &format!("{path}.display_name"),
+        depth + 1,
+        7,
+        0,
+        108,
+        27,
+    )?;
+    let profile_value = traced_reflected_field(
+        protocol,
+        account_type,
+        "m_profile",
+        reader,
+        &format!("{path}.profile"),
+        depth + 1,
+        provenance,
+    )?;
+    let profile = profile_address_from_value(&profile_value)?;
+    trace_friend_custom_message(reader, path, depth + 1, provenance)?;
+    let note = trace_optional_utf8(
+        reader,
+        provenance,
+        &format!("{path}.note"),
+        depth + 1,
+        9,
+        0,
+        508,
+        127,
+    )?;
+    let last_online = read_spanned_i32(reader)?;
+    let account_serial = read_spanned_u64(reader, 64)?;
+    let game_account_id = read_spanned_u32(reader, 32)?;
+    provenance.extend([
+        spanned_field(
+            format!("{path}.last_online"),
+            "int32",
+            &last_online,
+            depth + 1,
+        ),
+        spanned_field(
+            format!("{path}.account_serial"),
+            "uint64",
+            &account_serial,
+            depth + 1,
+        ),
+        spanned_field(
+            format!("{path}.game_account_id"),
+            "uint32",
+            &game_account_id,
+            depth + 1,
+        ),
+    ]);
     Ok(FriendEntry {
-        identity: FriendIdentity::Account(account_id),
+        identity: FriendIdentity::Account(account_id.value),
         display_name,
         full_name,
         note,
@@ -1471,25 +3871,54 @@ fn decode_friend_account(protocol: &Protocol, reader: &mut BitReader<'_>) -> Res
     })
 }
 
-fn decode_friend_character(protocol: &Protocol, reader: &mut BitReader<'_>) -> Result<FriendEntry> {
+fn trace_friend_character(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<FriendEntry> {
     let character_type = protocol
         .codec()
         .schema()
         .unique_type_id("Battlenet::Friends::FriendContainer5::Character")?;
-    let identity = decode_toon_handle(protocol, reader)?;
-    let display_name = decode_generated_utf8(reader, 7, 2, 100, 25)?;
-    let profile = profile_address_from_value(&decode_field(
+    let identity = trace_toon_handle(
+        protocol,
+        reader,
+        &format!("{path}.identity"),
+        depth + 1,
+        provenance,
+    )?;
+    let display_name = decode_spanned_generated_utf8(reader, 7, 2, 100, 25)?;
+    provenance.push(spanned_field(
+        format!("{path}.display_name"),
+        "string",
+        &display_name,
+        depth + 1,
+    ));
+    let profile_value = traced_reflected_field(
         protocol,
         character_type,
         "m_profile",
         reader,
-    )?)?;
-    let note = (reader.read(1)? != 0)
-        .then(|| decode_generated_utf8(reader, 9, 0, 508, 127))
-        .transpose()?;
+        &format!("{path}.profile"),
+        depth + 1,
+        provenance,
+    )?;
+    let profile = profile_address_from_value(&profile_value)?;
+    let note = trace_optional_utf8(
+        reader,
+        provenance,
+        &format!("{path}.note"),
+        depth + 1,
+        9,
+        0,
+        508,
+        127,
+    )?;
     Ok(FriendEntry {
         identity,
-        display_name: Some(display_name),
+        display_name: Some(display_name.value),
         full_name: None,
         note,
         profile,
@@ -1497,34 +3926,126 @@ fn decode_friend_character(protocol: &Protocol, reader: &mut BitReader<'_>) -> R
     })
 }
 
-fn decode_toon_handle(protocol: &Protocol, reader: &mut BitReader<'_>) -> Result<FriendIdentity> {
+fn trace_toon_handle(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<FriendIdentity> {
+    let start_bit = reader.position();
     let selected_type = protocol.incoming_type(
         crate::native::protocol::TOON_SLOT,
         crate::native::protocol::TOON_SELECTED_COMMAND,
     )?;
     let handle_type = protocol.member_type(selected_type, "m_toonHandle")?;
-    let program_id = expect_u32(
-        decode_field(protocol, handle_type, "m_programId", reader)?,
-        "toon program id",
-    )?;
-    let region = expect_u32(
-        decode_field(protocol, handle_type, "m_region", reader)?,
-        "toon region",
-    )?;
-    let realm = expect_u32(
-        decode_field(protocol, handle_type, "m_realm", reader)?,
-        "toon realm",
-    )?;
-    let id = expect_u64(
-        decode_field(protocol, handle_type, "m_id", reader)?,
-        "toon id",
-    )?;
+    let mut values = [0_u64; 4];
+    for (value, name) in values
+        .iter_mut()
+        .zip(["m_programId", "m_region", "m_realm", "m_id"])
+    {
+        let decoded = traced_reflected_field(
+            protocol,
+            handle_type,
+            name,
+            reader,
+            &format!("{path}.{name}"),
+            depth + 1,
+            provenance,
+        )?;
+        *value = match decoded {
+            BsnValue::FourCc(value) => u64::from(value),
+            value => expect_u64(value, "toon handle field")?,
+        };
+    }
+    provenance.push(decoded_field(
+        path,
+        "ToonHandle",
+        "4 fields",
+        start_bit,
+        reader.position(),
+        depth,
+    ));
     Ok(FriendIdentity::Character {
-        program_id,
-        region,
-        realm,
-        id,
+        program_id: u32::try_from(values[0]).expect("program id fits in u32"),
+        region: u32::try_from(values[1]).expect("region fits in u32"),
+        realm: u32::try_from(values[2]).expect("realm fits in u32"),
+        id: values[3],
     })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the native string bounds are schema data"
+)]
+fn trace_optional_utf8(
+    reader: &mut BitReader<'_>,
+    provenance: &mut Vec<DecodedField>,
+    path: &str,
+    depth: usize,
+    length_bits: usize,
+    minimum_bytes: usize,
+    maximum_bytes: usize,
+    maximum_characters: usize,
+) -> Result<Option<String>> {
+    let start_bit = reader.position();
+    let value = if reader.read(1)? != 0 {
+        Some(decode_generated_utf8(
+            reader,
+            length_bits,
+            minimum_bytes,
+            maximum_bytes,
+            maximum_characters,
+        )?)
+    } else {
+        None
+    };
+    provenance.push(decoded_field(
+        path,
+        "optional string",
+        value.clone().unwrap_or_else(|| "none".to_owned()),
+        start_bit,
+        reader.position(),
+        depth,
+    ));
+    Ok(value)
+}
+
+fn trace_friend_custom_message(
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+    provenance: &mut Vec<DecodedField>,
+) -> Result<()> {
+    let start_bit = reader.position();
+    let present = reader.read(1)? != 0;
+    if present {
+        let timestamp = read_spanned_i32(reader)?;
+        let message = decode_spanned_generated_utf8(reader, 9, 0, 508, 127)?;
+        provenance.extend([
+            spanned_field(
+                format!("{path}.custom_message.timestamp"),
+                "int32",
+                &timestamp,
+                depth + 1,
+            ),
+            spanned_field(
+                format!("{path}.custom_message.text"),
+                "string",
+                &message,
+                depth + 1,
+            ),
+        ]);
+    }
+    provenance.push(decoded_field(
+        format!("{path}.custom_message"),
+        "optional",
+        if present { "present" } else { "none" },
+        start_bit,
+        reader.position(),
+        depth,
+    ));
+    Ok(())
 }
 
 fn full_name_from_value(value: &BsnValue) -> Option<String> {
@@ -1660,12 +4181,6 @@ fn profile_address_from_value(value: &BsnValue) -> Result<Option<ProfileAddress>
         id: expect_u64(id, "friend profile id")?,
     };
     Ok((address.label != 0 || address.id != 0).then_some(address))
-}
-
-fn decode_friend_custom_message(reader: &mut BitReader<'_>) -> Result<()> {
-    decode_i32(reader)?;
-    decode_generated_utf8(reader, 9, 0, 508, 127)?;
-    Ok(())
 }
 
 fn optional_element(protocol: &Protocol, type_id: u32) -> Result<u32> {
@@ -1812,12 +4327,6 @@ fn decode_season_info(reader: &mut BitReader<'_>) -> Result<()> {
     Ok(())
 }
 
-fn decode_i32(reader: &mut BitReader<'_>) -> Result<i32> {
-    Ok(i32::from_ne_bytes(
-        (read_u32(reader, 32)? ^ 0x8000_0000).to_ne_bytes(),
-    ))
-}
-
 fn read_usize(reader: &mut BitReader<'_>, width: usize) -> Result<usize> {
     usize::try_from(reader.read(width)?).map_err(|_| native_error("integer exceeds usize"))
 }
@@ -1855,6 +4364,103 @@ mod tests {
 
     fn protocol() -> Protocol {
         Protocol::current().unwrap()
+    }
+
+    #[test]
+    fn toon_list_traces_every_physical_wire_field() {
+        let protocol = protocol();
+        let root_type = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Client::Toon::ToonList")
+            .unwrap();
+        let display_type = protocol
+            .array_element(protocol.member_type(root_type, "m_toonDisplays").unwrap())
+            .unwrap();
+        let profile_type = protocol.member_type(display_type, "m_profile").unwrap();
+        let realm_type = protocol.member_type(display_type, "m_realm").unwrap();
+        let profile_type = protocol.peel_alias(profile_type).unwrap();
+        let profile_shape = protocol.codec().schema().shape(profile_type).unwrap();
+        let profile = BsnValue::Struct(BsnStruct::new(
+            profile_type,
+            vec![
+                BsnField::named(
+                    profile_shape.index_values[0],
+                    "m_label",
+                    BsnValue::Integer(0x1020_3040),
+                ),
+                BsnField::named(
+                    profile_shape.index_values[1],
+                    "m_id",
+                    BsnValue::Integer(0x1122_3344_5566_7788),
+                ),
+            ],
+        ));
+        let mut writer = BitWriter::new();
+        writer.write(1, 6).unwrap();
+        writer.write(3, 7).unwrap();
+        writer.align().unwrap();
+        writer.write_bytes(b"Nova!", false).unwrap();
+        writer
+            .write(u64::from(123_i32.cast_unsigned() ^ 0x8000_0000), 32)
+            .unwrap();
+        writer.write(5, 3).unwrap();
+        writer.write(0xa1b2_c3d4, 32).unwrap();
+        protocol
+            .codec()
+            .encode_reflected_into(&mut writer, profile_type, &profile)
+            .unwrap();
+        protocol
+            .codec()
+            .encode_reflected_into(&mut writer, realm_type, &BsnValue::Integer(7))
+            .unwrap();
+        let logical_bits = writer.position();
+        let bytes = writer.into_bytes();
+        let mut reader = BitReader::new(&bytes, Some(logical_bits)).unwrap();
+
+        let decoded = toon_list_with_provenance(&protocol, root_type, &mut reader).unwrap();
+        let Payload::ToonList(list) = decoded.payload else {
+            panic!("expected a toon list");
+        };
+        assert_eq!(list.displays[0].name, "Nova!");
+        assert_eq!(list.displays[0].realm, 7);
+        assert_eq!(reader.position(), logical_bits);
+
+        for path in [
+            "value.displays.count",
+            "value.displays[0].name",
+            "value.displays[0].last_online",
+            "value.displays[0].wire_layout_selector",
+            "value.displays[0].flags",
+            "value.displays[0].profile.m_label",
+            "value.displays[0].profile.m_id",
+            "value.displays[0].realm",
+        ] {
+            let field = decoded
+                .provenance
+                .iter()
+                .find(|field| field.path == path)
+                .unwrap_or_else(|| panic!("missing {path}"));
+            assert!(field.end_bit > field.start_bit, "{path}");
+        }
+        assert_eq!(
+            decoded
+                .provenance
+                .iter()
+                .find(|field| field.path == "value.displays[0].wire_layout_selector")
+                .unwrap()
+                .value,
+            "5"
+        );
+        assert_eq!(
+            decoded
+                .provenance
+                .iter()
+                .find(|field| field.path == "value.displays[0].last_online")
+                .unwrap()
+                .value,
+            "123"
+        );
     }
 
     #[test]

@@ -39,12 +39,20 @@ pub struct TracedDecodedValue {
 }
 
 pub type DecodeWireLayout = for<'data> fn(&Codec, u32, &mut BitReader<'data>) -> Result<BsnValue>;
+pub type DecodeTracedWireLayout = for<'data> fn(
+    &Codec,
+    u32,
+    &mut BitReader<'data>,
+    &str,
+    usize,
+) -> Result<(BsnValue, Vec<DecodedField>)>;
 pub type EncodeWireLayout = fn(&Codec, u32, &mut BitWriter, &BsnValue) -> Result<()>;
 
 #[derive(Clone, Copy)]
 pub struct WireLayout {
     name: &'static str,
     decode: DecodeWireLayout,
+    decode_traced: Option<DecodeTracedWireLayout>,
     encode: EncodeWireLayout,
 }
 
@@ -58,6 +66,22 @@ impl WireLayout {
         Self {
             name,
             decode,
+            decode_traced: None,
+            encode,
+        }
+    }
+
+    #[must_use]
+    pub const fn new_traced(
+        name: &'static str,
+        decode: DecodeWireLayout,
+        decode_traced: DecodeTracedWireLayout,
+        encode: EncodeWireLayout,
+    ) -> Self {
+        Self {
+            name,
+            decode,
+            decode_traced: Some(decode_traced),
             encode,
         }
     }
@@ -360,6 +384,31 @@ impl Codec {
         self.decode_from_scoped(reader, type_id, true)
     }
 
+    pub(crate) fn decode_reflected_traced_from(
+        &self,
+        reader: &mut BitReader<'_>,
+        type_id: u32,
+        path: &str,
+        depth: usize,
+    ) -> Result<TracedDecodedValue> {
+        let start_position = reader.position();
+        let mut fields = Some(Vec::new());
+        let value =
+            self.decode_from_scoped_traced(reader, type_id, true, path, depth, &mut fields)?;
+        let mut fields = fields.unwrap_or_default();
+        fields.sort_by(|left, right| {
+            left.start_bit
+                .cmp(&right.start_bit)
+                .then_with(|| left.depth.cmp(&right.depth))
+                .then_with(|| right.end_bit.cmp(&left.end_bit))
+        });
+        Ok(TracedDecodedValue {
+            value,
+            bit_count: reader.position() - start_position,
+            fields,
+        })
+    }
+
     fn decode_from_scoped(
         &self,
         reader: &mut BitReader<'_>,
@@ -423,6 +472,13 @@ impl Codec {
     ) -> Result<BsnValue> {
         let shape = self.schema.shape(type_id)?;
         if let Some(RegisteredWireLayout::Custom(layout)) = self.wire_layouts.get(&type_id) {
+            if let Some(decode_traced) = layout.decode_traced
+                && let Some(destination) = fields
+            {
+                let (value, traced_fields) = decode_traced(self, type_id, reader, path, depth)?;
+                destination.extend(traced_fields);
+                return Ok(value);
+            }
             return (layout.decode)(self, type_id, reader);
         }
         let reflected_scope = self.reflected_scope(type_id, &shape, reflected_scope)?;
