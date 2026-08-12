@@ -1,0 +1,132 @@
+html,
+body,
+#boot,
+canvas {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #0b0f15;
+}
+
+canvas {
+  display: block;
+}
+
+#loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #7d8fa8;
+  background: #0b0f15;
+  font: 12px system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  line-height: 2;
+  text-align: center;
+}
+
+#loading small {
+  display: block;
+  max-width: 560px;
+  color: #536d88;
+  letter-spacing: 0.03em;
+}
+
+#loading code {
+  color: #5ccfff;
+}
+
+.landing {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  color: #d9e7f7;
+  background:
+    linear-gradient(rgba(4, 10, 18, 0.72), rgba(4, 10, 18, 0.94)),
+    url("/ui/deep-nebula.png") center / cover;
+  font-family: system-ui, sans-serif;
+}
+
+.landing-card {
+  width: min(520px, calc(100vw - 48px));
+  padding: 42px;
+  border: 1px solid #174c6d;
+  background: rgba(3, 10, 18, 0.94);
+  box-shadow: 0 0 34px rgba(18, 124, 210, 0.2);
+  text-align: center;
+}
+
+.landing-card img {
+  width: 64px;
+  height: 64px;
+}
+
+.landing-card h1 {
+  margin: 18px 0 10px;
+  color: #eaf7ff;
+  font-size: 25px;
+  letter-spacing: 0.12em;
+}
+
+.landing-card p {
+  margin: 0 0 28px;
+  color: #7d91ab;
+  font-size: 14px;
+}
+
+.landing-card form {
+  display: flex;
+  gap: 10px;
+}
+
+.landing-card input {
+  min-width: 0;
+  flex: 1;
+  padding: 13px 15px;
+  border: 1px solid #174c6d;
+  outline: none;
+  color: #d9e7f7;
+  background: #050d16;
+}
+
+.landing-card input:focus {
+  border-color: #39aee8;
+  box-shadow: 0 0 12px rgba(57, 174, 232, 0.2);
+}
+
+.landing-card button {
+  padding: 0 24px;
+  border: 1px solid #2588bd;
+  color: #eaf7ff;
+  background: linear-gradient(#0d4670, #08243c);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.landing-card button:hover {
+  border-color: #5ccfff;
+  background: linear-gradient(#126094, #0a3150);
+}
+
+.landing-error {
+  min-height: 18px;
+  margin-top: 14px;
+  color: #ff7968;
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .landing-card {
+    padding: 30px 22px;
+  }
+
+  .landing-card form {
+    flex-direction: column;
+  }
+
+  .landing-card button {
+    min-height: 44px;
+  }
+}

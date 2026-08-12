@@ -1,0 +1,8 @@
+[package]
+name = "extract-bsn-metadata"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+sc2-core = { package = "superiority-core", path = "../../core" }
