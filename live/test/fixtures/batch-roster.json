@@ -1,0 +1,50 @@
+{
+  "v": 1,
+  "session": {
+    "id": "ffeeddccbbaa99887766554433221100",
+    "client_version": "0.1.19",
+    "started_at": 1754700100000
+  },
+  "events": [
+    { "seq": 1, "ts": 1754700100500, "kind": "session_started" },
+    {
+      "seq": 2,
+      "ts": 1754700101000,
+      "kind": "joined",
+      "channel": { "key": "club:5322", "name": "Night Owls" }
+    },
+    {
+      "seq": 3,
+      "ts": 1754700101500,
+      "kind": "sync_started"
+    },
+    {
+      "seq": 4,
+      "ts": 1754700102000,
+      "kind": "roster",
+      "channel": { "key": "club:5322", "name": "Night Owls" },
+      "complete": true,
+      "count": 3,
+      "users": [
+        { "handle": 7, "name": "Overmind", "clan_tag": null, "presence": "online" },
+        { "handle": 12345, "name": "Radiant", "clan_tag": "SLIM", "presence": "away" },
+        { "handle": 991, "name": "Zergling", "clan_tag": null, "presence": "online" }
+      ]
+    },
+    { "seq": 5, "ts": 1754700103000, "kind": "session_synced" },
+    {
+      "seq": 6,
+      "ts": 1754700105000,
+      "kind": "member_left",
+      "channel": { "key": "club:5322", "name": "Night Owls" },
+      "user": { "handle": 991, "name": "Zergling", "clan_tag": null }
+    },
+    {
+      "seq": 7,
+      "ts": 1754700106000,
+      "kind": "member_joined",
+      "channel": { "key": "club:5322", "name": "Night Owls" },
+      "user": { "handle": 4242, "name": "Probe", "clan_tag": "TOSS" }
+    }
+  ]
+}

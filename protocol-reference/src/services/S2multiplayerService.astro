@@ -1,0 +1,138 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-s2multiplayer">
+  <Fragment slot="title">9.8 <code>S2Mp</code> — SC2 multiplayer and groups</Fragment>
+<p>Beyond club-settings validation, this service carries the Battle.net group
+    (&ldquo;club&rdquo;) subsystem: listing an account's groups, searching them,
+    reading a group's details, and answering invitations. Several of these
+    decoders are <em>positional</em> &mdash; they seek to absolute bit offsets
+    measured from the start of the record, header included &mdash; because the
+    generated order interleaves reserved runs the reflection metadata omits.</p>
+    <p class="endpoint-index">
+      <a href="#s2multiplayer-get-toon-clubs">S2Mp/46 GetToonClubs</a><a href="#s2multiplayer-get-toon-clubs-response">S2Mp/46 response</a>
+      <a href="#s2multiplayer-search-clubs">S2Mp/51 SearchClubs</a><a href="#s2multiplayer-search-clubs-response">S2Mp/51 response</a>
+      <a href="#s2multiplayer-member-clan-tags">S2Mp/53 MemberClanTags</a><a href="#s2multiplayer-invite-action">S2Mp/54 InviteAction</a>
+      <a href="#s2multiplayer-get-club-info">S2Mp/55 GetClubInfo</a><a href="#s2multiplayer-get-club-info-response">S2Mp/55 response</a>
+      <a href="#s2multiplayer-club-settings">S2Mp/57 ClubSettings</a>
+    </p>
+
+    <Endpoint id="s2multiplayer-get-toon-clubs" direction="client → server" phase="protected" structure="logical order" status="live verified">
+      <Fragment slot="title"><code>S2Mp/46</code> Club::GetToonClubs</Fragment>
+      <p>Asks which groups a toon belongs to. The answer returns on the same
+      command id.</p>
+<pre is:raw><span class="syn-field">token</span>            <span class="syn-type">u32</span>
+<span class="syn-field">handle.programId</span> <span class="syn-type">u32</span>
+<span class="syn-field">handle.region</span>    <span class="syn-type">u8</span>
+<span class="syn-field">handle.realm</span>     <span class="syn-type">u32</span>
+<span class="syn-field">handle.id</span>        <span class="syn-type">u64</span>
+<span class="syn-keyword">alignToByte</span>       <span class="syn-comment">168 payload bits, 23 bytes total</span></pre>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-get-toon-clubs-response" direction="server → client" phase="protected" structure="positional (generated order)" status="capture verified">
+      <Fragment slot="title"><code>S2Mp/46</code> Club::GetToonClubsResponse</Fragment>
+      <p>An array of <code>ClubSummaryInfo</code> for the account's groups. The
+      element walk below is shared with <code>S2Mp/55</code>; offsets inside an
+      element are relative to that element's start <code>S</code>.</p>
+<pre is:raw><span class="syn-field">resultTag</span>    <span class="syn-type">u1</span> <span class="syn-comment">0 = success</span>
+<span class="syn-field">clubCount</span>    <span class="syn-type">u8</span> <span class="syn-comment">&lt;=201</span>
+<span class="syn-field">token</span>        <span class="syn-type">u32</span>
+<span class="syn-keyword">repeat</span> clubCount: <span class="syn-type">ClubSummaryInfo</span>
+<span class="syn-field">tail</span>         <span class="syn-type">u32</span> + <span class="syn-field">rankCount</span> <span class="syn-type">u8</span> + <span class="syn-field">rank</span> <span class="syn-type">u8</span>[clubCount] + <span class="syn-field">isLastPacket</span> <span class="syn-type">bool</span>
+
+<span class="syn-type">ClubSummaryInfo</span> {
+    <span class="syn-field">m_id</span>        <span class="syn-type">u32</span>                          <span class="syn-comment">S+0</span>
+    <span class="syn-field">clubId</span>      <span class="syn-type">u32</span>                          <span class="syn-comment">S+32; the id Battle.net shows</span>
+    <span class="syn-field">category</span>    <span class="syn-type">u8</span>                           <span class="syn-comment">S+64</span>
+    <span class="syn-field">nameLen</span>     <span class="syn-type">u8</span> <span class="syn-comment">&lt;=32 bytes</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">name</span> <span class="syn-type">bytes</span>[nameLen]
+    <span class="syn-field">private</span>     <span class="syn-type">u1</span>                           <span class="syn-comment">nameEnd+128</span>
+    <span class="syn-field">kind</span>        <span class="syn-type">u8</span>                           <span class="syn-comment">nameEnd+134</span>
+    <span class="syn-field">tagPresent</span>  <span class="syn-type">u1</span>                           <span class="syn-comment">nameEnd+206</span>
+        <span class="syn-keyword">if set</span>: <span class="syn-field">tagLen</span> <span class="syn-type">u5</span> <span class="syn-comment">&lt;=24</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">tag</span> <span class="syn-type">bytes</span>[tagLen]
+    <span class="syn-field">iconPresent</span> <span class="syn-type">u1</span>                           <span class="syn-comment">cursor+28</span>
+        <span class="syn-keyword">if set</span>: <span class="syn-keyword">alignToByte</span>, <span class="syn-field">icon</span> <span class="syn-type">Cache::Handle bytes</span>[<span class="syn-number">40</span>]
+}</pre>
+      <p class="endpoint-note">Positional decode from bit 0 of the record. The name
+      length is an eight-bit count capped at 32 bytes (earlier notes said 128; the
+      decoder is the authority).</p>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-search-clubs" direction="client → server" phase="protected" structure="generated order" status="defined">
+      <Fragment slot="title"><code>S2Mp/51</code> Club::SearchClubs</Fragment>
+      <p>Searches Battle.net groups by name. The type filter excludes clans so the
+      results are joinable communities.</p>
+<pre is:raw><span class="syn-field">token</span>    <span class="syn-type">integer</span>
+<span class="syn-field">search</span>  <span class="syn-type">Search</span> <span class="syn-keyword">choice</span> {
+    <span class="syn-number">0</span> <span class="syn-keyword">name</span> { <span class="syn-field">name</span> <span class="syn-type">string</span>, <span class="syn-field">type</span> <span class="syn-type">integer</span> <span class="syn-comment">1 = GROUP</span>,
+             <span class="syn-field">category</span> <span class="syn-type">integer</span> <span class="syn-comment">0 = ANY</span>, <span class="syn-field">locale</span> <span class="syn-type">FourCC</span> <span class="syn-comment">0</span> }
+}</pre>
+      <p class="endpoint-note">Metadata-built; widths come from the embedded type
+      library. Never sent by the current client outside tests.</p>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-search-clubs-response" direction="server → client" phase="protected" structure="reflected order" status="metadata decoded">
+      <Fragment slot="title"><code>S2Mp/51</code> Club::SearchClubsResponse</Fragment>
+      <p>The matched group ids only &mdash; no names or member counts. The decoder
+      harvests every integer inside the result list.</p>
+<pre is:raw><span class="syn-field">token</span>   <span class="syn-type">integer</span>
+<span class="syn-field">result</span>  <span class="syn-keyword">choice</span> { <span class="syn-keyword">matches</span> <span class="syn-type">array</span>&lt;<span class="syn-type">u32 clubId</span>&gt; | <span class="syn-keyword">failure</span> <span class="syn-comment">empty</span> }</pre>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-member-clan-tags" direction="server → client" phase="protected" structure="reflected order" status="metadata decoded">
+      <Fragment slot="title"><code>S2Mp/53</code> Club::GetMemberClanTagsResponse</Fragment>
+      <p>Clan tags for members. Note the roster does not use this path &mdash;
+      retail carries a member's clan tag in presence field <code>0x50004</code>
+      instead.</p>
+<pre is:raw><span class="syn-field">token</span>    <span class="syn-type">u32</span>
+<span class="syn-field">result</span>   <span class="syn-type">u16</span>
+<span class="syn-field">clubId?</span>  <span class="syn-type">u32</span> <span class="syn-comment">optional</span>
+<span class="syn-field">clubTag?</span> <span class="syn-type">string</span> <span class="syn-comment">optional</span></pre>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-invite-action" direction="bidirectional" phase="protected" structure="positional (generated order)" status="verified">
+      <Fragment slot="title"><code>S2Mp/54</code> Club::InviteAction</Fragment>
+      <p>Carries a group or clan invitation (<code>code 0</code>) and its
+      accept / decline / auto-decline answer (<code>codes 1 / 2 / 3</code>). The
+      record is a fixed 208-bit positional layout.</p>
+<pre is:raw><span class="syn-field">code</span>              <span class="syn-type">u2</span> <span class="syn-comment">bits 11..13; 0=INVITED 1=ACCEPTED 2=DECLINED 3=AUTODECLINED</span>
+<span class="syn-field">member.programId</span>  <span class="syn-type">u32</span> <span class="syn-comment">bits 13..45</span>
+<span class="syn-field">member.kind</span>       <span class="syn-type">u8</span>  <span class="syn-comment">bits 45..53</span>
+<span class="syn-field">member.realm</span>      <span class="syn-type">u32</span> <span class="syn-comment">bits 53..85</span>
+<span class="syn-field">member.toonId</span>     <span class="syn-type">u64</span> <span class="syn-comment">bits 85..149</span>
+<span class="syn-field">clubId</span>            <span class="syn-type">u32</span> <span class="syn-comment">bits 149..181</span>
+<span class="syn-keyword">reserved</span>          <span class="syn-type">bits</span>[<span class="syn-number">11</span>] <span class="syn-comment">bits 181..192; written as 4</span>
+<span class="syn-field">result</span>            <span class="syn-type">u16</span> <span class="syn-comment">bits 192..208</span></pre>
+      <p class="endpoint-note">An answer carries an empty member handle (program id
+      only); only an invitation (code 0) names the invitee. The reader takes the
+      program id at bit 13 and the club id at bit 149, then seeks to bit 208.</p>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-get-club-info" direction="client → server" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>S2Mp/55</code> Club::GetClubInfo</Fragment>
+      <p>Fetches name and tag for group ids an invitation carried only by number.</p>
+<pre is:raw><span class="syn-field">token</span>  <span class="syn-type">integer</span>
+<span class="syn-field">clubs</span>  <span class="syn-type">array</span>&lt;<span class="syn-type">u32 clubId</span>&gt;</pre>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-get-club-info-response" direction="server → client" phase="protected" structure="positional (generated order)" status="capture verified">
+      <Fragment slot="title"><code>S2Mp/55</code> Club::GetClubInfoResponse</Fragment>
+      <p>The same <code>ClubSummaryInfo</code> element walk as <code>S2Mp/46</code>,
+      for the requested ids. Its tail is shorter: past the last element it carries
+      only <code>isLastPacket</code>, without the rank list.</p>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-club-settings" direction="server → client" phase="protected bootstrap" structure="generated order" status="boundary verified">
+      <Fragment slot="title"><code>S2Mp/57</code> Club::ClubSettings</Fragment>
+      <p>Supplies club-name and tag validation expressions plus cache size and expiry
+      policy.</p>
+<pre is:raw><span class="syn-field">namePattern</span>          <span class="syn-type">UTF-8</span> <span class="syn-comment">u13 byte count; up to 4096 bytes</span>
+<span class="syn-field">tagPattern</span>           <span class="syn-type">UTF-8</span> <span class="syn-comment">u13 byte count; up to 4096 bytes</span>
+<span class="syn-field">informationCacheSize</span> <span class="syn-type">u32</span>
+<span class="syn-field">memberCacheSize</span>      <span class="syn-type">u32</span>
+<span class="syn-field">informationExpiry</span>    <span class="syn-type">s32</span>
+<span class="syn-field">onlineStatusExpiry</span>   <span class="syn-type">s32</span>
+<span class="syn-field">eventExpiry</span>          <span class="syn-type">s32</span></pre>
+    </Endpoint>
+</ServiceSection>

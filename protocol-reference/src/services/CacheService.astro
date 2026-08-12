@@ -1,0 +1,37 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-cache">
+  <Fragment slot="title">9.6 <code>Cach</code> — cache streams</Fragment>
+<p class="endpoint-index"><a href="#cache-get-stream-items-request">Cach/9 request</a><a href="#cache-get-stream-items-response">Cach/9 response</a></p>
+
+    <Endpoint id="cache-get-stream-items-request" direction="client → server" phase="protected bootstrap" structure="generated order" status="live verified">
+      <Fragment slot="title"><code>Cach/9</code> Cache::GetStreamItemsRequest</Fragment>
+      <p>Requests items from a named cache stream. The chat bootstrap uses channel
+      <code>BNET</code> and item name <code>CONF</code>.</p>
+<pre is:raw><span class="syn-field">token</span>          <span class="syn-type">u32</span>
+<span class="syn-field">generatedCheck</span> <span class="syn-type">u23</span> <span class="syn-comment">rolling check seeded with 7</span>
+<span class="syn-field">maxItemsMinus1</span> <span class="syn-type">u6</span> <span class="syn-comment">request range 1..50</span>
+<span class="syn-field">streamKind</span>     <span class="syn-type">u1</span> <span class="syn-comment">1 = description</span>
+<span class="syn-field">channel</span>        <span class="syn-type">FourCC</span>
+<span class="syn-field">itemName</span>       <span class="syn-type">FourCC</span>
+<span class="syn-field">locale</span>         <span class="syn-type">FourCC</span>
+<span class="syn-field">referenceTime</span>  <span class="syn-type">s32</span>
+<span class="syn-field">direction</span>      <span class="syn-type">u1</span> <span class="syn-comment">0 = before, 1 = after</span></pre>
+    </Endpoint>
+
+    <Endpoint id="cache-get-stream-items-response" direction="server → client" phase="protected bootstrap" structure="generated order" status="live verified">
+      <Fragment slot="title"><code>Cach/9</code> Cache::GetStreamItemsResponse</Fragment>
+<pre is:raw><span class="syn-field">itemCount</span>  <span class="syn-type">u6</span> <span class="syn-comment">0..49</span>
+<span class="syn-keyword">repeat</span> itemCount:
+    <span class="syn-keyword">reserved</span>         <span class="syn-type">bits</span>[<span class="syn-number">23</span>]
+    <span class="syn-keyword">alignToByte</span>
+    <span class="syn-field">contentHandle</span>  <span class="syn-type">blob</span>[<span class="syn-number">40</span>]
+    <span class="syn-field">publicationTime</span> <span class="syn-type">s32</span>
+<span class="syn-field">token</span>       <span class="syn-type">u32</span>
+<span class="syn-field">totalItems</span>  <span class="syn-type">u16</span>
+<span class="syn-field">offset</span>      <span class="syn-type">u16</span></pre>
+    </Endpoint>
+</ServiceSection>

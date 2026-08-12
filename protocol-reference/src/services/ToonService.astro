@@ -1,0 +1,82 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-toon">
+  <Fragment slot="title">9.3 <code>Toon</code> — identity and bootstrap</Fragment>
+<p>Toon endpoints provide the account's playable identities and global SC2
+    bootstrap configuration.</p>
+    <p class="endpoint-index"><a href="#toon-list">Toon/0 ToonList</a><a href="#toon-select">Toon/5 ToonSelect</a><a href="#toon-selected">Toon/6 ToonSelected</a><a href="#toon-welcome">Toon/10 Welcome</a><a href="#toon-initial-complete">Toon/14 InitialNotifiesComplete</a></p>
+
+    <Endpoint id="toon-list" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Toon/0</code> Toon::ToonList</Fragment>
+      <p>Lists up to fifty toon display records owned by the authenticated account.</p>
+<pre is:raw><span class="syn-field">toonDisplayCount</span>  <span class="syn-type">u6</span>  <span class="syn-comment">valid values 0..50</span>
+<span class="syn-keyword">repeat</span> toonDisplayCount:
+    <span class="syn-type">Display</span> {
+        <span class="syn-field">nameByteCountMinus2</span>  <span class="syn-type">u7</span>
+        <span class="syn-keyword">alignToByte</span>
+        <span class="syn-field">name</span>        <span class="syn-type">UTF-8 bytes</span>[nameByteCountMinus2 + <span class="syn-number">2</span>]
+                    <span class="syn-comment">2..100 bytes; 2..25 characters</span>
+        <span class="syn-field">lastOnline</span>  <span class="syn-type">s32</span>
+        <span class="syn-keyword">reserved</span>    <span class="syn-type">bits</span>[<span class="syn-number">3</span>]
+        <span class="syn-field">flags</span>       <span class="syn-type">u32</span>
+        <span class="syn-field">profile</span>     <span class="syn-type">Profile::RecordAddress</span>
+        <span class="syn-field">realm</span>       <span class="syn-type">u32</span>
+    }</pre>
+    </Endpoint>
+
+    <Endpoint id="toon-select" direction="client → server" phase="protected bootstrap" structure="generated order" status="live verified">
+      <Fragment slot="title"><code>Toon/5</code> Toon::ToonSelect</Fragment>
+      <p>Selects one display returned by Toon/0 before channel discovery and join.
+      A successful selection is followed by Toon/6.</p>
+<pre is:raw><span class="syn-field">nameByteCountMinus2</span>  <span class="syn-type">u7</span>
+<span class="syn-keyword">alignToByte</span>
+<span class="syn-field">toonName</span>             <span class="syn-type">UTF-8 bytes</span> <span class="syn-comment">2..100 bytes; 2..25 characters</span>
+<span class="syn-field">generatedCheck</span>       <span class="syn-type">u10</span> <span class="syn-comment">rolling check seeded with 2</span>
+<span class="syn-field">realm</span>                <span class="syn-type">u32</span></pre>
+      <p class="endpoint-note">Reflection lists name then realm, but omits the
+      generated rolling check between them.</p>
+    </Endpoint>
+
+    <Endpoint id="toon-selected" direction="server → client" phase="protected bootstrap" structure="generated order" status="live verified">
+      <Fragment slot="title"><code>Toon/6</code> Toon::ToonSelected</Fragment>
+      <p>Confirms the active SC2 identity and returns its stable handle and profile
+      address.</p>
+<pre is:raw><span class="syn-field">recordAddress</span>  { <span class="syn-field">label</span> <span class="syn-type">u32</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }
+<span class="syn-field">toonHandle</span>     { <span class="syn-field">program</span> <span class="syn-type">FourCC</span>, <span class="syn-field">region</span> <span class="syn-type">u8</span>, <span class="syn-field">realm</span> <span class="syn-type">u32</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }
+<span class="syn-field">realm</span>          <span class="syn-type">u32</span>
+<span class="syn-field">lastLogon</span>      <span class="syn-type">s32</span>
+<span class="syn-field">nameByteCountMinus2</span>  <span class="syn-type">u7</span>
+<span class="syn-keyword">alignToByte</span>
+<span class="syn-field">toonName</span>       <span class="syn-type">UTF-8 bytes</span></pre>
+    </Endpoint>
+
+    <Endpoint id="toon-welcome" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Toon/10</code> Toon::Welcome</Fragment>
+      <p>Supplies global client configuration. This is a heavily obfuscated schema:
+      generated code reorders reflected members and consumes reserved runs.</p>
+<pre is:raw><span class="syn-field">depotRegion</span>                    <span class="syn-type">FourCC</span>
+<span class="syn-field">achievementHandles</span>              <span class="syn-type">AchievementHandle</span>[<span class="syn-number">0..15</span>]
+<span class="syn-field">isPlayingFromIGR</span>                 <span class="syn-type">bool</span>
+<span class="syn-field">defaultPortrait</span>                  <span class="syn-type">u32</span>
+<span class="syn-keyword">reserved</span>                         <span class="syn-type">bits</span>[<span class="syn-number">31</span>]
+<span class="syn-field">maxGameServerConnectTimeoutMS</span>    <span class="syn-type">u32</span>
+<span class="syn-field">programName</span>                     <span class="syn-type">bytes</span>[<span class="syn-number">0..32</span>]
+<span class="syn-field">programFlags</span>                    <span class="syn-type">bits</span>[<span class="syn-number">128</span>]
+<span class="syn-field">realmMapList</span>                    <span class="syn-type">RealmMap</span>[<span class="syn-number">0..4</span>]
+<span class="syn-field">unlockablesFiles</span>                <span class="syn-type">UnlockableDefinition</span>[<span class="syn-number">0..128</span>]
+<span class="syn-keyword">reserved</span>                         <span class="syn-type">bits</span>[<span class="syn-number">3</span>]
+<span class="syn-field">maxMapFavorites</span>                 <span class="syn-type">u16</span>
+<span class="syn-field">intermediateNameRestriction</span>     <span class="syn-type">UTF-8</span>[<span class="syn-number">0..1024</span>]
+<span class="syn-field">finalNameRestriction</span>            <span class="syn-type">UTF-8</span>[<span class="syn-number">0..1024</span>]
+<span class="syn-field">currentTime</span>                     <span class="syn-type">s32</span></pre>
+    </Endpoint>
+
+    <Endpoint id="toon-initial-complete" direction="server → client" phase="protected bootstrap" structure="empty payload" status="verified">
+      <Fragment slot="title"><code>Toon/14</code> Toon::InitialNotifiesComplete</Fragment>
+      <p>Marks completion of the initial Toon notification set.</p>
+<pre is:raw><span class="syn-type">InitialNotifiesComplete</span> { }  <span class="syn-comment">zero payload bits</span></pre>
+    </Endpoint>
+</ServiceSection>

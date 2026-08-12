@@ -1,0 +1,45 @@
+// Superiority Live — a Worker wholly separate from the release-hosting Pages
+// project. ingest commits ordered client envelopes to d1; the read api and
+// gpui wasm viewer are served from here too.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "superiority-live",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-10-01",
+  "workers_dev": true,
+
+  // The public face of Live. Cloudflare manages the DNS record + cert for a
+  // custom_domain route; workers.dev stays on so old links keep resolving.
+  "routes": [{ "pattern": "live.superioritybot.com", "custom_domain": true }],
+
+  "observability": {
+    "enabled": true
+  },
+
+  // the gpui wasm viewer. /v1/* always reaches the worker; every other path is answered
+  // from the browser build, with unknown paths (e.g. /f/<feed>) falling back to
+  // index.html so client-side routes survive a refresh.
+  "assets": {
+    "directory": "../live-app/www/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/v1/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "superiority-live",
+      "database_id": "8979d10c-283a-44ba-a6ac-7756407e72ec",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Nightly retention prune, off the hour on purpose.
+  "triggers": { "crons": ["17 4 * * *"] },
+
+  "vars": {
+    "RETENTION_DAYS": "14",
+    "REGISTRATION_OPEN": "true"
+  }
+}

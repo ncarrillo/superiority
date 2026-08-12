@@ -1,0 +1,113 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-auth">
+  <Fragment slot="title">9.1 <code>Auth</code> — authentication</Fragment>
+<p>These plaintext endpoints bind the Sunken connection to the account and
+    session authorized by Front. The cryptographic sequence is described in
+    <a href="#resume">Native Resume authentication</a>.</p>
+    <p class="endpoint-index">
+      <a href="#auth-resume-request">Auth/1 request</a>
+      <a href="#auth-configuration">Auth/18 configuration</a>
+      <a href="#auth-proof-request">Auth/2 request</a>
+      <a href="#auth-proof-response">Auth/2 response</a>
+      <a href="#auth-resume-response">Auth/1 response</a>
+    </p>
+
+    <Endpoint id="auth-resume-request" direction="client → server" phase="plaintext, first record" structure="logical order" status="verified">
+      <Fragment slot="title"><code>Auth/1</code> Authentication::ResumeRequest</Fragment>
+      <p>Starts native authentication with account identity and the version set for
+      the SC2 game account selected on Front.</p>
+<pre is:raw><span class="syn-type">RequestCommon</span> {
+    <span class="syn-field">program</span>    <span class="syn-type">FourCC</span>
+    <span class="syn-field">platform</span>   <span class="syn-type">FourCC</span>
+    <span class="syn-field">locale</span>     <span class="syn-type">FourCC</span>
+    <span class="syn-field">versions</span>   <span class="syn-type">Version</span>[<span class="syn-number">0..63</span>] {
+        <span class="syn-field">programId</span>  <span class="syn-type">FourCC</span>
+        <span class="syn-field">component</span>  <span class="syn-type">FourCC</span>
+        <span class="syn-field">version</span>    <span class="syn-type">u32</span>
+    }
+}
+<span class="syn-field">account</span>            <span class="syn-type">bytes</span>[<span class="syn-number">3..320</span>]
+<span class="syn-field">gameAccountRegion</span>  <span class="syn-type">u8</span>
+<span class="syn-field">gameAccountName</span>    <span class="syn-type">bytes</span>[<span class="syn-number">1..32</span>]</pre>
+      <p class="endpoint-note">The Base97563 macOS version records and compatibility
+      number are listed in <a href="#resume">section 8</a>. Account fields are
+      private session material.</p>
+    </Endpoint>
+
+    <Endpoint id="auth-configuration" direction="server → client" phase="plaintext" structure="logical order" status="verified">
+      <Fragment slot="title"><code>Auth/18</code> Authentication::Configuration</Fragment>
+      <p>Supplies a small authentication configuration record before proof.</p>
+<pre is:raw><span class="syn-field">useS3Depot</span>  <span class="syn-type">bool</span></pre>
+    </Endpoint>
+
+    <Endpoint id="auth-proof-request" direction="server → client" phase="plaintext" structure="logical order" status="verified">
+      <Fragment slot="title"><code>Auth/2</code> Authentication::ProofRequest</Fragment>
+      <p>Requests execution of up to four authentication modules. The array count
+      is explicit: the payload begins with a three-bit count, and the decoder then
+      consumes exactly that many <code>ModuleInput</code> values. Resume encodes
+      count 2 for the thumbprint and session-proof modules.</p>
+<pre is:raw><span class="syn-field">requestCount</span>  <span class="syn-type">u3</span>  <span class="syn-comment">valid values 0..4; 5..7 are invalid</span>
+<span class="syn-keyword">repeat</span> requestCount:
+    <span class="syn-keyword">alignToByte</span>
+    <span class="syn-field">id</span>             <span class="syn-type">blob</span>[<span class="syn-number">40</span>]  <span class="syn-comment">fixed size; no length prefix</span>
+    <span class="syn-field">dataByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1023</span>
+    <span class="syn-keyword">alignToByte</span>
+    <span class="syn-field">data</span>           <span class="syn-type">bytes</span>[dataByteCount]</pre>
+      <p id="auth-module-id"><b>The 40-byte module identifier</b> selects the authentication-module
+      implementation that must interpret <code>data</code>. It is not a request
+      token or an identifier for the Auth/2 route. The <code>2</code> in
+      <code>Auth/2</code> is the separate six-bit command ID in the BSN routing
+      header.</p>
+<pre is:raw><span class="syn-field">id[0..7]</span>    <span class="syn-type">usage</span>             <span class="syn-number">61 75 74 68 00 00 00 00</span>  <span class="syn-comment">ASCII "auth" + four NUL bytes</span>
+<span class="syn-field">id[8..39]</span>   <span class="syn-type">module identity</span>   opaque <span class="syn-number">32</span>-byte value
+
+<span class="syn-comment">Thumbprint module identity</span>
+<span class="syn-number">d7 e6 62 40 80 c1 ab a6 6d ee 63 a6 f3 92 8d 8a</span>
+<span class="syn-number">54 69 25 7f 58 20 b5 72 1f b8 c3 2b 6b 5b ef 5d</span>
+
+<span class="syn-comment">Session-proof module identity</span>
+<span class="syn-number">89 50 05 34 0a 63 0a 64 65 a6 5f ec 96 32 3c 31</span>
+<span class="syn-number">0b ca 8a 9f 66 ec ee b1 88 7a 9d 6c 0e 67 61 2e</span></pre>
+      <p class="endpoint-note">Resume supplies these two modules in the order shown.
+      The count cannot be inferred from a containing record length,
+      because native BSN has no general record-length field.</p>
+    </Endpoint>
+
+    <Endpoint id="auth-proof-response" direction="client → server" phase="plaintext" structure="logical order" status="verified">
+      <Fragment slot="title"><code>Auth/2</code> Authentication::ProofResponse</Fragment>
+      <p>Returns outputs requested by the authentication modules. This is not a
+      one-element-for-every-input array: the thumbprint module is verified locally
+      and emits no output. The Resume response therefore contains one output,
+      belonging to the session-proof module.</p>
+<pre is:raw><span class="syn-field">responseCount</span>  <span class="syn-type">u3</span>  <span class="syn-comment">valid values 0..4; Resume uses 1</span>
+<span class="syn-keyword">repeat</span> responseCount:
+    <span class="syn-field">dataByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1023</span>
+    <span class="syn-keyword">alignToByte</span>
+    <span class="syn-field">data</span>           <span class="syn-type">bytes</span>[dataByteCount]</pre>
+      <p class="endpoint-note">The session-proof output is
+      <code>01 || client_nonce[16] || proof[32]</code>, for a byte count of 49.
+      No empty thumbprint placeholder is encoded.</p>
+    </Endpoint>
+
+    <Endpoint id="auth-resume-response" direction="server → client" phase="plaintext" structure="logical order" status="verified">
+      <Fragment slot="title"><code>Auth/1</code> Authentication::ResumeResponse</Fragment>
+      <p>Completes Resume. A successful response carries the phase-two server proof;
+      a failure carries an update, error/wait pair, or version-check disconnect.</p>
+<pre is:raw><span class="syn-field">result</span>  <span class="syn-keyword">choice</span> {
+    <span class="syn-keyword">success</span> {
+        <span class="syn-field">finalRequestCount</span>  <span class="syn-type">u3</span> <span class="syn-comment">0..4</span>
+        <span class="syn-field">finalRequest</span>       <span class="syn-type">ModuleInput</span>[finalRequestCount]
+        <span class="syn-field">pingTimeout</span>     <span class="syn-type">Time::Delta</span>
+        <span class="syn-field">regulatorRules</span>  <span class="syn-keyword">optional</span> <span class="syn-type">RegulatorRules</span>
+    }
+    <span class="syn-keyword">failure</span> {
+        <span class="syn-field">strings</span>  <span class="syn-keyword">optional</span> <span class="syn-type">Cache::Handle</span>[<span class="syn-number">40</span>]
+        <span class="syn-field">result</span>   <span class="syn-keyword">choice</span> { <span class="syn-keyword">update</span> | <span class="syn-keyword">failure</span> { <span class="syn-field">error</span>, <span class="syn-field">wait</span> } | <span class="syn-keyword">versionCheckDisconnect</span> }
+    }
+}</pre>
+    </Endpoint>
+</ServiceSection>

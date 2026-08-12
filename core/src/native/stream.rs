@@ -91,11 +91,19 @@ impl<S> RecordStream<S> {
         let payload_start = reader.position();
         let (type_id, value) = self.protocol.decode_incoming_from(&mut reader, header)?;
         let payload_bit_count = reader.position() - payload_start;
+        let logical_bits = reader.position();
         let byte_count = reader.position().div_ceil(8);
         let padding = byte_count * 8 - reader.position();
         if padding != 0 && reader.read(padding)? != 0 {
             return Err(native_error("native record has non-zero padding"));
         }
+        super::inspect::capture_incoming(
+            &self.protocol,
+            header,
+            type_id,
+            &self.buffer[..byte_count],
+            logical_bits,
+        );
         self.buffer.drain(..byte_count);
         Ok(Record {
             header,

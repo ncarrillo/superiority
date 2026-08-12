@@ -1,0 +1,100 @@
+<figure class="diagram bitstream-primer">
+  <div class="bit-orientation">
+    <div class="orientation-copy">
+      <strong>One byte has eight numbered positions.</strong>
+      <p>A hex viewer conventionally draws the most-significant position first,
+      so its columns run from bit 7 down to bit 0.</p>
+    </div>
+    <div class="orientation-view" aria-label="A conventionally displayed byte with bit seven on the left and bit zero on the right">
+      <span class="orientation-label">hex-display order</span>
+      <div class="orientation-bits conventional">
+        <b>7</b><b>6</b><b>5</b><b>4</b><b>3</b><b>2</b><b>1</b><b>0</b>
+      </div>
+    </div>
+    <div class="orientation-turn" aria-hidden="true">but the BSN cursor visits</div>
+    <div class="orientation-view" aria-label="BSN cursor order beginning at bit zero and ending at bit seven">
+      <span class="orientation-label">cursor order</span>
+      <div class="orientation-bits cursor-order">
+        <b>0</b><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><b>6</b><b>7</b>
+      </div>
+      <div class="orientation-arrow" aria-hidden="true">start → → → → → → end</div>
+    </div>
+  </div>
+
+  <div class="primer-rule">
+    <p>A decoder owns one position: <code>(byte index, bit index)</code>. Reading a
+    field consumes its declared number of bits and advances that position. Reaching
+    bit 7 does not end the field; the cursor wraps to bit 0 of the next byte and
+    keeps going.</p>
+  </div>
+
+  <h4 class="primer-subtitle">The first sixteen cursor positions of a BSN record</h4>
+  <p class="primer-instruction">This view is deliberately arranged in
+  <b>cursor order</b>, so read it left to right. Hover or focus a field to follow
+  what it consumes.</p>
+
+  <div class="cursor-tape" aria-label="The first two bytes of a BSN record shown in cursor order">
+    <div class="cursor-byte byte-zero">
+      <div class="cursor-byte-heading"><strong>byte 0</strong><span>first 8 cursor positions</span></div>
+      <div class="cursor-positions" aria-hidden="true">
+        <span>bit 0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+      </div>
+      <div class="cursor-fields">
+        <button class="cursor-field cursor-command" type="button"
+          aria-label="The six-bit command consumes byte 0 bits 0 through 5">
+          <b>command</b><small>6 bits</small>
+        </button>
+        <button class="cursor-field cursor-flag" type="button"
+          aria-label="The one-bit service-present flag consumes byte 0 bit 6">
+          <b>flag</b><small>1</small>
+        </button>
+        <button class="cursor-field cursor-slot cursor-slot-head" type="button"
+          aria-label="The four-bit service slot begins in byte 0 bit 7 and continues in byte 1">
+          <b>slot</b><small>1 of 4</small>
+        </button>
+      </div>
+    </div>
+
+    <div class="cursor-wrap" aria-hidden="true"><span>wrap</span><b>→</b></div>
+
+    <div class="cursor-byte byte-one">
+      <div class="cursor-byte-heading"><strong>byte 1</strong><span>next 8 cursor positions</span></div>
+      <div class="cursor-positions" aria-hidden="true">
+        <span>bit 0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+      </div>
+      <div class="cursor-fields">
+        <button class="cursor-field cursor-slot cursor-slot-tail" type="button"
+          aria-label="The service slot continues through byte 1 bits 0 through 2">
+          <b>slot continued</b><small>3 of 4</small>
+        </button>
+        <button class="cursor-field cursor-payload" type="button"
+          aria-label="The payload begins at byte 1 bit 3 and continues according to its schema">
+          <b>payload</b><small>starts here; schema decides its width</small>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cursor-summary" aria-label="Eleven header bits followed by payload bits">
+    <span class="header-span"><b>11 header bits</b><small>6 command + 1 flag + 4 slot</small></span>
+    <span class="payload-span"><b>payload bits</b><small>begin at absolute cursor position 11</small></span>
+  </div>
+
+  <div class="cursor-explainer">
+    <p class="cursor-default"><b>The byte boundary is only a storage boundary.</b>
+    It does not align fields. Here the four-bit slot begins in the final position
+    of byte 0, continues through the first three positions of byte 1, and leaves
+    the cursor at byte 1, bit 3 for the payload.</p>
+    <p class="cursor-detail detail-command"><b>Command consumes positions 0–5.</b>
+    It fits inside byte 0, so the cursor simply advances six positions and stops
+    at byte 0, bit 6.</p>
+    <p class="cursor-detail detail-flag"><b>The flag consumes position 6.</b>
+    After this one-bit field, only byte 0 bit 7 remains available.</p>
+    <p class="cursor-detail detail-slot"><b>Slot is one field, drawn in two pieces.</b>
+    Its declared width is four bits. One bit fits before the boundary and three
+    bits continue in byte 1. Both green regions belong to the same value.</p>
+    <p class="cursor-detail detail-payload"><b>Payload begins at absolute position 11.</b>
+    That is byte 1, bit 3—not the start of a new byte. Payload fields continue
+    from this exact cursor position until the selected schema is complete.</p>
+  </div>
+</figure>

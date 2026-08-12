@@ -1,0 +1,16 @@
+{
+  "name": "sc2-protocol-reference",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && node scripts/publish.mjs",
+    "check": "astro check",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.6",
+    "astro": "5.18.2",
+    "typescript": "^5.9.2"
+  }
+}

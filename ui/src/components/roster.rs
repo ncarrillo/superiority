@@ -219,8 +219,8 @@ fn reveal_opacity(full_reveal: bool, progress: f32) -> f32 {
 }
 
 #[must_use]
-fn row_frame(motion: RowMotion, progress: f32, row_gap: f32) -> RowFrame {
-    let full_height = ROSTER_ROW_HEIGHT + row_gap;
+fn row_frame(motion: RowMotion, progress: f32, row_height: f32, row_gap: f32) -> RowFrame {
+    let full_height = row_height + row_gap;
     match motion {
         RowMotion::Stable => RowFrame {
             slot_height: full_height,
@@ -251,7 +251,26 @@ pub fn animated_row_slot(
     reveal_opacity: f32,
     row_gap: f32,
 ) -> Div {
-    let frame = row_frame(motion, progress, row_gap);
+    animated_row_slot_with_height(
+        row,
+        motion,
+        progress,
+        reveal_opacity,
+        ROSTER_ROW_HEIGHT,
+        row_gap,
+    )
+}
+
+#[must_use]
+pub fn animated_row_slot_with_height(
+    row: impl IntoElement,
+    motion: RowMotion,
+    progress: f32,
+    reveal_opacity: f32,
+    row_height: f32,
+    row_gap: f32,
+) -> Div {
+    let frame = row_frame(motion, progress, row_height, row_gap);
     div()
         .relative()
         .w_full()
@@ -264,7 +283,7 @@ pub fn animated_row_slot(
                 .relative()
                 .left(px(frame.x))
                 .top(px(frame.y))
-                .h(px(ROSTER_ROW_HEIGHT))
+                .h(px(row_height))
                 .w_full()
                 .opacity(frame.opacity)
                 .child(row),
@@ -291,6 +310,35 @@ pub fn animated_rows<S, T: Clone, C: AnimationClock>(
                 motion,
                 progress,
                 reveal_opacity,
+                row_gap,
+            )
+            .into_any_element()
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn animated_rows_with_height<S, T: Clone, C: AnimationClock>(
+    items: Vec<T>,
+    animation: Option<&TimedTransition<S, T, C>>,
+    now: C,
+    handle: impl Fn(&T) -> u32,
+    row_height: f32,
+    row_gap: f32,
+    mut render: impl FnMut(&T, RowMotion) -> AnyElement,
+) -> Vec<AnyElement> {
+    let placement = placed_rows(items, animation, now, handle);
+    let reveal_opacity = placement.reveal_opacity;
+    placement
+        .rows
+        .into_iter()
+        .map(|(item, motion, progress)| {
+            animated_row_slot_with_height(
+                render(&item, motion),
+                motion,
+                progress,
+                reveal_opacity,
+                row_height,
                 row_gap,
             )
             .into_any_element()

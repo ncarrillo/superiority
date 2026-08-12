@@ -1054,7 +1054,7 @@ pub(crate) fn club_info(
         Err(_) => None,
     };
     reader.set_position(start)?;
-    let Ok((clubs, elements_end, incomplete)) =
+    let Ok((clubs, _, elements_end, incomplete)) =
         walk_club_elements(reader, walked_end.unwrap_or(buffer_bits))
     else {
         return Err(incomplete_club_frame(buffer_bits));
@@ -1123,11 +1123,23 @@ const CLUB_COUNT_OFFSET: usize = 12;
 const CLUB_COUNT_BITS: usize = 8;
 const CLUB_LIMIT: usize = 201;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClubSummaryTrace {
+    pub item: std::ops::Range<usize>,
+    pub club_id: std::ops::Range<usize>,
+    pub name: std::ops::Range<usize>,
+    pub kind: std::ops::Range<usize>,
+    pub category: std::ops::Range<usize>,
+    pub private: std::ops::Range<usize>,
+}
+
+#[allow(clippy::too_many_lines)]
 fn walk_club_elements(
     reader: &mut BitReader<'_>,
     total: usize,
-) -> Result<(Vec<ClubSummary>, usize, bool)> {
+) -> Result<(Vec<ClubSummary>, Vec<ClubSummaryTrace>, usize, bool)> {
     let mut clubs = Vec::new();
+    let mut traces = Vec::new();
     reader.set_position(CLUB_COUNT_OFFSET)?;
     let declared = usize::try_from(reader.read(CLUB_COUNT_BITS)?)
         .unwrap_or(CLUB_LIMIT)
@@ -1218,9 +1230,27 @@ fn walk_club_elements(
         } else {
             icon_at + 1
         };
-        start = cursor + CLUB_ELEMENT_REMAINDER;
+        let next_start = cursor + CLUB_ELEMENT_REMAINDER;
+        traces.push(ClubSummaryTrace {
+            item: start..next_start,
+            club_id: start + CLUB_ID_OFFSET..start + CLUB_ID_OFFSET + 32,
+            name: text_at..name_end,
+            kind: name_end + CLUB_TYPE_OFFSET..name_end + CLUB_TYPE_OFFSET + 8,
+            category: start + CLUB_CATEGORY_OFFSET..start + CLUB_CATEGORY_OFFSET + 8,
+            private: private_at..private_at + 1,
+        });
+        start = next_start;
     }
-    Ok((clubs, start, incomplete))
+    Ok((clubs, traces, start, incomplete))
+}
+
+pub(crate) fn club_summary_traces(bytes: &[u8], total: usize) -> Vec<ClubSummaryTrace> {
+    let Ok(mut reader) = BitReader::new(bytes, Some(total)) else {
+        return Vec::new();
+    };
+    walk_club_elements(&mut reader, total)
+        .map(|(_, traces, _, incomplete)| if incomplete { Vec::new() } else { traces })
+        .unwrap_or_default()
 }
 
 fn incomplete_club_frame(buffer_bits: usize) -> Error {
@@ -1243,7 +1273,7 @@ pub(crate) fn club_summaries(
         Err(_) => buffer_bits,
     };
     reader.set_position(start)?;
-    let Ok((clubs, start, incomplete)) = walk_club_elements(reader, total) else {
+    let Ok((clubs, _, start, incomplete)) = walk_club_elements(reader, total) else {
         return Err(incomplete_club_frame(buffer_bits));
     };
     if incomplete {

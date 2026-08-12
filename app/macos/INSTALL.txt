@@ -1,0 +1,25 @@
+SUPERIORITY FOR MACOS
+
+Install
+
+1. Drag Superiority to the Applications folder.
+2. Open Superiority from Applications.
+3. Sign in to Battle.net when prompted.
+
+If macOS says it cannot verify the developer, Control-click Superiority in
+Applications, choose Open, then choose Open again. This exception is needed
+only for builds that were not signed and notarized with an Apple Developer ID.
+
+Privacy
+
+Superiority does not include the publisher's Battle.net credentials. Each user
+authenticates independently, and reusable authentication material is stored in
+that user's macOS Keychain.
+
+Compatibility
+
+This Universal 2 build supports Apple silicon and Intel Macs running macOS 14
+or later.
+
+Superiority is an independent protocol research client and is not affiliated
+with or endorsed by Blizzard Entertainment.

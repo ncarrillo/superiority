@@ -1,0 +1,42 @@
+---
+import ProtocolLayout from "../layouts/ProtocolLayout.astro";
+import DocumentHeader from "../components/DocumentHeader.astro";
+import PurposeNotice from "../components/PurposeNotice.astro";
+import TableOfContents from "../components/TableOfContents.astro";
+import DocumentFooter from "../components/DocumentFooter.astro";
+import Terminology from "../sections/Terminology.astro";
+import ArchitectureOverview from "../sections/ArchitectureOverview.astro";
+import BgsProtocol from "../sections/BgsProtocol.astro";
+import FrontSunkenHandoff from "../sections/FrontSunkenHandoff.astro";
+import BsnRecordStream from "../sections/BsnRecordStream.astro";
+import BsnMetadata from "../sections/BsnMetadata.astro";
+import RuntimeServiceRegistry from "../sections/RuntimeServiceRegistry.astro";
+import ResumeAuthentication from "../sections/ResumeAuthentication.astro";
+import NativeServiceReference from "../sections/NativeServiceReference.astro";
+import UnresolvedPortions from "../sections/UnresolvedPortions.astro";
+import Glossary from "../sections/Glossary.astro";
+import Sources from "../sections/Sources.astro";
+import Changelog from "../sections/Changelog.astro";
+---
+
+<ProtocolLayout title="StarCraft II Battle.net Wire Protocol Reference">
+  <DocumentHeader />
+  <PurposeNotice />
+  <TableOfContents />
+  <main>
+    <Terminology />
+    <ArchitectureOverview />
+    <BgsProtocol />
+    <FrontSunkenHandoff />
+    <BsnRecordStream />
+    <RuntimeServiceRegistry />
+    <BsnMetadata />
+    <ResumeAuthentication />
+    <NativeServiceReference />
+    <UnresolvedPortions />
+    <Glossary />
+    <Sources />
+    <Changelog />
+  </main>
+  <DocumentFooter />
+</ProtocolLayout>

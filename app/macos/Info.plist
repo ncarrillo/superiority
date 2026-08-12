@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ATSApplicationFontsPath</key>
+	<string>fonts</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Superiority</string>
+	<key>CFBundleExecutable</key>
+	<string>superiority</string>
+	<key>CFBundleIconFile</key>
+	<string>Superiority.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.superiority.sc2-chat</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Superiority</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.24</string>
+	<key>CFBundleVersion</key>
+	<string>24</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.social-networking</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Independent protocol research client. Not affiliated with Blizzard Entertainment.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://superiority-sc2-updates.pages.dev/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>IVqqIejocXACpzUqr/W4FpT8qkuJidILS7UqPZ7x7xE=</string>
+</dict>
+</plist>

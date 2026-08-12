@@ -1,8 +1,13 @@
 use std::{
-    fs::{self, DirBuilder, OpenOptions, Permissions},
+    fs::{self, DirBuilder, OpenOptions},
     io::Write,
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+};
+
+#[cfg(unix)]
+use std::{
+    fs::Permissions,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
 };
 
 use zeroize::Zeroize;
@@ -21,11 +26,7 @@ pub struct FileCredentialStore {
 
 impl Default for FileCredentialStore {
     fn default() -> Self {
-        let path = std::env::var_os("HOME").map(|home| {
-            PathBuf::from(home)
-                .join("Library/Application Support/Superiority")
-                .join(CREDENTIAL_FILENAME)
-        });
+        let path = default_credential_path();
         Self { path }
     }
 }
@@ -78,7 +79,9 @@ impl CredentialStore for FileCredentialStore {
             rand::random::<u64>()
         ));
         let mut options = OpenOptions::new();
-        options.write(true).create_new(true).mode(0o600);
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
         let mut file = options
             .open(&temporary)
             .map_err(|error| cache_error("create", &error))?;
@@ -93,8 +96,7 @@ impl CredentialStore for FileCredentialStore {
             let _ = fs::remove_file(&temporary);
             return Err(cache_error("replace", &error));
         }
-        fs::set_permissions(path, Permissions::from_mode(0o600))
-            .map_err(|error| cache_error("secure", &error))
+        secure_file(path)
     }
 
     fn delete(&self) -> Result<()> {
@@ -120,14 +122,57 @@ impl FileCredentialStore {
     }
 }
 
+#[cfg(windows)]
+fn default_credential_path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|app_data| {
+        PathBuf::from(app_data)
+            .join("Superiority")
+            .join(CREDENTIAL_FILENAME)
+    })
+}
+
+#[cfg(not(windows))]
+fn default_credential_path() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join("Library/Application Support/Superiority")
+            .join(CREDENTIAL_FILENAME)
+    })
+}
+
 fn create_private_directory(path: &Path) -> Result<()> {
     let mut builder = DirBuilder::new();
-    builder.recursive(true).mode(0o700);
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
     builder
         .create(path)
         .map_err(|error| cache_error("create directory", &error))?;
+    secure_directory(path)
+}
+
+#[cfg(unix)]
+fn secure_file(path: &Path) -> Result<()> {
+    fs::set_permissions(path, Permissions::from_mode(0o600))
+        .map_err(|error| cache_error("secure", &error))
+}
+
+#[cfg(windows)]
+#[allow(clippy::unnecessary_wraps)]
+fn secure_file(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_directory(path: &Path) -> Result<()> {
     fs::set_permissions(path, Permissions::from_mode(0o700))
         .map_err(|error| cache_error("secure directory", &error))
+}
+
+#[cfg(windows)]
+#[allow(clippy::unnecessary_wraps)]
+fn secure_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn cache_error(operation: &str, error: &std::io::Error) -> Error {
@@ -160,6 +205,7 @@ mod tests {
             store.load().expect("credential is loaded").unwrap(),
             credential
         );
+        #[cfg(unix)]
         assert_eq!(
             fs::metadata(&path)
                 .expect("credential metadata exists")

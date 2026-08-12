@@ -1,0 +1,30 @@
+{
+  "name": "superiority-live",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types",
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "build:viewer": "npm run sync:assets && ../live-app/scripts/build-wasm.sh release && npm --prefix ../live-app/www run build",
+    "dev:viewer": "npm run sync:assets && ../live-app/scripts/build-wasm.sh release && npm --prefix ../live-app/www run dev",
+    "dev:viewer:debug": "npm run sync:assets && ../live-app/scripts/build-wasm.sh debug && npm --prefix ../live-app/www run dev",
+    "preview:viewer": "npm run build:viewer && npm --prefix ../live-app/www run preview -- --host 127.0.0.1",
+    "dev": "npm run build:viewer && wrangler dev",
+    "deploy": "npm run build:viewer && wrangler deploy",
+    "tail": "wrangler tail superiority-live --format pretty",
+    "migrate:local": "wrangler d1 migrations apply superiority-live --local",
+    "migrate:remote": "wrangler d1 migrations apply superiority-live --remote",
+    "pretest": "npm run build:viewer",
+    "test": "vitest run",
+    "setup": "../scripts/setup-cloudflare.zsh"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.12",
+    "typescript": "^5.9.2",
+    "vitest": "~3.2.0",
+    "wrangler": "^4.118.0"
+  },
+  "overrides": {
+    "undici": "^7.29.0"
+  }
+}

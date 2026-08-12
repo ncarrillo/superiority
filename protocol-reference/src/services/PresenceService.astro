@@ -1,0 +1,106 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+---
+
+<ServiceSection id="service-presence">
+  <Fragment slot="title">9.4 <code>Pres</code> — presence</Fragment>
+<p>Presence begins by defining a dynamic field table. Later updates carry
+    field handles plus a length-framed data blob whose individual values depend on
+    that table.</p>
+    <p class="endpoint-index">
+      <a href="#presence-field-specs">Pres/1 FieldSpecAnnounce</a><a href="#presence-update">Pres/0 UpdateNotify</a>
+      <a href="#presence-statistics-subscribe">Pres/2 StatisticsSubscribe</a><a href="#presence-statistics-update">Pres/3 StatisticsUpdate</a>
+      <a href="#presence-temporary">Pres/4 TemporaryPresence</a>
+    </p>
+
+    <Endpoint id="presence-field-specs" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Pres/1</code> Presence::FieldSpecAnnounce</Fragment>
+      <p>Defines the numeric handles and storage rules used by subsequent presence
+      updates.</p>
+<pre is:raw><span class="syn-field">definitionCount</span>  <span class="syn-type">u7</span> <span class="syn-comment">0..100 accepted by the current client</span>
+<span class="syn-keyword">repeat</span> definitionCount:
+    <span class="syn-field">clientOnly</span>   <span class="syn-type">bool</span>
+    <span class="syn-field">writable</span>     <span class="syn-type">bool</span>
+    <span class="syn-field">ephemeral</span>    <span class="syn-type">bool</span>
+    <span class="syn-field">sizeKind</span>     <span class="syn-type">u1</span> <span class="syn-comment">0 = fixed, 1 = variable</span>
+    <span class="syn-field">fixedSize?</span>   <span class="syn-type">u16</span>
+    <span class="syn-field">serverOnly</span>   <span class="syn-type">bool</span>
+    <span class="syn-field">identifier</span>   <span class="syn-type">u8</span>
+    <span class="syn-field">handle</span>       <span class="syn-type">u32</span></pre>
+    </Endpoint>
+
+    <Endpoint id="presence-update" direction="server → client" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Pres/0</code> Presence::UpdateNotify</Fragment>
+      <p>Updates online state and one or more dynamically announced fields. The
+      field data is sliced in handle order using each Pres/1 fixed size or the
+      next variable size. Cleared handles remove retained values. Local and
+      master presence IDs are aliases for the same retained record.</p>
+<pre is:raw><span class="syn-keyword">reserved</span>           <span class="syn-type">bits</span>[<span class="syn-number">19</span>]
+<span class="syn-field">online</span>             <span class="syn-type">bool</span>
+<span class="syn-field">localPresenceId</span>    <span class="syn-type">u32</span>
+<span class="syn-field">masterPresenceId</span>   <span class="syn-type">u32</span>
+<span class="syn-field">fieldDataByteCount</span> <span class="syn-type">u11</span> <span class="syn-comment">0..1024</span>
+<span class="syn-keyword">alignToByte</span>
+<span class="syn-field">fieldData</span>          <span class="syn-type">bytes</span>[fieldDataByteCount]
+<span class="syn-keyword">reserved</span>           <span class="syn-type">bits</span>[<span class="syn-number">11</span>]
+<span class="syn-field">clearedHandles</span>     <span class="syn-type">u32</span>[count:<span class="syn-type">u4</span>]
+<span class="syn-field">handles</span>            <span class="syn-type">u32</span>[count:<span class="syn-type">u4</span>]
+<span class="syn-field">variableSizes</span>      <span class="syn-type">u16</span>[count:<span class="syn-type">u4</span>]
+<span class="syn-field">levelZero?</span>         { <span class="syn-field">isLastPacket</span> <span class="syn-type">bool</span>, <span class="syn-field">target</span> <span class="syn-type">u32</span> }
+<span class="syn-field">serverOnly</span>         <span class="syn-type">u8</span></pre>
+      <p class="endpoint-note"><code>FIELD_AVATAR</code> (<code>65555</code>) is
+      a four-byte <code>ImageTableEntry</code>. Public channel membership usually
+      supplies <code>FIELD_TOON_PROFILE</code> (<code>65556</code>) instead; its
+      12-byte profile address is followed through <code>Prfl/0</code> path
+      <code>04</code> to obtain the selected avatar.</p>
+      <p>The client reads more handles than avatar alone. Each slice is the field's
+      announced fixed size, or the next variable size, and its bytes are parsed by
+      handle id (all multi-byte values big-endian):</p>
+      <table>
+        <thead><tr><th>Handle</th><th>Field</th><th>Parse</th></tr></thead>
+        <tbody>
+          <tr><td><code>0x50004</code></td><td>clan tag</td><td>byte0 = pair count, byte1 = trailing (0|1); byteCount = pairs&times;2 + trailing; remaining bytes UTF-8</td></tr>
+          <tr><td><code>0x00010005</code></td><td>account id</td><td>first four bytes <code>u32</code> (nonzero); the whisper-target account, priority 1</td></tr>
+          <tr><td><code>0x0001001b</code></td><td>social account id</td><td>first four bytes <code>u32</code>; account fallback, priority 2</td></tr>
+          <tr><td><code>65561</code></td><td>toon handle</td><td>region <code>u8</code>, program <code>u32</code>, realm <code>u32</code>, id <code>u64</code></td></tr>
+          <tr><td><code>65556</code></td><td>toon profile</td><td>label <code>u32</code>, id <code>u64</code> (a profile address)</td></tr>
+          <tr><td><code>65555</code></td><td>avatar</td><td>tableId <code>u16</code>, offset <code>u16</code> (<code>ImageTableEntry</code>)</td></tr>
+          <tr><td><code>0x50002</code></td><td>in game</td><td>single byte, true when <code>0x01</code></td></tr>
+          <tr><td><code>0x10020</code> / <code>0x10010</code></td><td>away</td><td>boolean; standing status</td></tr>
+          <tr><td><code>0x10022</code> / <code>0x10011</code></td><td>busy</td><td>boolean; standing status</td></tr>
+          <tr><td><code>0x00010003</code> / <code>0x00010009</code></td><td>session marks</td><td>set on entry, cleared on exit; presence is held while either is present, and drives leave detection</td></tr>
+        </tbody>
+      </table>
+      <p class="endpoint-note">Standing state resolves with a fixed precedence:
+      offline (online = false) wins, then in-game, then the most recently written of
+      the busy/away group by write-clock (last write wins), then available. The
+      account-id fields are what make an outbound whisper addressable.</p>
+    </Endpoint>
+
+    <Endpoint id="presence-statistics-subscribe" direction="client → server" phase="protected" structure="generated order" status="live verified">
+      <Fragment slot="title"><code>Pres/2</code> Presence::StatisticsSubscribe</Fragment>
+      <p>Subscribes to, or unsubscribes from, the statistics stream, for parity with
+      retail. This is not the mechanism that allocates a whisper-target presence id.</p>
+<pre is:raw><span class="syn-field">on</span>  <span class="syn-type">u1</span> <span class="syn-comment">1 = subscribe; whole record is 12 bits (0x420c)</span></pre>
+    </Endpoint>
+
+    <Endpoint id="presence-statistics-update" direction="server → client" phase="protected" structure="reflected order" status="capture observed">
+      <Fragment slot="title"><code>Pres/3</code> Presence::StatisticsUpdate</Fragment>
+      <p>A server statistics update. It carries no hand-written decoder and is read
+      entirely from the embedded metadata type. It is a legitimate record: leaving
+      it unmapped closed the session on the first statistics update.</p>
+    </Endpoint>
+
+    <Endpoint id="presence-temporary" direction="client → server" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Pres/4</code> Presence::TemporaryPresence</Fragment>
+      <p>Asks the server to allocate a connection-local presence id for one or more
+      target toons &mdash; the step that makes a stranger whisperable. The allocated
+      id is delivered asynchronously in a later <code>Pres/0</code> update, not in
+      the response.</p>
+<pre is:raw><span class="syn-field">toonList</span>  <span class="syn-type">array</span>&lt;<span class="syn-type">ToonHandle</span>&gt; <span class="syn-comment">1..10</span>
+<span class="syn-type">ToonHandle</span> { <span class="syn-field">region</span> <span class="syn-type">integer</span>, <span class="syn-field">programId</span> <span class="syn-type">FourCC</span>, <span class="syn-field">realm</span> <span class="syn-type">integer</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }</pre>
+      <p class="endpoint-note">The program id must be a FourCC, not a generic
+      integer.</p>
+    </Endpoint>
+</ServiceSection>

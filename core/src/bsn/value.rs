@@ -1,4 +1,6 @@
-#[derive(Clone, Debug, PartialEq)]
+use serde::Serialize;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct BsnField {
     pub index: i128,
     pub name: Option<String>,
@@ -16,7 +18,7 @@ impl BsnField {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct BsnStruct {
     pub type_id: u32,
     pub fields: Vec<BsnField>,
@@ -45,13 +47,13 @@ impl BsnStruct {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BsnBitArray {
     pub data: Vec<u8>,
     pub bit_count: usize,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum BsnValue {
     Void,
     Bool(bool),

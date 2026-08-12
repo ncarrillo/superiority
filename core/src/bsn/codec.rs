@@ -21,6 +21,23 @@ pub struct DecodedValue {
     pub bit_count: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecodedField {
+    pub path: String,
+    pub kind: &'static str,
+    pub value: String,
+    pub start_bit: usize,
+    pub end_bit: usize,
+    pub depth: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TracedDecodedValue {
+    pub value: BsnValue,
+    pub bit_count: usize,
+    pub fields: Vec<DecodedField>,
+}
+
 pub type DecodeWireLayout = for<'data> fn(&Codec, u32, &mut BitReader<'data>) -> Result<BsnValue>;
 pub type EncodeWireLayout = fn(&Codec, u32, &mut BitWriter, &BsnValue) -> Result<()>;
 
@@ -312,6 +329,29 @@ impl Codec {
         self.decode_from_scoped(reader, type_id, false)
     }
 
+    pub fn decode_traced_from(
+        &self,
+        reader: &mut BitReader<'_>,
+        type_id: u32,
+    ) -> Result<TracedDecodedValue> {
+        let start_position = reader.position();
+        let mut fields = Some(Vec::new());
+        let value =
+            self.decode_from_scoped_traced(reader, type_id, false, "value", 0, &mut fields)?;
+        let mut fields = fields.unwrap_or_default();
+        fields.sort_by(|left, right| {
+            left.start_bit
+                .cmp(&right.start_bit)
+                .then_with(|| left.depth.cmp(&right.depth))
+                .then_with(|| right.end_bit.cmp(&left.end_bit))
+        });
+        Ok(TracedDecodedValue {
+            value,
+            bit_count: reader.position() - start_position,
+            fields,
+        })
+    }
+
     pub(crate) fn decode_reflected_from(
         &self,
         reader: &mut BitReader<'_>,
@@ -326,8 +366,23 @@ impl Codec {
         type_id: u32,
         reflected_scope: bool,
     ) -> Result<BsnValue> {
+        let mut fields = None;
+        self.decode_from_scoped_traced(reader, type_id, reflected_scope, "value", 0, &mut fields)
+    }
+
+    fn decode_from_scoped_traced(
+        &self,
+        reader: &mut BitReader<'_>,
+        type_id: u32,
+        reflected_scope: bool,
+        path: &str,
+        depth: usize,
+        fields: &mut Option<Vec<DecodedField>>,
+    ) -> Result<BsnValue> {
         let start_position = reader.position();
-        self.decode_from_inner(reader, type_id, reflected_scope)
+        let shape = self.schema.shape(type_id)?;
+        let value = self
+            .decode_from_inner(reader, type_id, reflected_scope, path, depth, fields)
             .map_err(|error| {
                 append_decode_context(
                     error,
@@ -340,7 +395,20 @@ impl Codec {
                         reader.position()
                     ),
                 )
-            })
+            })?;
+        if shape.kind != TypeKind::Alias
+            && let Some(fields) = fields
+        {
+            fields.push(DecodedField {
+                path: path.to_owned(),
+                kind: type_kind_name(shape.kind),
+                value: decoded_summary(&value),
+                start_bit: start_position,
+                end_bit: reader.position(),
+                depth,
+            });
+        }
+        Ok(value)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -349,6 +417,9 @@ impl Codec {
         reader: &mut BitReader<'_>,
         type_id: u32,
         reflected_scope: bool,
+        path: &str,
+        depth: usize,
+        fields: &mut Option<Vec<DecodedField>>,
     ) -> Result<BsnValue> {
         let shape = self.schema.shape(type_id)?;
         if let Some(RegisteredWireLayout::Custom(layout)) = self.wire_layouts.get(&type_id) {
@@ -356,9 +427,14 @@ impl Codec {
         }
         let reflected_scope = self.reflected_scope(type_id, &shape, reflected_scope)?;
         match shape.kind {
-            TypeKind::Alias => {
-                self.decode_from_scoped(reader, required_element(&shape)?, reflected_scope)
-            }
+            TypeKind::Alias => self.decode_from_scoped_traced(
+                reader,
+                required_element(&shape)?,
+                reflected_scope,
+                path,
+                depth,
+                fields,
+            ),
             TypeKind::Void => Ok(BsnValue::Void),
             TypeKind::Bool => Ok(BsnValue::Bool(reader.read(1)? != 0)),
             TypeKind::Integer | TypeKind::Enum => {
@@ -392,24 +468,35 @@ impl Codec {
             TypeKind::Array => {
                 let length = read_length(reader, required_range(&shape)?)?;
                 let element = required_element(&shape)?;
-                let values = (0..length)
-                    .map(|index| {
-                        self.decode_from_scoped(reader, element, reflected_scope)
-                            .map_err(|error| {
-                                append_decode_context(error, format!("array element [{index}]"))
-                            })
-                    })
-                    .collect::<Result<Vec<_>>>()?;
+                let mut values = Vec::with_capacity(length);
+                for index in 0..length {
+                    values.push(
+                        self.decode_from_scoped_traced(
+                            reader,
+                            element,
+                            reflected_scope,
+                            &format!("{path}[{index}]"),
+                            depth + 1,
+                            fields,
+                        )
+                        .map_err(|error| {
+                            append_decode_context(error, format!("array element [{index}]"))
+                        })?,
+                    );
+                }
                 Ok(BsnValue::Array(values))
             }
             TypeKind::Optional => {
                 let value = if reader.read(1)? == 0 {
                     None
                 } else {
-                    Some(Box::new(self.decode_from_scoped(
+                    Some(Box::new(self.decode_from_scoped_traced(
                         reader,
                         required_element(&shape)?,
                         reflected_scope,
+                        &format!("{path}.value"),
+                        depth + 1,
+                        fields,
                     )?))
                 };
                 Ok(BsnValue::Optional(value))
@@ -425,24 +512,34 @@ impl Codec {
                     })?;
                 Ok(BsnValue::choice(
                     index,
-                    self.decode_from_scoped(reader, shape.member_types[position], reflected_scope)?,
+                    self.decode_from_scoped_traced(
+                        reader,
+                        shape.member_types[position],
+                        reflected_scope,
+                        &format!("{path}.variant[{index}]"),
+                        depth + 1,
+                        fields,
+                    )?,
                 ))
             }
             TypeKind::Struct => {
-                let mut fields = Vec::with_capacity(shape.member_types.len());
+                let mut struct_fields = Vec::with_capacity(shape.member_types.len());
                 for position in 0..shape.member_types.len() {
                     let field_name = shape.member_names[position].as_deref().map_or_else(
                         || format!("#{}", shape.index_values[position]),
                         str::to_owned,
                     );
-                    fields.push(BsnField {
+                    struct_fields.push(BsnField {
                         index: shape.index_values[position],
                         name: shape.member_names[position].clone(),
                         value: self
-                            .decode_from_scoped(
+                            .decode_from_scoped_traced(
                                 reader,
                                 shape.member_types[position],
                                 reflected_scope,
+                                &format!("{path}.{field_name}"),
+                                depth + 1,
+                                fields,
                             )
                             .map_err(|error| {
                                 append_decode_context(
@@ -455,7 +552,7 @@ impl Codec {
                             })?,
                     });
                 }
-                Ok(BsnValue::Struct(BsnStruct::new(type_id, fields)))
+                Ok(BsnValue::Struct(BsnStruct::new(type_id, struct_fields)))
             }
         }
     }
@@ -534,6 +631,51 @@ fn required_range(shape: &TypeShape) -> Result<IntegerRange> {
     shape
         .value_range
         .ok_or_else(|| codec_error(format!("{:?} schema has no numeric range", shape.kind)))
+}
+
+const fn type_kind_name(kind: TypeKind) -> &'static str {
+    match kind {
+        TypeKind::Array => "array",
+        TypeKind::ByteString => "byte string",
+        TypeKind::BitArray => "bit array",
+        TypeKind::Blob => "blob",
+        TypeKind::Bool => "bool",
+        TypeKind::Choice => "choice",
+        TypeKind::Enum => "enum",
+        TypeKind::FourCc => "fourcc",
+        TypeKind::Integer => "integer",
+        TypeKind::Void => "void",
+        TypeKind::Optional => "optional",
+        TypeKind::Float32 => "float32",
+        TypeKind::Float64 => "float64",
+        TypeKind::Struct => "struct",
+        TypeKind::String => "string",
+        TypeKind::Alias => "alias",
+    }
+}
+
+fn decoded_summary(value: &BsnValue) -> String {
+    match value {
+        BsnValue::Void => "void".to_owned(),
+        BsnValue::Bool(value) => value.to_string(),
+        BsnValue::Integer(value) => value.to_string(),
+        BsnValue::FourCc(value) => format!("0x{value:08x}"),
+        BsnValue::Float32(value) => value.to_string(),
+        BsnValue::Float64(value) => value.to_string(),
+        BsnValue::Bytes(value) => format!("{} bytes", value.len()),
+        BsnValue::String(value) => value.clone(),
+        BsnValue::BitArray(value) => format!("{} bits", value.bit_count),
+        BsnValue::Array(value) => format!("{} items", value.len()),
+        BsnValue::Optional(value) => {
+            if value.is_some() {
+                "present".to_owned()
+            } else {
+                "none".to_owned()
+            }
+        }
+        BsnValue::Choice { index, .. } => format!("variant {index}"),
+        BsnValue::Struct(value) => format!("type #{}", value.type_id),
+    }
 }
 
 fn required_element(shape: &TypeShape) -> Result<u32> {
@@ -650,6 +792,75 @@ mod tests {
                 BsnValue::Bool(true)
             );
         }
+    }
+
+    #[test]
+    fn traced_decode_reports_exact_nested_bit_ranges() {
+        static TYPES: &[StaticTypeShape] = &[
+            StaticTypeShape {
+                type_id: 0,
+                name: Some("Flag"),
+                kind: TypeKind::Bool,
+                implicit_indices: false,
+                obfuscated: false,
+                value_range: None,
+                element_type: None,
+                index_values: &[],
+                member_types: &[],
+                member_names: &[],
+            },
+            StaticTypeShape {
+                type_id: 1,
+                name: Some("Count"),
+                kind: TypeKind::Integer,
+                implicit_indices: false,
+                obfuscated: false,
+                value_range: Some(IntegerRange {
+                    encoding: 0,
+                    bit_width: Some(4),
+                    control_flag: false,
+                    minimum: 0,
+                    maximum: 15,
+                }),
+                element_type: None,
+                index_values: &[],
+                member_types: &[],
+                member_names: &[],
+            },
+            StaticTypeShape {
+                type_id: 2,
+                name: Some("Envelope"),
+                kind: TypeKind::Struct,
+                implicit_indices: false,
+                obfuscated: false,
+                value_range: None,
+                element_type: None,
+                index_values: &[0, 1],
+                member_types: &[0, 1],
+                member_names: &[Some("flag"), Some("count")],
+            },
+        ];
+        static SCHEMA: StaticSchema = StaticSchema::new(3, TYPES);
+        let codec = Codec::from_schema(Schema::Static(&SCHEMA));
+        let mut writer = BitWriter::new();
+        writer.write(0, 3).unwrap();
+        writer.write(1, 1).unwrap();
+        writer.write(9, 4).unwrap();
+        let mut reader = BitReader::new(writer.as_bytes(), Some(8)).unwrap();
+        reader.set_position(3).unwrap();
+
+        let decoded = codec.decode_traced_from(&mut reader, 2).unwrap();
+
+        assert_eq!(decoded.bit_count, 5);
+        assert_eq!(decoded.fields.len(), 3);
+        assert_eq!(
+            decoded
+                .fields
+                .iter()
+                .map(|field| (field.path.as_str(), field.start_bit, field.end_bit))
+                .collect::<Vec<_>>(),
+            [("value", 3, 8), ("value.flag", 3, 4), ("value.count", 4, 8),]
+        );
     }
 
     #[test]
