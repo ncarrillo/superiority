@@ -20,6 +20,7 @@ pub mod gameaccount;
 pub mod ip4;
 pub mod league;
 pub mod matchmaker;
+pub mod party;
 pub mod presence;
 pub mod profile;
 pub mod realm;

@@ -78,18 +78,37 @@ impl<S> RecordStream<S> {
     fn decode_buffer(&mut self) -> Result<Record> {
         let mut reader = BitReader::new(&self.buffer, None)?;
         let command_id = u8::try_from(reader.read(6)?).expect("six bits fit in u8");
-        let service_slot = if reader.read(1)? == 0 {
-            None
-        } else {
-            Some(u8::try_from(reader.read(4)?).expect("four bits fit in u8"))
-        };
+        let service_explicit = reader.read(1)? != 0;
+        if !service_explicit {
+            let response = Self::decode_command_response(reader, command_id)?;
+            self.buffer.drain(..response.byte_count);
+            return Ok(response);
+        }
+        let service_slot = u8::try_from(reader.read(4)?).expect("four bits fit in u8");
         let header = RoutingHeader {
             command_id,
-            service_slot,
+            service_slot: Some(service_slot),
             bit_count: reader.position(),
         };
         let payload_start = reader.position();
-        let (type_id, value) = self.protocol.decode_incoming_from(&mut reader, header)?;
+        let (type_id, value) = self
+            .protocol
+            .decode_incoming_from(&mut reader, header)
+            .inspect_err(|error| {
+                if !matches!(error, Error::IncompleteFrame(_))
+                    && (std::env::var_os("SUPERIORITY_TRACE").is_some()
+                    || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
+                    )
+                {
+                    eprintln!(
+                        "superiority: failed inbound route slot={:?} command={} at bit {}: {error:?}; buffer={}",
+                        header.service_slot,
+                        header.command_id,
+                        reader.position(),
+                        hex::encode(&self.buffer),
+                    );
+                }
+            })?;
         let payload_bit_count = reader.position() - payload_start;
         let logical_bits = reader.position();
         let byte_count = reader.position().div_ceil(8);
@@ -109,6 +128,26 @@ impl<S> RecordStream<S> {
             type_id,
             value,
             payload_bit_count,
+            byte_count,
+        })
+    }
+
+    fn decode_command_response(mut reader: BitReader<'_>, command_id: u8) -> Result<Record> {
+        let payload_start = reader.position();
+        let result = u16::try_from(reader.read(9)?).expect("nine bits fit in u16");
+        let logical_bits = reader.position();
+        let byte_count = logical_bits.div_ceil(8);
+        Ok(Record {
+            header: RoutingHeader {
+                command_id,
+                service_slot: None,
+                bit_count: payload_start,
+            },
+            type_id: 0,
+            value: crate::native::model::Payload::CommandResponse(
+                crate::native::model::CommandResponse { command_id, result },
+            ),
+            payload_bit_count: logical_bits - payload_start,
             byte_count,
         })
     }
@@ -302,5 +341,105 @@ mod tests {
         assert_eq!(second.channel_index, Some(3));
         assert_eq!(second.token, Some(0x5566_7788));
         assert_eq!(records.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn command_response_preserves_the_following_record_boundary() {
+        let first = named_join("General", 0, 0x1020_3040, 0x1122_3344);
+        let response = [0x09, 0x01];
+        let second = named_join("Party", 6, 0x5060_7080, 0x5566_7788);
+        let mut chunk = first;
+        chunk.extend_from_slice(&response);
+        chunk.extend_from_slice(&second);
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([chunk]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let first = records.receive().unwrap();
+        let response = records.receive().unwrap();
+        let second = records.receive().unwrap();
+        assert_eq!(first.header.service_slot, Some(CHAT_SLOT));
+        assert_eq!(first.header.bit_count, 11);
+        assert_eq!(response.header.service_slot, None);
+        assert_eq!(response.header.command_id, 9);
+        assert_eq!(response.header.bit_count, 7);
+        assert_eq!(response.payload_bit_count, 9);
+        assert_eq!(response.byte_count, 2);
+        assert_eq!(
+            response.value,
+            Payload::CommandResponse(crate::native::model::CommandResponse {
+                command_id: 9,
+                result: 1,
+            })
+        );
+        assert_eq!(second.header.service_slot, Some(CHAT_SLOT));
+        assert_eq!(second.header.bit_count, 11);
+        let Payload::ChatJoin(second) = second.value else {
+            panic!("expected compact party chat join");
+        };
+        assert_eq!(second.channel_index, Some(6));
+        assert_eq!(records.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn command_response_can_be_the_first_record() {
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([vec![0x09, 0x00]]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let response = records.receive().unwrap();
+        assert_eq!(response.header.service_slot, None);
+        assert_eq!(response.header.command_id, 9);
+        assert_eq!(response.payload_bit_count, 9);
+        assert_eq!(records.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn command_response_accepts_the_observed_party_status_result() {
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([vec![0x09, 0x03]]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let response = records.receive().unwrap();
+        assert_eq!(response.payload_bit_count, 9);
+        assert_eq!(response.byte_count, 2);
+        assert_eq!(
+            response.value,
+            Payload::CommandResponse(crate::native::model::CommandResponse {
+                command_id: 9,
+                result: 3,
+            })
+        );
+        assert_eq!(records.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn command_response_uses_every_bit_after_the_route_header() {
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([vec![0x89, 0xff]]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let response = records.receive().unwrap();
+        assert_eq!(response.payload_bit_count, 9);
+        assert_eq!(response.byte_count, 2);
+        assert_eq!(
+            response.value,
+            Payload::CommandResponse(crate::native::model::CommandResponse {
+                command_id: 9,
+                result: 0x1ff,
+            })
+        );
     }
 }

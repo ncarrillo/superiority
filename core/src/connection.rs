@@ -112,6 +112,7 @@ fn run_worker(
                 if let Err(error) =
                     connect_once(commands, events, observer, force_interactive, channels)
                 {
+                    trace_connection(format_args!("connection ended: {error:?}"));
                     emit(events, ClientEvent::Error(error.to_string()));
                     emit(events, ClientEvent::Stage(ConnectionStage::Disconnected));
                 }
@@ -194,7 +195,7 @@ fn connect_once(
 fn normalized_channels(channels: Vec<ChatChannel>) -> Vec<ChatChannel> {
     let mut normalized = Vec::new();
     for channel in channels {
-        if !normalized.contains(&channel) {
+        if channel != ChatChannel::Party && !normalized.contains(&channel) {
             normalized.push(channel);
         }
     }
@@ -352,6 +353,14 @@ fn load_protocol() -> Result<Protocol> {
 
 fn emit(events: &Sender<ClientEvent>, event: ClientEvent) {
     let _ = events.send(event);
+}
+
+fn trace_connection(message: impl std::fmt::Display) {
+    if std::env::var_os("SUPERIORITY_TRACE").is_some()
+        || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
+    {
+        eprintln!("superiority: {message}");
+    }
 }
 
 fn application_closed() -> Error {

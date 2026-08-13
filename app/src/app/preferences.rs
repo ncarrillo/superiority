@@ -294,6 +294,7 @@ mod macos {
             ChatChannel::Public(identifier) => format!("public:{identifier}"),
             ChatChannel::Private(name) => format!("private:{name}"),
             ChatChannel::Club(club_id) => format!("club:{club_id}"),
+            ChatChannel::Party => "party".into(),
         }
     }
 
@@ -591,6 +592,7 @@ mod windows {
             ChatChannel::Public(identifier) => format!("public:{identifier}"),
             ChatChannel::Private(name) => format!("private:{name}"),
             ChatChannel::Club(club_id) => format!("club:{club_id}"),
+            ChatChannel::Party => "party".into(),
         }
     }
 }

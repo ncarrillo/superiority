@@ -41,6 +41,43 @@ pub struct MatchMakerLeagueProfile {
     pub profile: super::profile::ProfileRecordAddress,
 }
 
+#[derive(Clone, Debug)]
+pub enum MatchMakerMapOptions {
+    Vetoes(super::matchmaker::MatchMakerMapPreferences),
+    Selection(u32),
+}
+impl sc2_core::bsn::FromBsn for MatchMakerMapOptions {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        let (index, inner) = match value {
+            sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
+            other => {
+                return Err(sc2_core::Error::BsnWire(format!(
+                    "expected a choice for MatchMakerMapOptions, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Vetoes(
+                <super::matchmaker::MatchMakerMapPreferences as sc2_core::bsn::FromBsn>::from_bsn(
+                    inner,
+                )?,
+            )),
+            1i128 => Ok(Self::Selection(<u32 as sc2_core::bsn::FromBsn>::from_bsn(
+                inner,
+            )?)),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a MatchMakerMapOptions variant"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct MatchMakerMapPreferences {
+    #[bsn(name = "m_vetoedMapIds")]
+    pub vetoed_map_ids: Vec<u32>,
+}
+
 #[derive(Clone, Debug, FromBsn)]
 pub struct MatchMakerRankedMatchmakerConfig {
     #[bsn(name = "m_key")]

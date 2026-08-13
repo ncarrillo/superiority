@@ -9,6 +9,12 @@ pub struct UiAssets {
     pub top_navigation_selected: ImageSource,
     pub top_navigation_selected_line: ImageSource,
     pub top_navigation_selected_glow: ImageSource,
+    pub top_navigation_selected_orange: ImageSource,
+    pub top_navigation_selected_line_orange: ImageSource,
+    pub top_navigation_selected_glow_orange: ImageSource,
+    pub top_navigation_selected_pink: ImageSource,
+    pub top_navigation_selected_line_pink: ImageSource,
+    pub top_navigation_selected_glow_pink: ImageSource,
     pub portrait_frame: ImageSource,
     pub portrait_placeholder: ImageSource,
     pub tooltip_fill: ImageSource,
@@ -41,6 +47,18 @@ impl UiAssets {
                 .into(),
             top_navigation_selected_glow: "images/curated/controls/top-nav-selected-line-glow.png"
                 .into(),
+            top_navigation_selected_orange: "images/curated/controls/top-nav-selected-orange.png"
+                .into(),
+            top_navigation_selected_line_orange:
+                "images/curated/controls/top-nav-selected-line-orange.png".into(),
+            top_navigation_selected_glow_orange:
+                "images/curated/controls/top-nav-selected-line-glow-orange.png".into(),
+            top_navigation_selected_pink: "images/curated/controls/top-nav-selected-pink.png"
+                .into(),
+            top_navigation_selected_line_pink:
+                "images/curated/controls/top-nav-selected-line-pink.png".into(),
+            top_navigation_selected_glow_pink:
+                "images/curated/controls/top-nav-selected-line-glow-pink.png".into(),
             portrait_frame: "images/nine-patch/portraits/frame.png".into(),
             portrait_placeholder: "images/icons/friend-placeholder.png".into(),
             tooltip_fill: "images/settings/tooltip-fill.png".into(),
@@ -79,6 +97,12 @@ impl UiAssets {
             top_navigation_selected: asset("ui/top-nav-selected.png"),
             top_navigation_selected_line: asset("ui/top-nav-selected-line.png"),
             top_navigation_selected_glow: asset("ui/top-nav-selected-line-glow.png"),
+            top_navigation_selected_orange: asset("ui/top-nav-selected-orange.png"),
+            top_navigation_selected_line_orange: asset("ui/top-nav-selected-line-orange.png"),
+            top_navigation_selected_glow_orange: asset("ui/top-nav-selected-line-glow-orange.png"),
+            top_navigation_selected_pink: asset("ui/top-nav-selected-pink.png"),
+            top_navigation_selected_line_pink: asset("ui/top-nav-selected-line-pink.png"),
+            top_navigation_selected_glow_pink: asset("ui/top-nav-selected-line-glow-pink.png"),
             portrait_frame: asset("ui/portrait-frame.png"),
             portrait_placeholder: asset("ui/friend-placeholder.png"),
             tooltip_fill: asset("ui/tooltip-fill.png"),

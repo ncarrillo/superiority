@@ -8,9 +8,9 @@ impl JoinComponent {
         cx: &mut Context<SuperiorityView>,
     ) -> AnyElement {
         let id = invitation.id;
-        let kicker = match invitation.kind {
-            InvitationKind::Group { .. } => "Group invitation",
-            InvitationKind::Party { .. } => "Party invitation",
+        let (kicker, preposition) = match invitation.kind {
+            InvitationKind::Group { .. } => ("GROUP INVITATION", "invited you to join"),
+            InvitationKind::Party { .. } => ("PARTY INVITATION", "invited you to"),
         };
         let accept = chrome
             .action_button(
@@ -20,9 +20,6 @@ impl JoinComponent {
                 38.0,
                 true,
             )
-            .absolute()
-            .left(px(284.0))
-            .top(px(108.0))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.answer_invitation(id, true, window, cx);
             }));
@@ -34,9 +31,6 @@ impl JoinComponent {
                 38.0,
                 false,
             )
-            .absolute()
-            .left(px(174.0))
-            .top(px(108.0))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.answer_invitation(id, false, window, cx);
             }));
@@ -58,55 +52,65 @@ impl JoinComponent {
             .child(
                 img("images/toast/toast-badge.png")
                     .absolute()
-                    .left(px(24.0))
-                    .top(px(31.0))
-                    .w(px(56.0))
-                    .h(px(58.0))
+                    .left(px(18.0))
+                    .top(px(27.0))
+                    .w(px(48.0))
+                    .h(px(50.0))
                     .object_fit(ObjectFit::Contain),
             )
             .child(
                 div()
                     .absolute()
-                    .left(px(98.0))
+                    .left(px(80.0))
                     .top(px(24.0))
-                    .h(px(20.0))
+                    .w(px(90.0))
                     .flex()
-                    .items_center()
-                    .font_weight(FontWeight::BOLD)
-                    .text_size(px(12.5))
-                    .text_color(rgb(0x42bff5))
-                    .child(kicker),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(98.0))
-                    .top(px(46.0))
-                    .h(px(21.0))
-                    .flex()
-                    .items_center()
-                    .text_size(px(13.0))
-                    .text_color(rgb(0x7d8fa8))
-                    .child(format!("{} invited you to", invitation.inviter_label())),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(98.0))
-                    .top(px(69.0))
-                    .right(px(24.0))
-                    .h(px(27.0))
-                    .flex()
-                    .items_center()
+                    .flex_col()
+                    .gap(px(3.0))
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .font_weight(FontWeight::BOLD)
-                    .text_size(px(16.0))
-                    .text_color(rgb(0xd6e0f0))
-                    .child(invitation.destination_label()),
+                    .child(
+                        div()
+                            .h(px(12.0))
+                            .flex()
+                            .items_center()
+                            .font_weight(FontWeight::BOLD)
+                            .text_size(px(9.0))
+                            .text_color(rgb(0x4bb8e8))
+                            .child(kicker),
+                    )
+                    .child(
+                        div()
+                            .h(px(18.0))
+                            .flex()
+                            .items_center()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(px(14.0))
+                            .text_color(rgb(0xdce7f5))
+                            .child(invitation.inviter_label().to_owned()),
+                    )
+                    .child(
+                        div()
+                            .h(px(13.0))
+                            .flex()
+                            .items_center()
+                            .text_size(px(10.0))
+                            .text_color(rgb(0x8397b0))
+                            .child(format!("{preposition} {}", invitation.destination_label())),
+                    ),
             )
-            .child(decline)
-            .child(accept);
+            .child(
+                div()
+                    .absolute()
+                    .right(px(18.0))
+                    .top(px(33.0))
+                    .h(px(38.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(decline)
+                    .child(accept),
+            );
 
         if invitation.closing {
             card.with_animation(

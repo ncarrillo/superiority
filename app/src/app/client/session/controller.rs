@@ -84,7 +84,10 @@ impl SuperiorityView {
         let startup_update_check_pending = update_service.is_some();
         let startup_connection_pending = startup_update_check_pending;
         let (commands, events) = if live_mode {
-            let client = spawn_client(Box::new(uplink::spawn(uplink.clone())));
+            let client = spawn_client(Box::new(uplink::spawn(
+                uplink.clone(),
+                remembered_group_names.clone(),
+            )));
             if !startup_connection_pending {
                 let _ = client.commands.send(ClientCommand::Connect {
                     force_interactive: false,

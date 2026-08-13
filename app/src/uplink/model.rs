@@ -133,6 +133,7 @@ pub fn channel_identity(channel: &ChatChannel) -> String {
         ChatChannel::Public(identifier) => format!("public:{identifier}"),
         ChatChannel::Private(name) => format!("private:{name}"),
         ChatChannel::Club(club_id) => format!("club:{club_id}"),
+        ChatChannel::Party => "party".into(),
     }
 }
 
@@ -144,7 +145,9 @@ fn channel_ref(channel: &ChatChannel, club_names: &BTreeMap<u32, String>) -> Cha
             // claim — the viewer falls back to "Group {id}" like a fresh tab.
             ChatChannel::Club(club_id) => club_names.get(club_id).cloned(),
             // The same static naming the app's tabs use.
-            ChatChannel::Public(_) | ChatChannel::Private(_) => Some(channel_title(channel)),
+            ChatChannel::Public(_) | ChatChannel::Private(_) | ChatChannel::Party => {
+                Some(channel_title(channel))
+            }
         },
     }
 }
@@ -217,6 +220,14 @@ pub struct Projector {
 }
 
 impl Projector {
+    #[must_use]
+    pub fn with_club_names(club_names: BTreeMap<u32, String>) -> Self {
+        Self {
+            club_names,
+            ..Self::default()
+        }
+    }
+
     /// Projects one event, or `None` when it must not be sent. Structural
     /// bookkeeping (the index map) always runs, even while disabled, so a
     /// mid-session toggle starts from a correct map.
@@ -614,6 +625,34 @@ mod tests {
             "private:Op Test"
         );
         assert_eq!(channel_identity(&ChatChannel::Club(5322)), "club:5322");
+        assert_eq!(channel_identity(&ChatChannel::Party), "party");
+    }
+
+    #[test]
+    fn cached_group_names_resolve_the_first_join() {
+        let mut projector =
+            Projector::with_club_names(BTreeMap::from([(98908, "general Arcade".to_owned())]));
+
+        match projector.project(&joined(0, ChatChannel::Club(98908)), gates(true, None)) {
+            Some(EventKind::Joined { channel }) => {
+                assert_eq!(channel.key, "club:98908");
+                assert_eq!(channel.name.as_deref(), Some("general Arcade"));
+            }
+            other => panic!("expected a named club join, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn party_channels_keep_the_party_identity_and_title() {
+        let mut projector = Projector::default();
+
+        match projector.project(&joined(u8::MAX, ChatChannel::Party), gates(true, None)) {
+            Some(EventKind::Joined { channel }) => {
+                assert_eq!(channel.key, "party");
+                assert_eq!(channel.name.as_deref(), Some("Party"));
+            }
+            other => panic!("expected a party join, got {other:?}"),
+        }
     }
 
     #[test]

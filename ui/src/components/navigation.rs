@@ -43,6 +43,14 @@ pub enum TabRelease {
     Reorder { from: usize, to: usize },
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ChannelTabTone {
+    #[default]
+    Standard,
+    Party,
+    Group,
+}
+
 #[derive(Clone, Copy)]
 pub struct TabDragPayload {
     pub index: usize,
@@ -77,6 +85,7 @@ pub struct ChannelTab {
     dragged_travel: Option<f32>,
     close_progress: Option<f32>,
     effect_opacity: [f32; 3],
+    tone: ChannelTabTone,
     on_mouse_down: Option<MouseDownHandler>,
     on_click: Option<ClickHandler>,
     on_hover: Option<HoverHandler>,
@@ -97,6 +106,7 @@ impl ChannelTab {
             dragged_travel: None,
             close_progress: None,
             effect_opacity: [1.0; 3],
+            tone: ChannelTabTone::Standard,
             on_mouse_down: None,
             on_click: None,
             on_hover: None,
@@ -149,6 +159,12 @@ impl ChannelTab {
     #[must_use]
     pub const fn effect_opacity(mut self, opacity: [f32; 3]) -> Self {
         self.effect_opacity = opacity;
+        self
+    }
+
+    #[must_use]
+    pub const fn tone(mut self, tone: ChannelTabTone) -> Self {
+        self.tone = tone;
         self
     }
 
@@ -280,15 +296,7 @@ impl RenderOnce for ChannelTabs {
             } else {
                 item.label.to_uppercase()
             };
-            let tint = if item.unread && !item.active {
-                rgb(0x6bc2f2)
-            } else if item.active {
-                rgb(0xe6f9ff)
-            } else if item.hovered {
-                rgb(0x7394b4)
-            } else {
-                rgb(0x415d7d)
-            };
+            let tint = tab_text_tint(item.tone, item.active, item.hovered, item.unread);
             let measured = measure_tab_title(&label, window);
             let travel = tab_name_layout(measured, slot_width).travel;
             let mut tab = tab_slot(self.leading + x, width, opacity)
@@ -327,6 +335,7 @@ impl RenderOnce for ChannelTabs {
                     active: item.active,
                     divider: index > 0,
                     effect_opacity: item.effect_opacity,
+                    tone: item.tone,
                 },
                 self.assets.clone(),
             ));
@@ -620,6 +629,7 @@ struct TabChrome {
     pub active: bool,
     pub divider: bool,
     pub effect_opacity: [f32; 3],
+    pub tone: ChannelTabTone,
 }
 
 #[derive(IntoElement)]
@@ -698,9 +708,26 @@ fn measure_tab_title(title: &str, window: &Window) -> f32 {
 fn tab_chrome(spec: TabChrome, assets: &UiAssets) -> Div {
     let mut chrome = div().absolute().inset_0().overflow_hidden();
     if spec.active {
+        let (selected, line, glow) = match spec.tone {
+            ChannelTabTone::Group => (
+                assets.top_navigation_selected_orange.clone(),
+                assets.top_navigation_selected_line_orange.clone(),
+                assets.top_navigation_selected_glow_orange.clone(),
+            ),
+            ChannelTabTone::Party => (
+                assets.top_navigation_selected_pink.clone(),
+                assets.top_navigation_selected_line_pink.clone(),
+                assets.top_navigation_selected_glow_pink.clone(),
+            ),
+            ChannelTabTone::Standard => (
+                assets.top_navigation_selected.clone(),
+                assets.top_navigation_selected_line.clone(),
+                assets.top_navigation_selected_glow.clone(),
+            ),
+        };
         chrome = chrome
             .child(
-                img(assets.top_navigation_selected.clone())
+                img(selected)
                     .absolute()
                     .top(px(1.0))
                     .left(px(5.0))
@@ -710,7 +737,7 @@ fn tab_chrome(spec: TabChrome, assets: &UiAssets) -> Div {
                     .object_fit(ObjectFit::Fill),
             )
             .child(
-                img(assets.top_navigation_selected_line.clone())
+                img(line)
                     .absolute()
                     .bottom_0()
                     .left_0()
@@ -720,7 +747,7 @@ fn tab_chrome(spec: TabChrome, assets: &UiAssets) -> Div {
                     .object_fit(ObjectFit::Fill),
             )
             .child(
-                img(assets.top_navigation_selected_glow.clone())
+                img(glow)
                     .absolute()
                     .bottom_0()
                     .left_0()
@@ -742,6 +769,35 @@ fn tab_chrome(spec: TabChrome, assets: &UiAssets) -> Div {
         );
     }
     chrome
+}
+
+fn tab_text_tint(tone: ChannelTabTone, active: bool, hovered: bool, unread: bool) -> Hsla {
+    if unread && !active {
+        return match tone {
+            ChannelTabTone::Party => rgb(0xf092c4).into(),
+            ChannelTabTone::Group => rgb(0xf0aa64).into(),
+            ChannelTabTone::Standard => rgb(0x6bc2f2).into(),
+        };
+    }
+    if active {
+        return match tone {
+            ChannelTabTone::Party => rgb(0xffe8f6).into(),
+            ChannelTabTone::Group => rgb(0xffedd7).into(),
+            ChannelTabTone::Standard => rgb(0xe6f9ff).into(),
+        };
+    }
+    if hovered {
+        return match tone {
+            ChannelTabTone::Party => rgb(0xb9789d).into(),
+            ChannelTabTone::Group => rgb(0xb78358).into(),
+            ChannelTabTone::Standard => rgb(0x7394b4).into(),
+        };
+    }
+    match tone {
+        ChannelTabTone::Party => rgb(0x76516a).into(),
+        ChannelTabTone::Group => rgb(0x745b45).into(),
+        ChannelTabTone::Standard => rgb(0x415d7d).into(),
+    }
 }
 
 #[must_use]

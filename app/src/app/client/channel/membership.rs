@@ -28,6 +28,7 @@ impl SuperiorityView {
                 .tabs
                 .iter()
                 .filter_map(|tab| tab.channel.clone())
+                .filter(|channel| *channel != ChatChannel::Party)
                 .collect::<Vec<_>>(),
         );
     }

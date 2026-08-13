@@ -12,10 +12,13 @@ const CLUB_INVITE_ACTION: &str = "Battlenet::Client::Club::InviteAction";
 const INVITE_RESERVED: u64 = 4;
 
 const VERIFIED_REFLECTED: &[&str] = &[
+    "Battlenet::Client::Chat::StatusChangeRequest",
+    "Battlenet::Client::Chat::DatagramConnectionUpdate",
     "Battlenet::Client::Chat::WhisperRecv",
     "Battlenet::Client::Chat::WhisperEchoRecv",
     "Battlenet::Client::Connection::ServerVersion",
     "Battlenet::Client::Connection::RegulatorUpdate",
+    "Battlenet::Client::Party::MapOptionsChange",
     "Battlenet::Client::Presence::StatisticsUpdate",
     "Battlenet::Client::Presence::TemporaryPresenceResponse",
     "Battlenet::Client::Toon::InitialNotifiesComplete",
