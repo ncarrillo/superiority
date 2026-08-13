@@ -7,10 +7,11 @@ use crate::{
         ChannelList, ChatInvite, ChatJoin, ChatMembership, ChatMessage, ChatWhisper,
         ClubInviteAction, ClubSummary, ConferenceDescription, ConferenceDescriptions,
         ConnectionMessageFrame, FriendEntry, FriendIdentity, FriendToon, FriendToonPage,
-        FriendUpdate, FriendsPage, MemberClanTag, MembershipChange, MembershipKind, Payload,
-        PresenceField, PresenceFieldFlags, PresenceFields, PresenceUpdate, ProfileAddress,
-        ProfileReadResponse, ProfileReadResult, SocialOperation, StartupSummary, ToonDisplay,
-        ToonFullName, ToonHandle, ToonList, ToonNameResolved, ToonSelected,
+        FriendUpdate, FriendsPage, MemberClanTag, MembershipChange, MembershipKind,
+        PartyMemberStatus, Payload, PresenceField, PresenceFieldFlags, PresenceFields,
+        PresenceUpdate, ProfileAddress, ProfileReadResponse, ProfileReadResult, SocialOperation,
+        StartupSummary, ToonDisplay, ToonFullName, ToonHandle, ToonList, ToonNameResolved,
+        ToonSelected,
     },
     native::protocol::Protocol,
 };
@@ -1026,66 +1027,38 @@ pub(crate) fn chat_message_with_provenance(
     ))
 }
 
-pub(crate) fn chat_invite(
-    protocol: &Protocol,
-    type_id: u32,
-    reader: &mut BitReader<'_>,
-) -> Result<Payload> {
-    let BsnValue::Struct(invite) = protocol.codec().decode_reflected_from(reader, type_id)? else {
-        return Err(native_error("chat invite is not a struct"));
-    };
-    let channel_index = u8::try_from(expect_integer(
-        invite
-            .get("m_channelIndex")
-            .ok_or_else(|| native_error("chat invite omits channel index"))?
-            .clone(),
-        "chat invite channel index",
-    )?)
-    .map_err(|_| native_error("chat invite channel index is outside u8"))?;
-    let inviter_presence = u32::try_from(expect_integer(
-        invite
-            .get("m_inviterPresence")
-            .ok_or_else(|| native_error("chat invite omits inviter presence"))?
-            .clone(),
-        "chat invite inviter presence",
-    )?)
-    .map_err(|_| native_error("chat invite inviter presence is outside u32"))?;
+pub(crate) fn chat_invite(reader: &mut BitReader<'_>) -> Result<Payload> {
+    let channel_type = read_u8(reader, 4)?;
+    let inviter_presence = read_u32(reader, 32)?;
+    let channel_index = read_u8(reader, 3)?;
     Ok(Payload::ChatInvite(ChatInvite {
+        channel_type,
         channel_index,
         inviter_presence,
     }))
 }
 
-pub(crate) fn chat_invite_with_provenance(
-    protocol: &Protocol,
-    type_id: u32,
-    reader: &mut BitReader<'_>,
-) -> Result<DecodedPayload> {
-    reflected_payload(protocol, type_id, reader, |value| {
-        let BsnValue::Struct(invite) = value else {
-            return Err(native_error("chat invite is not a struct"));
-        };
-        let channel_index = u8::try_from(expect_integer(
-            invite
-                .get("m_channelIndex")
-                .ok_or_else(|| native_error("chat invite omits channel index"))?
-                .clone(),
-            "chat invite channel index",
-        )?)
-        .map_err(|_| native_error("chat invite channel index is outside u8"))?;
-        let inviter_presence = u32::try_from(expect_integer(
-            invite
-                .get("m_inviterPresence")
-                .ok_or_else(|| native_error("chat invite omits inviter presence"))?
-                .clone(),
-            "chat invite inviter presence",
-        )?)
-        .map_err(|_| native_error("chat invite inviter presence is outside u32"))?;
-        Ok(Payload::ChatInvite(ChatInvite {
-            channel_index,
-            inviter_presence,
-        }))
-    })
+pub(crate) fn chat_invite_with_provenance(reader: &mut BitReader<'_>) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let channel_type = read_spanned_u8(reader, 4)?;
+    let inviter_presence = read_spanned_u32(reader, 32)?;
+    let channel_index = read_spanned_u8(reader, 3)?;
+    Ok(custom_payload(
+        Payload::ChatInvite(ChatInvite {
+            channel_type: channel_type.value,
+            channel_index: channel_index.value,
+            inviter_presence: inviter_presence.value,
+        }),
+        vec![
+            spanned_field("value.m_channelType", "ChatChannelType2", &channel_type, 1),
+            spanned_field("value.m_inviterPresence", "uint32", &inviter_presence, 1),
+            spanned_field("value.m_channelIndex", "uint3", &channel_index, 1),
+        ],
+        "ChatInvite",
+        "3 fields",
+        start_bit,
+        reader.position(),
+    ))
 }
 
 pub(crate) fn chat_whisper(
@@ -1220,6 +1193,7 @@ pub(crate) fn chat_membership_with_provenance(
                     presence_id: None,
                     display_name: None,
                     toon_name: None,
+                    party_status: None,
                     reason: Some(u16::try_from(reason.value).expect("16-bit field fits in u16")),
                 });
             }
@@ -1239,18 +1213,21 @@ pub(crate) fn chat_membership_with_provenance(
                 ]);
                 let mut display_name = None;
                 let mut toon_name = None;
+                let mut party_status = None;
                 for status_index in 0..status_count.value {
-                    if let Some(name) = trace_member_status(
+                    let status = trace_member_status(
                         protocol,
                         &status_shape,
                         reader,
                         &format!("{path}.statuses[{status_index}]"),
                         4,
                         &mut provenance,
-                    )? {
+                    )?;
+                    if let Some(name) = status.toon_name {
                         display_name = Some(name.name.clone());
                         toon_name = Some(name);
                     }
+                    party_status = status.party_status.or(party_status);
                 }
                 changes.push(MembershipChange {
                     kind: MembershipKind::Join,
@@ -1258,6 +1235,7 @@ pub(crate) fn chat_membership_with_provenance(
                     presence_id: Some(presence_id.value),
                     display_name,
                     toon_name,
+                    party_status,
                     reason: None,
                 });
             }
@@ -1269,7 +1247,7 @@ pub(crate) fn chat_membership_with_provenance(
                     &member_handle,
                     3,
                 ));
-                let toon_name = trace_member_status(
+                let status = trace_member_status(
                     protocol,
                     &status_shape,
                     reader,
@@ -1281,8 +1259,9 @@ pub(crate) fn chat_membership_with_provenance(
                     kind: MembershipKind::Status,
                     member_handle: member_handle.value,
                     presence_id: None,
-                    display_name: toon_name.as_ref().map(|name| name.name.clone()),
-                    toon_name,
+                    display_name: status.toon_name.as_ref().map(|name| name.name.clone()),
+                    toon_name: status.toon_name,
+                    party_status: status.party_status,
                     reason: None,
                 });
             }
@@ -3590,6 +3569,12 @@ fn choice_variant(shape: &TypeShape, index: i128) -> Result<u32> {
     Ok(shape.member_types[position])
 }
 
+#[derive(Default)]
+struct TracedMemberStatus {
+    toon_name: Option<ToonFullName>,
+    party_status: Option<PartyMemberStatus>,
+}
+
 fn trace_member_status(
     protocol: &Protocol,
     status_shape: &TypeShape,
@@ -3597,7 +3582,7 @@ fn trace_member_status(
     path: &str,
     depth: usize,
     provenance: &mut Vec<DecodedField>,
-) -> Result<Option<ToonFullName>> {
+) -> Result<TracedMemberStatus> {
     let start_bit = reader.position();
     let choice = read_spanned_u64(reader, 3)?;
     let variant = choice_variant(status_shape, i128::from(choice.value))?;
@@ -3607,7 +3592,8 @@ fn trace_member_status(
         &choice,
         depth + 1,
     ));
-    let name = match choice.value {
+    let mut status = TracedMemberStatus::default();
+    match choice.value {
         0 | 1 => {
             let decoded = protocol.codec().decode_reflected_traced_from(
                 reader,
@@ -3615,8 +3601,21 @@ fn trace_member_status(
                 &format!("{path}.value"),
                 depth + 1,
             )?;
+            if choice.value == 1 {
+                status.party_status = decoded
+                    .value
+                    .as_struct()
+                    .and_then(|value| value.get("m_partyStatus"))
+                    .and_then(BsnValue::as_integer)
+                    .and_then(|value| match value {
+                        0 => Some(PartyMemberStatus::Invalid),
+                        1 => Some(PartyMemberStatus::Online),
+                        2 => Some(PartyMemberStatus::Offline),
+                        3 => Some(PartyMemberStatus::Invited),
+                        _ => None,
+                    });
+            }
             provenance.extend(decoded.fields);
-            None
         }
         2 => {
             let value = read_spanned_u64(reader, 8)?;
@@ -3626,7 +3625,6 @@ fn trace_member_status(
                 &value,
                 depth + 1,
             ));
-            None
         }
         3 => {
             let wrapper = protocol.peel_alias(variant)?;
@@ -3650,7 +3648,6 @@ fn trace_member_status(
                 &flag,
                 depth + 1,
             ));
-            None
         }
         4 | 6 => {
             let value = read_spanned_u64(reader, 1)?;
@@ -3660,17 +3657,18 @@ fn trace_member_status(
                 &value,
                 depth + 1,
             ));
-            None
         }
-        5 => Some(trace_chat_display_name(
-            reader,
-            path,
-            depth + 1,
-            provenance,
-        )?),
-        7 => None,
+        5 => {
+            status.toon_name = Some(trace_chat_display_name(
+                reader,
+                path,
+                depth + 1,
+                provenance,
+            )?);
+        }
+        7 => {}
         _ => return Err(native_error("chat member status has an unknown choice")),
-    };
+    }
     provenance.push(decoded_field(
         path,
         "MemberStatus",
@@ -3679,7 +3677,7 @@ fn trace_member_status(
         reader.position(),
         depth,
     ));
-    Ok(name)
+    Ok(status)
 }
 
 fn trace_chat_display_name(
@@ -4496,6 +4494,39 @@ mod tests {
         assert_eq!(message.channel_index, 0);
         assert_eq!(message.member_handle, 2_623_867);
         assert_eq!(message.body, "anyoone for mutation or one mission?");
+    }
+
+    #[test]
+    fn chat_invite_decodes_retail_generated_order() {
+        let mut writer = BitWriter::new();
+        writer.write(3, 4).unwrap();
+        writer.write(0x1234_5678, 32).unwrap();
+        writer.write(6, 3).unwrap();
+        let logical_bits = writer.position();
+        let bytes = writer.into_bytes();
+        let mut reader = BitReader::new(&bytes, Some(logical_bits)).unwrap();
+
+        let decoded = chat_invite_with_provenance(&mut reader).unwrap();
+        let Payload::ChatInvite(invite) = decoded.payload else {
+            panic!("expected a chat invite");
+        };
+        assert_eq!(
+            invite,
+            ChatInvite {
+                channel_type: 3,
+                inviter_presence: 0x1234_5678,
+                channel_index: 6,
+            }
+        );
+        assert_eq!(reader.position(), logical_bits);
+        assert_eq!(
+            decoded
+                .provenance
+                .iter()
+                .find(|field| field.path == "value.m_channelIndex")
+                .map(|field| (field.start_bit, field.end_bit)),
+            Some((36, 39))
+        );
     }
 
     #[test]

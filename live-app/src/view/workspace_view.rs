@@ -17,6 +17,11 @@ impl LiveView {
                 let hover_key = key.clone();
                 navigation::ChannelTab::new(format!("live-tab-{index}"), channel.label())
                     .active(self.selected.as_deref() == Some(key.as_str()))
+                    .tone(match channel.kind.as_str() {
+                        "party" => navigation::ChannelTabTone::Party,
+                        "club" => navigation::ChannelTabTone::Group,
+                        _ => navigation::ChannelTabTone::Standard,
+                    })
                     .marquee_offset(self.workspace.navigation.tabs.name_offset(&key, now))
                     .drag_offset(offsets[index])
                     .dragged_travel(

@@ -29,6 +29,24 @@ impl sc2_core::bsn::FromBsn for ChatChannelType2Enum {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ChatDatagramConnectionInfo {
+    #[bsn(name = "m_instance")]
+    pub instance: FourCc,
+    #[bsn(name = "m_natType")]
+    pub nat_type: super::datagramconnection::DatagramConnectionNATTypeEnum,
+    #[bsn(name = "m_addressPort")]
+    pub address_port: super::ip4::IP4AddressPort,
+    #[bsn(name = "m_boundAddressPort")]
+    pub bound_address_port: super::ip4::IP4AddressPort,
+    #[bsn(name = "m_arbitrationNotify")]
+    pub arbitration_notify: super::datagramconnection::DatagramConnectionArbitrationNotifyEnum,
+    #[bsn(name = "m_token")]
+    pub token: u8,
+    #[bsn(name = "m_connectAttemptToken")]
+    pub connect_attempt_token: u8,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ChatFullName {
     #[bsn(name = "m_shard")]
     pub shard: Option<u32>,
@@ -283,7 +301,27 @@ pub struct ClientChatConferenceDescriptions {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatDatagramConnectionUpdate {
+    #[bsn(name = "m_target")]
+    pub target: super::defines::ClientDefinesPlayerTarget,
+    #[bsn(name = "m_info")]
+    pub info: super::chat::ChatDatagramConnectionInfo,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatEnumConferenceDescriptions {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatInviteAccept {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatInviteDecline {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatInviteNotify {
@@ -344,6 +382,16 @@ pub struct ClientChatMessageSend {
     pub channel_index: u8,
     #[bsn(name = "m_body")]
     pub body: String,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatStatusChangeRequest {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_statusChange")]
+    pub status_change: super::chat::ChatMemberStatusSingle,
 }
 
 #[derive(Clone, Debug, FromBsn)]

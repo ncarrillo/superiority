@@ -7,6 +7,7 @@ use crate::bsn::value::{BsnStruct, BsnValue};
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum Payload {
     Reflected(BsnValue),
+    CommandResponse(CommandResponse),
     MessageFrame(ConnectionMessageFrame),
     ChatInvite(ChatInvite),
     ClubInviteAction(ClubInviteAction),
@@ -33,6 +34,12 @@ pub enum Payload {
     FriendToons(FriendToonPage),
     AccountBlocks(AccountBlockPage),
     StartupSummary(StartupSummary),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct CommandResponse {
+    pub command_id: u8,
+    pub result: u16,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -132,6 +139,7 @@ pub struct ClubInviteAction {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct ChatInvite {
+    pub channel_type: u8,
     pub channel_index: u8,
     pub inviter_presence: u32,
 }
@@ -231,6 +239,14 @@ pub enum MembershipKind {
     Status,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum PartyMemberStatus {
+    Invalid,
+    Online,
+    Offline,
+    Invited,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MembershipChange {
     pub kind: MembershipKind,
@@ -238,6 +254,7 @@ pub struct MembershipChange {
     pub presence_id: Option<u32>,
     pub display_name: Option<String>,
     pub toon_name: Option<ToonFullName>,
+    pub party_status: Option<PartyMemberStatus>,
     pub reason: Option<u16>,
 }
 

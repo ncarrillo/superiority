@@ -94,8 +94,25 @@ mkdir -p \
 # channel, so the straight sips conversion in
 # research/extract-sc2-assets.zsh produces
 # fully transparent PNGs. the app loads hand-recovered copies from
-# $destination/images/curated/controls instead, which this script must never
-# overwrite.
+# $destination/images/curated/controls instead.
+for layer in selected selected-line selected-line-glow; do
+  base="$destination/images/curated/controls/top-nav-$layer.png"
+  pamstack -tupletype=RGB_ALPHA \
+    <(pngtopam -alphapam "$base" | pamchannel 2) \
+    <(pngtopam -alphapam "$base" | pamchannel 1) \
+    <(pngtopam -alphapam "$base" | pamchannel 0) \
+    <(pngtopam -alphapam "$base" | pamchannel 3) \
+    | pamtopng > "$destination/images/curated/controls/top-nav-$layer-orange.png"
+  pamstack -tupletype=RGB_ALPHA \
+    <(pngtopam -alphapam "$base" | pamchannel 2 | pamfunc -multiplier 0.82) \
+    <(pngtopam -alphapam "$base" | pamchannel 0) \
+    <(pamarith -mean \
+      <(pngtopam -alphapam "$base" | pamchannel 2) \
+      <(pngtopam -alphapam "$base" | pamchannel 0) \
+      | pamfunc -multiplier 0.8) \
+    <(pngtopam -alphapam "$base" | pamchannel 3) \
+    | pamtopng > "$destination/images/curated/controls/top-nav-$layer-pink.png"
+done
 modal_dialog="$source/ui-chrome/png/mods/core.sc2mod/base.sc2assets/assets/textures/ui_battlenet_glues_pageassets_dialogstandardbg.png"
 pamcat -topbottom \
   <(pngtopam -alphapam "$modal_dialog" | pamcut -left 0 -top 0 -width 452 -height 22) \

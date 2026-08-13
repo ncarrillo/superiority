@@ -6707,7 +6707,7 @@ dependencies = [
 
 [[package]]
 name = "superiority-app"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "cc",
  "chrono",
@@ -6763,7 +6763,7 @@ dependencies = [
 
 [[package]]
 name = "superiority-live-app"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "console_error_panic_hook",
  "console_log",

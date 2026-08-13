@@ -38,9 +38,15 @@ impl ChannelComponent {
             .enumerate()
             .map(|(index, tab)| {
                 let id = tab.id;
+                let tone = match tab.channel.as_ref() {
+                    Some(ChatChannel::Party) => ui_navigation::ChannelTabTone::Party,
+                    Some(ChatChannel::Club(_)) => ui_navigation::ChannelTabTone::Group,
+                    _ => ui_navigation::ChannelTabTone::Standard,
+                };
                 ui_navigation::ChannelTab::new(format!("channel-tab-{id}"), tab.title.clone())
                     .unread(tab.unread)
                     .active(index == self.active_tab)
+                    .tone(tone)
                     .hovered(self.hovered_tab == Some(id))
                     .marquee_offset(self.navigation.tabs.name_offset(&id, now))
                     .drag_offset(drag_offsets[index])

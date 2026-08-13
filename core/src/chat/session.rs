@@ -8,6 +8,8 @@ use rand::random;
 use super::portrait_catalog;
 
 const CLUB_LOOKUP_BATCH: usize = 8;
+const PARTY_CHANNEL_TYPE: u8 = 3;
+const PARTY_UI_CHANNEL_INDEX: u8 = u8::MAX;
 
 const JOIN_ANSWER_WINDOW: Duration = Duration::from_secs(20);
 
@@ -18,7 +20,10 @@ use crate::{
         AccountBlockEntry, FriendEntry, FriendIdentity, FriendsPage, ImageTableEntry, Payload,
         PresenceState, ProfileAddress, ProfileReadResponse, ProfileReadResult, Protocol, Record,
         Session, SocialOperation, ToonFullName, WhisperTarget,
-        model::{ChatJoin, ConferenceDescriptions, MembershipKind, ToonHandle, ToonList},
+        model::{
+            ChatJoin, ConferenceDescriptions, MembershipKind, PartyMemberStatus, ToonHandle,
+            ToonList,
+        },
         presence::PresenceDirectory,
     },
 };
@@ -28,6 +33,7 @@ pub enum ChatChannel {
     Public(u16),
     Private(String),
     Club(u32),
+    Party,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,6 +79,7 @@ pub fn channel_title(channel: &ChatChannel) -> String {
             .map_or_else(|| format!("Public {identifier}"), ToOwned::to_owned),
         ChatChannel::Private(name) => name.clone(),
         ChatChannel::Club(club_id) => format!("Group {club_id}"),
+        ChatChannel::Party => "Party".into(),
     }
 }
 
@@ -94,6 +101,7 @@ struct RosterMember {
     presence_id: Option<u32>,
     name: Option<String>,
     toon_name: Option<ToonFullName>,
+    party_status: Option<PartyMemberStatus>,
     clan_tag: Option<String>,
     avatar: Option<ImageTableEntry>,
     presence: PresenceState,
@@ -205,6 +213,13 @@ struct ChannelState {
     initial_roster_complete: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct PartyChannelState {
+    wire_channel_index: u8,
+    state: ChannelState,
+    announced: bool,
+}
+
 struct PendingLocalEcho {
     channel_index: u8,
     member_handle: u32,
@@ -234,6 +249,7 @@ pub struct LiveChat {
     session: Session,
     protocol: Protocol,
     channels: BTreeMap<u8, ChannelState>,
+    party: Option<PartyChannelState>,
     pending_joins: BTreeMap<u32, (ChatChannel, Instant)>,
     default_channel_index: u8,
     pending_events: VecDeque<ChatEvent>,
@@ -243,6 +259,9 @@ pub struct LiveChat {
     pending_toon_resolutions: BTreeSet<ToonFullName>,
     pending_club_info: Option<u32>,
     pending_invitations: BTreeMap<u32, u32>,
+    party_invitations: BTreeSet<u8>,
+    pending_party_accepts: BTreeSet<u8>,
+    party_online_channels: BTreeSet<u8>,
     pending_club_subscription: Option<ToonHandle>,
     pending_club_lookups: Vec<Vec<u32>>,
     announced_friends: Vec<ChatFriend>,
@@ -368,7 +387,7 @@ impl LiveChat {
                     )));
                 }
                 Payload::ChatMessage(message) => {
-                    events.push(message_event(&channels, message));
+                    events.push(message_event(&channels, None, message));
                 }
                 Payload::Friends(page) => {
                     apply_friend_page(&mut friends, page);
@@ -395,7 +414,7 @@ impl LiveChat {
             if (profile_changed.identity || profile_changed.presence) && !friends.is_empty() {
                 events.push(ChatEvent::Friends(friend_snapshot(&friends, &profiles)));
             }
-            profiles.enqueue_missing(&channels, &friends);
+            profiles.enqueue_missing(channels.values(), &friends);
             profiles.pump(&mut session, &protocol)?;
 
             if cache_received
@@ -423,6 +442,9 @@ impl LiveChat {
                     }
                     ChatChannel::Private(name) => protocol.chat_join_private(name, token)?,
                     ChatChannel::Club(club_id) => protocol.chat_join_club(*club_id, token)?,
+                    ChatChannel::Party => {
+                        return Err(protocol_error("party channels cannot be restored directly"));
+                    }
                 };
                 session.records_mut().send(&request)?;
                 join_sent = true;
@@ -445,6 +467,7 @@ impl LiveChat {
                 session,
                 protocol,
                 channels,
+                party: None,
                 pending_joins: BTreeMap::new(),
                 default_channel_index,
                 pending_events: VecDeque::new(),
@@ -454,6 +477,9 @@ impl LiveChat {
                 pending_toon_resolutions: BTreeSet::new(),
                 pending_club_info: None,
                 pending_invitations: BTreeMap::new(),
+                party_invitations: BTreeSet::new(),
+                pending_party_accepts: BTreeSet::new(),
+                party_online_channels: BTreeSet::new(),
                 pending_club_lookups: Vec::new(),
                 pending_club_subscription: local_toon_handle,
                 announced_friends: Vec::new(),
@@ -471,6 +497,15 @@ impl LiveChat {
 
     #[must_use]
     pub fn roster(&self, channel_index: u8) -> Option<RosterSnapshot> {
+        if channel_index == PARTY_UI_CHANNEL_INDEX {
+            return self.party.as_ref().map(|party| {
+                roster_snapshot(
+                    &party.state.roster,
+                    PARTY_UI_CHANNEL_INDEX,
+                    party.state.initial_roster_complete,
+                )
+            });
+        }
         self.channels.get(&channel_index).map(|channel| {
             roster_snapshot(
                 &channel.roster,
@@ -482,10 +517,15 @@ impl LiveChat {
 
     #[must_use]
     pub fn rosters(&self) -> Vec<RosterSnapshot> {
-        self.channels
+        let mut rosters = self
+            .channels
             .keys()
             .filter_map(|index| self.roster(*index))
-            .collect()
+            .collect::<Vec<_>>();
+        if let Some(party) = self.roster(PARTY_UI_CHANNEL_INDEX) {
+            rosters.push(party);
+        }
+        rosters
     }
 
     #[must_use]
@@ -494,25 +534,79 @@ impl LiveChat {
     }
 
     fn resolve_presence_name(&self, presence_id: u32) -> Option<String> {
-        self.channels.values().find_map(|channel| {
-            channel.roster.values().find_map(|member| {
-                if member.presence_id != Some(presence_id) {
-                    return None;
-                }
-                let name = member.name.as_deref()?;
+        let roster_name = self
+            .channels
+            .values()
+            .chain(self.party.iter().map(|party| &party.state))
+            .find_map(|channel| {
+                channel.roster.values().find_map(|member| {
+                    if member.presence_id != Some(presence_id) {
+                        return None;
+                    }
+                    let name = member.name.as_deref()?;
+                    let base = strip_character_code(name).to_owned();
+                    Some(
+                        member
+                            .clan_tag
+                            .as_ref()
+                            .map_or_else(|| base.clone(), |tag| format!("<{tag}> {base}")),
+                    )
+                })
+            });
+        if roster_name.is_some() {
+            return roster_name;
+        }
+
+        let canonical = self.profiles.presence.canonical_presence_id(presence_id);
+        self.friends.values().find_map(|friend| {
+            let friend_presence = friend_presence_id(friend, &self.profiles)?;
+            (self
+                .profiles
+                .presence
+                .canonical_presence_id(friend_presence)
+                == canonical)
+                .then(|| {
+                    friend
+                        .display_name
+                        .as_deref()
+                        .or(friend.full_name.as_deref())
+                        .or_else(|| friend.toon_name.as_ref().map(|toon| toon.name.as_str()))
+                        .map(strip_character_code)
+                        .map(str::to_owned)
+                })
+                .flatten()
+        })
+    }
+
+    fn party_inviter_name(&self, presence_id: u32, channel_index: u8) -> Option<String> {
+        self.resolve_presence_name(presence_id).or_else(|| {
+            let party = self
+                .party
+                .as_ref()
+                .filter(|party| party.wire_channel_index == channel_index)?;
+            let local = party.state.local_member_handle;
+            let candidate = party.state.roster.iter().find_map(|(handle, member)| {
+                (local != Some(*handle) && member.party_status != Some(PartyMemberStatus::Invited))
+                    .then_some(member)
+            })?;
+            candidate.name.as_deref().map(|name| {
                 let base = strip_character_code(name).to_owned();
-                Some(
-                    member
-                        .clan_tag
-                        .as_ref()
-                        .map_or_else(|| base.clone(), |tag| format!("<{tag}> {base}")),
-                )
+                candidate
+                    .clan_tag
+                    .as_ref()
+                    .map_or_else(|| base.clone(), |tag| format!("<{tag}> {base}"))
             })
         })
     }
 
     #[must_use]
     pub fn local_member_handle(&self, channel_index: u8) -> Option<u32> {
+        if channel_index == PARTY_UI_CHANNEL_INDEX {
+            return self
+                .party
+                .as_ref()
+                .and_then(|party| party.state.local_member_handle);
+        }
         self.channels
             .get(&channel_index)
             .and_then(|channel| channel.local_member_handle)
@@ -531,6 +625,9 @@ impl LiveChat {
             }
             ChatChannel::Private(name) => self.protocol.chat_join_private(name, token)?,
             ChatChannel::Club(club_id) => self.protocol.chat_join_club(*club_id, token)?,
+            ChatChannel::Party => {
+                return Err(protocol_error("party channels are joined by invitation"));
+            }
         };
         self.session.records_mut().send(&request)?;
         self.expire_pending_joins();
@@ -539,8 +636,18 @@ impl LiveChat {
     }
 
     pub fn send_message(&mut self, channel_index: u8, body: &str) -> Result<()> {
-        let Some(channel) = self.channels.get(&channel_index) else {
-            return Err(protocol_error("chat channel is not joined"));
+        let (wire_channel_index, channel) = if channel_index == PARTY_UI_CHANNEL_INDEX {
+            let party = self
+                .party
+                .as_ref()
+                .ok_or_else(|| protocol_error("party channel is not joined"))?;
+            (party.wire_channel_index, &party.state)
+        } else {
+            let channel = self
+                .channels
+                .get(&channel_index)
+                .ok_or_else(|| protocol_error("chat channel is not joined"))?;
+            (channel_index, channel)
         };
         if !channel.initial_roster_complete {
             return Err(protocol_error("chat is not ready to send messages"));
@@ -559,14 +666,14 @@ impl LiveChat {
         };
         self.session
             .records_mut()
-            .send(&self.protocol.chat_message(channel_index, body)?)?;
+            .send(&self.protocol.chat_message(wire_channel_index, body)?)?;
         self.pending_events.push_back(ChatEvent::Message {
             channel_index,
             sender,
             body: body.to_owned(),
         });
         self.pending_local_echoes.push_back(PendingLocalEcho {
-            channel_index,
+            channel_index: wire_channel_index,
             member_handle: local_member_handle,
             body: body.to_owned(),
             sent_at: Instant::now(),
@@ -650,6 +757,19 @@ impl LiveChat {
     }
 
     pub fn leave_channel(&mut self, channel_index: u8) -> Result<()> {
+        if channel_index == PARTY_UI_CHANNEL_INDEX {
+            let party = self
+                .party
+                .take()
+                .ok_or_else(|| protocol_error("party channel is not joined"))?;
+            self.session
+                .records_mut()
+                .send(&self.protocol.chat_leave(party.wire_channel_index)?)?;
+            self.party_invitations.remove(&party.wire_channel_index);
+            self.pending_party_accepts.remove(&party.wire_channel_index);
+            self.party_online_channels.remove(&party.wire_channel_index);
+            return Ok(());
+        }
         if !self.channels.contains_key(&channel_index) {
             return Err(protocol_error("chat channel is not joined"));
         }
@@ -667,7 +787,103 @@ impl LiveChat {
 
     pub fn answer_party_invitation(&mut self, channel_index: u8, accept: bool) -> Result<()> {
         let packet = self.protocol.chat_invite_answer(channel_index, accept)?;
-        self.session.records_mut().send(&packet)
+        let members = self
+            .party
+            .as_ref()
+            .filter(|party| party.wire_channel_index == channel_index)
+            .map(|party| &party.state)
+            .map(|channel| {
+                channel
+                    .roster
+                    .iter()
+                    .map(|(handle, member)| (*handle, member.party_status))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        trace_party(format_args!(
+            "{} party invitation for channel {channel_index}; members={members:?}; packet={}",
+            if accept { "accepting" } else { "declining" },
+            hex::encode(&packet),
+        ));
+        self.session.records_mut().send(&packet)?;
+        if accept {
+            self.pending_party_accepts.insert(channel_index);
+            self.publish_party_online_if_ready(channel_index)?;
+        } else {
+            self.party_invitations.remove(&channel_index);
+            self.pending_party_accepts.remove(&channel_index);
+            self.party_online_channels.remove(&channel_index);
+            if self
+                .party
+                .as_ref()
+                .is_some_and(|party| party.wire_channel_index == channel_index)
+            {
+                self.party = None;
+            }
+        }
+        Ok(())
+    }
+
+    fn identify_invited_party_member(&mut self, channel_index: u8) {
+        if !self.party_invitations.contains(&channel_index)
+            && !self.pending_party_accepts.contains(&channel_index)
+        {
+            return;
+        }
+        let Some(channel) = self
+            .party
+            .as_mut()
+            .filter(|party| party.wire_channel_index == channel_index)
+            .map(|party| &mut party.state)
+        else {
+            return;
+        };
+        if channel.local_member_handle.is_some() {
+            return;
+        }
+        let invited = channel
+            .roster
+            .iter()
+            .filter(|(_, member)| member.party_status == Some(PartyMemberStatus::Invited))
+            .map(|(handle, _)| *handle)
+            .collect::<Vec<_>>();
+        if let [member_handle] = invited.as_slice() {
+            channel.local_member_handle = Some(*member_handle);
+            trace_party(format_args!(
+                "identified invited local party member {member_handle} on channel {channel_index}"
+            ));
+        }
+    }
+
+    fn publish_party_online_if_ready(&mut self, channel_index: u8) -> Result<bool> {
+        if !self.pending_party_accepts.contains(&channel_index)
+            || self.party_online_channels.contains(&channel_index)
+        {
+            return Ok(false);
+        }
+        self.identify_invited_party_member(channel_index);
+        let Some(member_handle) = self
+            .party
+            .as_ref()
+            .filter(|party| party.wire_channel_index == channel_index)
+            .and_then(|party| party.state.local_member_handle)
+        else {
+            trace_party(format_args!(
+                "accepted party channel {channel_index}; waiting for the local member handle"
+            ));
+            return Ok(false);
+        };
+        let packet = self
+            .protocol
+            .chat_party_online(channel_index, member_handle)?;
+        self.session.records_mut().send(&packet)?;
+        self.party_online_channels.insert(channel_index);
+        self.pending_party_accepts.remove(&channel_index);
+        self.party_invitations.remove(&channel_index);
+        trace_party(format_args!(
+            "published party online status for member {member_handle} on channel {channel_index}"
+        ));
+        Ok(true)
     }
 
     pub fn keep_alive(&mut self) -> Result<()> {
@@ -707,21 +923,104 @@ impl LiveChat {
         let observed = self.profiles.observe(&record.value);
         let event = match &record.value {
             Payload::ChatMembership(membership) => {
+                let is_party = self.party_invitations.contains(&membership.channel_index)
+                    || self
+                        .pending_party_accepts
+                        .contains(&membership.channel_index)
+                    || self
+                        .party
+                        .as_ref()
+                        .is_some_and(|party| party.wire_channel_index == membership.channel_index)
+                    || membership
+                        .changes
+                        .iter()
+                        .any(|change| change.party_status.is_some());
+                if is_party {
+                    trace_party(format_args!(
+                        "party membership channel {} end={} changes={:?}",
+                        membership.channel_index,
+                        membership.end_of_initial,
+                        membership
+                            .changes
+                            .iter()
+                            .map(|change| (
+                                change.kind,
+                                change.member_handle,
+                                change.presence_id,
+                                change.party_status
+                            ))
+                            .collect::<Vec<_>>()
+                    ));
+                }
                 let mut events = Vec::new();
-                let channel = self.channels.entry(membership.channel_index).or_default();
-                let was_complete = channel.initial_roster_complete;
-                let local = channel.local_member_handle;
-                apply_membership(
-                    &mut channel.roster,
-                    membership,
-                    was_complete,
-                    local,
-                    &mut events,
-                );
-                channel.initial_roster_complete |= membership.end_of_initial;
+                if is_party {
+                    let party = self.party.get_or_insert_with(|| PartyChannelState {
+                        wire_channel_index: membership.channel_index,
+                        ..PartyChannelState::default()
+                    });
+                    let was_complete = party.state.initial_roster_complete;
+                    let local = party.state.local_member_handle;
+                    let mut visible = membership.clone();
+                    visible.channel_index = PARTY_UI_CHANNEL_INDEX;
+                    apply_membership(
+                        &mut party.state.roster,
+                        &visible,
+                        was_complete,
+                        local,
+                        &mut events,
+                    );
+                    party.state.initial_roster_complete |= membership.end_of_initial;
+                } else {
+                    let channel = self.channels.entry(membership.channel_index).or_default();
+                    let was_complete = channel.initial_roster_complete;
+                    let local = channel.local_member_handle;
+                    apply_membership(
+                        &mut channel.roster,
+                        membership,
+                        was_complete,
+                        local,
+                        &mut events,
+                    );
+                    channel.initial_roster_complete |= membership.end_of_initial;
+                }
+                self.identify_invited_party_member(membership.channel_index);
+                self.publish_party_online_if_ready(membership.channel_index)?;
+                let (visible_index, channel) = if is_party {
+                    let party = self
+                        .party
+                        .as_mut()
+                        .expect("party channel was just inserted");
+                    if self
+                        .party_online_channels
+                        .contains(&membership.channel_index)
+                        && !party.announced
+                    {
+                        let local_member_handle =
+                            party.state.local_member_handle.ok_or_else(|| {
+                                protocol_error("party channel omitted the local member")
+                            })?;
+                        events.insert(
+                            0,
+                            ChatEvent::Joined {
+                                channel_index: PARTY_UI_CHANNEL_INDEX,
+                                channel: ChatChannel::Party,
+                                local_member_handle,
+                            },
+                        );
+                        party.announced = true;
+                    }
+                    (PARTY_UI_CHANNEL_INDEX, &party.state)
+                } else {
+                    (
+                        membership.channel_index,
+                        self.channels
+                            .get(&membership.channel_index)
+                            .expect("membership channel was just inserted"),
+                    )
+                };
                 events.push(ChatEvent::Roster(roster_snapshot(
                     &channel.roster,
-                    membership.channel_index,
+                    visible_index,
                     channel.initial_roster_complete,
                 )));
                 let mut events = events.into_iter();
@@ -737,7 +1036,7 @@ impl LiveChat {
                         route: record_route(&record),
                     })
                 } else {
-                    Ok(message_event(&self.channels, message))
+                    Ok(message_event(&self.channels, self.party.as_ref(), message))
                 }
             }
             Payload::ChatWhisper(whisper) => Ok(ChatEvent::Whisper {
@@ -760,42 +1059,113 @@ impl LiveChat {
             }
             Payload::ChatJoin(result) => {
                 self.expire_pending_joins();
-                let requested = result
-                    .token
-                    .and_then(|token| self.pending_joins.remove(&token))
-                    .map(|(channel, _)| channel)
-                    .or_else(|| {
-                        (self.pending_joins.len() == 1)
-                            .then(|| {
-                                self.pending_joins
-                                    .pop_first()
-                                    .map(|(_, (channel, _))| channel)
-                            })
-                            .flatten()
+                trace_party(format_args!(
+                    "chat join success={} index={:?} member={:?} type={:?} locator={:?} token={:?}",
+                    result.success,
+                    result.channel_index,
+                    result.member_handle,
+                    result.channel_type,
+                    result.channel_name_id,
+                    result.token,
+                ));
+                let rejoins_party = result.success
+                    && result.channel_name_id.is_none()
+                    && result.token.is_none()
+                    && self.party.as_ref().is_some_and(|party| {
+                        Some(party.wire_channel_index) == result.channel_index
                     });
-                if !result.success {
-                    return Ok(ChatEvent::JoinRejected {
-                        channel: requested,
-                        reason: result.reason,
-                    });
+                if result.success
+                    && (result.channel_type == Some(PARTY_CHANNEL_TYPE) || rejoins_party)
+                {
+                    let was_announced = self.party.as_ref().is_some_and(|party| party.announced);
+                    let (channel_index, local_member_handle) =
+                        accept_party_join(&mut self.party, result)?;
+                    self.party_invitations.remove(&channel_index);
+                    self.pending_party_accepts.insert(channel_index);
+                    self.publish_party_online_if_ready(channel_index)?;
+                    self.party
+                        .as_mut()
+                        .expect("accepted party channel exists")
+                        .announced = true;
+                    if was_announced {
+                        Ok(ChatEvent::Activity {
+                            route: record_route(&record),
+                        })
+                    } else {
+                        Ok(ChatEvent::Joined {
+                            channel_index: PARTY_UI_CHANNEL_INDEX,
+                            channel: ChatChannel::Party,
+                            local_member_handle,
+                        })
+                    }
+                } else {
+                    let requested = result
+                        .token
+                        .and_then(|token| self.pending_joins.remove(&token))
+                        .map(|(channel, _)| channel)
+                        .or_else(|| {
+                            (self.pending_joins.len() == 1)
+                                .then(|| {
+                                    self.pending_joins
+                                        .pop_first()
+                                        .map(|(_, (channel, _))| channel)
+                                })
+                                .flatten()
+                        });
+                    if !result.success {
+                        return Ok(ChatEvent::JoinRejected {
+                            channel: requested,
+                            reason: result.reason,
+                        });
+                    }
+                    let (channel_index, local_member_handle) = accepted_join(result)?;
+                    let joined = requested
+                        .or_else(|| result.channel_name_id.map(ChatChannel::Public))
+                        .or_else(|| {
+                            self.channels
+                                .get(&channel_index)
+                                .and_then(|channel| channel.channel.clone())
+                        });
+                    let channel = self.channels.entry(channel_index).or_default();
+                    channel.local_member_handle = Some(local_member_handle);
+                    if let Some(joined) = joined {
+                        channel.channel = Some(joined.clone());
+                        Ok(ChatEvent::Joined {
+                            channel_index,
+                            channel: joined,
+                            local_member_handle,
+                        })
+                    } else {
+                        trace_party(format_args!(
+                            "accepted auxiliary chat channel {channel_index} without a visible locator"
+                        ));
+                        Ok(ChatEvent::Activity {
+                            route: record_route(&record),
+                        })
+                    }
                 }
-                let (channel_index, local_member_handle) = accepted_join(result)?;
-                let joined = requested
-                    .or_else(|| result.channel_name_id.map(ChatChannel::Public))
-                    .ok_or_else(|| protocol_error("chat join omitted its channel locator"))?;
-                let channel = self.channels.entry(channel_index).or_default();
-                channel.channel = Some(joined.clone());
-                channel.local_member_handle = Some(local_member_handle);
-                Ok(ChatEvent::Joined {
-                    channel_index,
-                    channel: joined,
-                    local_member_handle,
+            }
+            Payload::ChatInvite(invite) => {
+                self.party.get_or_insert_with(|| PartyChannelState {
+                    wire_channel_index: invite.channel_index,
+                    ..PartyChannelState::default()
+                });
+                self.party_invitations.insert(invite.channel_index);
+                self.party_online_channels.remove(&invite.channel_index);
+                self.identify_invited_party_member(invite.channel_index);
+                trace_party(format_args!(
+                    "received party invitation type {} for channel {}; local member {:?}",
+                    invite.channel_type,
+                    invite.channel_index,
+                    self.channels
+                        .get(&invite.channel_index)
+                        .and_then(|channel| channel.local_member_handle)
+                ));
+                Ok(ChatEvent::PartyInvitation {
+                    inviter: self.party_inviter_name(invite.inviter_presence, invite.channel_index),
+                    channel_index: invite.channel_index,
                 })
             }
-            Payload::ChatInvite(invite) => Ok(ChatEvent::PartyInvitation {
-                inviter: self.resolve_presence_name(invite.inviter_presence),
-                channel_index: invite.channel_index,
-            }),
             Payload::ClubInviteAction(action) => {
                 let token = action.club_id;
                 self.pending_club_info = Some(action.club_id);
@@ -892,7 +1262,22 @@ impl LiveChat {
                     channel.initial_roster_complete,
                 )));
         }
-        self.profiles.enqueue_missing(&self.channels, &self.friends);
+        if let Some(party) = self.party.as_mut()
+            && self.profiles.synchronize_channel(&mut party.state)
+        {
+            self.pending_events
+                .push_back(ChatEvent::Roster(roster_snapshot(
+                    &party.state.roster,
+                    PARTY_UI_CHANNEL_INDEX,
+                    party.state.initial_roster_complete,
+                )));
+        }
+        self.profiles.enqueue_missing(
+            self.channels
+                .values()
+                .chain(self.party.iter().map(|party| &party.state)),
+            &self.friends,
+        );
         self.profiles.pump(&mut self.session, &self.protocol)?;
         if (observed.identity || observed.presence) && !self.friends.is_empty() {
             let snapshot = friend_snapshot(&self.friends, &self.profiles);
@@ -1483,48 +1868,53 @@ impl ProfileResolver {
     fn synchronize(&self, channels: &mut BTreeMap<u8, ChannelState>) -> Vec<u8> {
         let mut changed = Vec::new();
         for (channel_index, channel) in channels {
-            let mut channel_changed = false;
-            for member in channel.roster.values_mut() {
-                if let Some(presence_id) = member.presence_id {
-                    let identity = self.presence.identity(presence_id);
-                    let local_presence_id = self.presence.local_presence_id(presence_id);
-                    if local_presence_id != presence_id {
-                        member.presence_id = Some(local_presence_id);
-                        channel_changed = true;
-                    }
-                    let avatar = identity.avatar.or_else(|| {
-                        identity
-                            .profile
-                            .and_then(|address| self.avatars.get(&address).copied().flatten())
-                    });
-                    if member.avatar != avatar {
-                        member.avatar = avatar;
-                        channel_changed = true;
-                    }
-                    if member.presence != identity.state {
-                        member.presence = identity.state;
-                        channel_changed = true;
-                    }
-                    if member.clan_tag != identity.clan_tag {
-                        member.clan_tag = identity.clan_tag;
-                        channel_changed = true;
-                    }
-                }
-            }
-            if channel_changed {
+            if self.synchronize_channel(channel) {
                 changed.push(*channel_index);
             }
         }
         changed
     }
 
-    fn enqueue_missing(
+    fn synchronize_channel(&self, channel: &mut ChannelState) -> bool {
+        let mut changed = false;
+        for member in channel.roster.values_mut() {
+            let Some(presence_id) = member.presence_id else {
+                continue;
+            };
+            let identity = self.presence.identity(presence_id);
+            let local_presence_id = self.presence.local_presence_id(presence_id);
+            if local_presence_id != presence_id {
+                member.presence_id = Some(local_presence_id);
+                changed = true;
+            }
+            let avatar = identity.avatar.or_else(|| {
+                identity
+                    .profile
+                    .and_then(|address| self.avatars.get(&address).copied().flatten())
+            });
+            if member.avatar != avatar {
+                member.avatar = avatar;
+                changed = true;
+            }
+            if member.presence != identity.state {
+                member.presence = identity.state;
+                changed = true;
+            }
+            if member.clan_tag != identity.clan_tag {
+                member.clan_tag = identity.clan_tag;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn enqueue_missing<'a>(
         &mut self,
-        channels: &BTreeMap<u8, ChannelState>,
+        channels: impl IntoIterator<Item = &'a ChannelState>,
         friends: &BTreeMap<FriendIdentity, FriendEntry>,
     ) {
         for member in channels
-            .values()
+            .into_iter()
             .flat_map(|channel| channel.roster.values())
         {
             let Some(presence_id) = member.presence_id else {
@@ -1696,6 +2086,34 @@ fn accepted_join(result: &ChatJoin) -> Result<(u8, u32)> {
     Ok((channel_index, member_handle))
 }
 
+fn accept_party_join(
+    party: &mut Option<PartyChannelState>,
+    result: &ChatJoin,
+) -> Result<(u8, u32)> {
+    let (channel_index, local_member_handle) = accepted_join(result)?;
+    if party
+        .as_ref()
+        .is_none_or(|party| party.wire_channel_index != channel_index)
+    {
+        *party = Some(PartyChannelState {
+            wire_channel_index: channel_index,
+            ..PartyChannelState::default()
+        });
+    }
+    let party = party.as_mut().expect("party channel was initialized");
+    party.state.channel = Some(ChatChannel::Party);
+    party.state.local_member_handle = Some(local_member_handle);
+    Ok((channel_index, local_member_handle))
+}
+
+fn trace_party(message: impl std::fmt::Display) {
+    if std::env::var_os("SUPERIORITY_TRACE").is_some()
+        || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
+    {
+        eprintln!("superiority: {message}");
+    }
+}
+
 fn conference_event(directory: &ConferenceDescriptions) -> ChatEvent {
     ChatEvent::ConferenceDirectory {
         identifiers: directory
@@ -1766,6 +2184,7 @@ fn apply_membership(
                         presence_id: change.presence_id,
                         name: change.display_name.clone(),
                         toon_name: change.toon_name.clone(),
+                        party_status: change.party_status,
                         clan_tag: None,
                         avatar: None,
                         presence: PresenceState::Unknown,
@@ -1793,6 +2212,10 @@ fn apply_membership(
                     roster.entry(change.member_handle).or_default().toon_name =
                         Some(toon_name.clone());
                 }
+                if let Some(party_status) = change.party_status {
+                    roster.entry(change.member_handle).or_default().party_status =
+                        Some(party_status);
+                }
             }
         }
     }
@@ -1800,13 +2223,23 @@ fn apply_membership(
 
 fn message_event(
     channels: &BTreeMap<u8, ChannelState>,
+    party: Option<&PartyChannelState>,
     message: &crate::native::model::ChatMessage,
 ) -> ChatEvent {
-    let roster = channels
-        .get(&message.channel_index)
-        .map(|channel| &channel.roster);
+    let is_party = party.is_some_and(|party| party.wire_channel_index == message.channel_index);
+    let roster = if is_party {
+        party.map(|party| &party.state.roster)
+    } else {
+        channels
+            .get(&message.channel_index)
+            .map(|channel| &channel.roster)
+    };
     ChatEvent::Message {
-        channel_index: message.channel_index,
+        channel_index: if is_party {
+            PARTY_UI_CHANNEL_INDEX
+        } else {
+            message.channel_index
+        },
         sender: ChatUser {
             handle: message.member_handle,
             presence_id: roster
@@ -2145,7 +2578,7 @@ mod tests {
         )]);
         let mut profiles = ProfileResolver::default();
 
-        profiles.enqueue_missing(&BTreeMap::new(), &friends);
+        profiles.enqueue_missing(std::iter::empty(), &friends);
 
         assert_eq!(profiles.friend_account_queue.pop_front(), Some(42));
         assert_eq!(
@@ -2169,6 +2602,7 @@ mod tests {
                     presence_id: Some(41),
                     display_name: Some("Nova".into()),
                     toon_name: None,
+                    party_status: None,
                     reason: None,
                 }],
             },
@@ -2187,6 +2621,7 @@ mod tests {
                     presence_id: None,
                     display_name: Some("November".into()),
                     toon_name: None,
+                    party_status: None,
                     reason: None,
                 }],
             },
@@ -2221,6 +2656,7 @@ mod tests {
                 presence_id: None,
                 display_name: None,
                 toon_name: None,
+                party_status: None,
                 reason: Some(reason),
             }],
         };
@@ -2266,6 +2702,7 @@ mod tests {
                         presence_id: Some(91),
                         name: Some("Nova".into()),
                         toon_name: None,
+                        party_status: None,
                         clan_tag: None,
                         avatar: None,
                         presence: PresenceState::Unknown,
@@ -2313,6 +2750,7 @@ mod tests {
                         presence_id: Some(41),
                         name: Some("Tagban#542".into()),
                         toon_name: None,
+                        party_status: None,
                         clan_tag: None,
                         avatar: None,
                         presence: PresenceState::Unknown,
@@ -2357,6 +2795,7 @@ mod tests {
                     presence_id: Some(u32::from(channel_index)),
                     name: Some(name.into()),
                     toon_name: None,
+                    party_status: None,
                     clan_tag: None,
                     avatar: None,
                     presence: PresenceState::Unknown,
@@ -2366,6 +2805,7 @@ mod tests {
 
         let event = message_event(
             &channels,
+            None,
             &crate::native::model::ChatMessage {
                 channel_index: 7,
                 member_handle: 17,
@@ -2389,6 +2829,29 @@ mod tests {
         );
         assert_eq!(channels.get(&2).unwrap().roster.len(), 1);
         assert_eq!(channels.get(&7).unwrap().roster.len(), 1);
+    }
+
+    #[test]
+    fn party_join_has_the_state_needed_for_membership_tracking() {
+        let result = ChatJoin {
+            success: true,
+            channel_index: Some(6),
+            member_handle: Some(91),
+            channel_type: Some(PARTY_CHANNEL_TYPE),
+            channel_name_id: None,
+            reason: None,
+            token: None,
+        };
+
+        let mut party = None;
+        assert_eq!(accept_party_join(&mut party, &result).unwrap(), (6, 91));
+
+        let party = party.unwrap();
+        assert_eq!(party.wire_channel_index, 6);
+        assert_eq!(party.state.local_member_handle, Some(91));
+        assert_eq!(party.state.channel, Some(ChatChannel::Party));
+        assert!(!party.state.initial_roster_complete);
+        assert!(party.state.roster.is_empty());
     }
 
     #[test]

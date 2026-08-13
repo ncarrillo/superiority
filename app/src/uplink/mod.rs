@@ -17,7 +17,7 @@ pub mod http;
 pub mod model;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, RwLock,
         atomic::Ordering,
@@ -82,12 +82,27 @@ enum TapMessage {
 pub struct Publisher {
     sender: SyncSender<TapMessage>,
     control: UplinkControl,
+    club_names: Arc<RwLock<BTreeMap<u32, String>>>,
 }
 
 impl Publisher {
     #[must_use]
     pub fn begin_session(&self, channels: &[ChatChannel]) -> SessionTap {
         let expected_channels: BTreeSet<String> = channels.iter().map(channel_identity).collect();
+        let club_names = self.club_names.read().map_or_else(
+            |_| BTreeMap::new(),
+            |names| {
+                channels
+                    .iter()
+                    .filter_map(|channel| {
+                        let ChatChannel::Club(club_id) = channel else {
+                            return None;
+                        };
+                        names.get(club_id).cloned().map(|name| (*club_id, name))
+                    })
+                    .collect()
+            },
+        );
         let mut tap = SessionTap {
             sender: self.sender.clone(),
             control: self.control.clone(),
@@ -96,7 +111,8 @@ impl Publisher {
                 client_version: CLIENT_VERSION,
                 started_at: now_ms(),
             },
-            projector: Projector::default(),
+            projector: Projector::with_club_names(club_names),
+            club_names: self.club_names.clone(),
             announced: false,
             next_seq: 1,
             pending_dropped: 0,
@@ -119,6 +135,7 @@ pub struct SessionTap {
     control: UplinkControl,
     meta: SessionMeta,
     projector: Projector,
+    club_names: Arc<RwLock<BTreeMap<u32, String>>>,
     announced: bool,
     next_seq: u64,
     pending_dropped: u64,
@@ -132,6 +149,15 @@ pub struct SessionTap {
 impl SessionTap {
     /// Observes one chat event. Non-blocking and infallible by design.
     pub fn observe(&mut self, event: &ChatEvent) {
+        if let ChatEvent::GroupSummary {
+            club_id,
+            name: Some(name),
+            ..
+        } = event
+            && let Ok(mut names) = self.club_names.write()
+        {
+            names.insert(*club_id, name.clone());
+        }
         let enabled = match self.control.config.read() {
             Ok(config) => config.enabled,
             Err(_) => return,
@@ -349,14 +375,18 @@ impl crate::observer::SessionObserver for SessionTap {
 /// Starts the `sc2-uplink` worker thread and returns the publisher the
 /// network thread will feed. Call once, at app startup.
 #[must_use]
-pub fn spawn(control: UplinkControl) -> Publisher {
+pub fn spawn(control: UplinkControl, club_names: BTreeMap<u32, String>) -> Publisher {
     let (sender, receiver) = mpsc::sync_channel(CHANNEL_CAPACITY);
     let worker_control = control.clone();
     thread::Builder::new()
         .name("sc2-uplink".into())
         .spawn(move || run_worker(&receiver, &worker_control))
         .expect("uplink thread must start");
-    Publisher { sender, control }
+    Publisher {
+        sender,
+        control,
+        club_names: Arc::new(RwLock::new(club_names)),
+    }
 }
 
 enum FlushOutcome {
@@ -672,6 +702,7 @@ mod tests {
             Publisher {
                 sender,
                 control: control.clone(),
+                club_names: Arc::new(RwLock::new(BTreeMap::new())),
             },
             receiver,
             control,

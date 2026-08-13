@@ -38,6 +38,7 @@ pub const PRESENCE_SLOT: u8 = 4;
 pub const CHAT_SLOT: u8 = 5;
 pub const S2_MASTER_SLOT: u8 = 10;
 pub const CACHE_SLOT: u8 = 11;
+pub const PARTY_SLOT: u8 = 12;
 pub const S2_MULTIPLAYER_SLOT: u8 = 13;
 pub const PROFILE_SLOT: u8 = 14;
 pub const TOON_SLOT: u8 = 15;
@@ -48,7 +49,9 @@ pub const CHAT_LEAVE_REQUEST_COMMAND: u8 = 2;
 pub const CHAT_INVITE_NOTIFY_COMMAND: u8 = 4;
 pub const CHAT_INVITE_ACCEPT_COMMAND: u8 = 5;
 pub const CHAT_INVITE_DECLINE_COMMAND: u8 = 6;
+pub const CHAT_STATUS_CHANGE_COMMAND: u8 = 9;
 pub const CHAT_MESSAGE_COMMAND: u8 = 11;
+pub const CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND: u8 = 13;
 pub const CHAT_WHISPER_SEND_COMMAND: u8 = 19;
 pub const CHAT_WHISPER_RECV_COMMAND: u8 = 19;
 pub const CHAT_WHISPER_UNDELIVERABLE_COMMAND: u8 = 20;
@@ -70,6 +73,7 @@ pub const CHAT_MEMBERSHIP_COMMAND: u8 = 1;
 pub const CHAT_CHANNEL_LIST_RESPONSE_COMMAND: u8 = 22;
 pub const CHAT_CONFERENCES_RESPONSE_COMMAND: u8 = 26;
 pub const CHAT_JOIN_NOTIFY_COMMAND: u8 = 27;
+pub const PARTY_MAP_OPTIONS_CHANGE_COMMAND: u8 = 20;
 pub const S2_MASTER_CURRENT_SEASON_COMMAND: u8 = 27;
 pub const S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND: u8 = 57;
 pub const S2_MULTIPLAYER_MEMBER_CLAN_TAGS_RESPONSE_COMMAND: u8 = 53;
@@ -175,6 +179,10 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
         "Battlenet::Client::Chat::MessageRecv",
     ),
     (
+        (CHAT_SLOT, CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND),
+        "Battlenet::Client::Chat::DatagramConnectionUpdate",
+    ),
+    (
         (CHAT_SLOT, CHAT_WHISPER_RECV_COMMAND),
         "Battlenet::Client::Chat::WhisperRecv",
     ),
@@ -201,6 +209,10 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
     (
         (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND),
         "Battlenet::Client::Cache::GetStreamItemsResponse",
+    ),
+    (
+        (PARTY_SLOT, PARTY_MAP_OPTIONS_CHANGE_COMMAND),
+        "Battlenet::Client::Party::MapOptionsChange",
     ),
     (
         (S2_MASTER_SLOT, S2_MASTER_CURRENT_SEASON_COMMAND),
@@ -353,6 +365,7 @@ pub struct Protocol {
     front_logon_response_type: u32,
     chat_channel_list_request_type: u32,
     chat_enum_conferences_type: u32,
+    chat_status_change_type: u32,
     friends_toons_request_type: u32,
     profile_address_query_request_type: u32,
     profile_resolve_toon_name_request_type: u32,
@@ -406,6 +419,8 @@ impl Protocol {
             metadata.unique_type_id("Battlenet::Client::Chat::ChannelListRequest")?;
         let chat_enum_conferences_type =
             metadata.unique_type_id("Battlenet::Client::Chat::EnumConferenceDescriptions")?;
+        let chat_status_change_type =
+            metadata.unique_type_id("Battlenet::Client::Chat::StatusChangeRequest")?;
         let friends_toons_request_type =
             metadata.unique_type_id("Battlenet::Client::Friends::ToonsOfFriendsRequest")?;
         let profile_address_query_request_type =
@@ -437,6 +452,7 @@ impl Protocol {
             front_logon_response_type,
             chat_channel_list_request_type,
             chat_enum_conferences_type,
+            chat_status_change_type,
             friends_toons_request_type,
             profile_address_query_request_type,
             profile_resolve_toon_name_request_type,
@@ -480,9 +496,7 @@ impl Protocol {
                 }
                 (CHAT_SLOT, CHAT_CHANNEL_LIST_RESPONSE_COMMAND) => decode::channel_list(reader)?,
                 (CHAT_SLOT, CHAT_JOIN_NOTIFY_COMMAND) => decode::chat_join(reader)?,
-                (CHAT_SLOT, CHAT_INVITE_NOTIFY_COMMAND) => {
-                    decode::chat_invite(self, type_id, reader)?
-                }
+                (CHAT_SLOT, CHAT_INVITE_NOTIFY_COMMAND) => decode::chat_invite(reader)?,
                 (PRESENCE_SLOT, PRESENCE_FIELDS_COMMAND) => decode::presence_fields(reader)?,
                 (PRESENCE_SLOT, PRESENCE_UPDATE_COMMAND) => decode::presence_update(reader)?,
                 (S2_MASTER_SLOT, S2_MASTER_CURRENT_SEASON_COMMAND) => {
@@ -592,7 +606,7 @@ impl Protocol {
                 Some(decode::cache_stream_items_with_provenance(reader)?)
             }
             (CHAT_SLOT, CHAT_INVITE_NOTIFY_COMMAND) => {
-                Some(decode::chat_invite_with_provenance(self, type_id, reader)?)
+                Some(decode::chat_invite_with_provenance(reader)?)
             }
             (CHAT_SLOT, CHAT_CONFERENCES_RESPONSE_COMMAND) => {
                 Some(decode::conference_descriptions_with_provenance(reader)?)
@@ -1365,6 +1379,42 @@ impl Protocol {
         writer.write(u64::from(channel_index), 3)?;
         writer.align()?;
         Ok(writer.into_bytes())
+    }
+
+    pub fn chat_party_online(&self, channel_index: u8, member_handle: u32) -> Result<Vec<u8>> {
+        if usize::from(channel_index) >= CHANNEL_INDEX_COUNT {
+            return Err(native_error("chat channel index must be between 0 and 6"));
+        }
+        let status_type = self.member_type(self.chat_status_change_type, "m_statusChange")?;
+        let (party_index, party_type) = self.choice_variant(status_type, "Party")?;
+        let party = self.struct_value(
+            party_type,
+            vec![
+                ("m_partyStatus", BsnValue::Integer(1)),
+                ("m_expansionLevel", BsnValue::some(BsnValue::Integer(3))),
+                ("m_captain", BsnValue::Bool(false)),
+            ],
+        )?;
+        let value = self.struct_value(
+            self.chat_status_change_type,
+            vec![
+                (
+                    "m_channelIndex",
+                    BsnValue::Integer(i128::from(channel_index)),
+                ),
+                (
+                    "m_memberHandle",
+                    BsnValue::Integer(i128::from(member_handle)),
+                ),
+                ("m_statusChange", BsnValue::choice(party_index, party)),
+            ],
+        )?;
+        self.encode_record(
+            CHAT_STATUS_CHANGE_COMMAND,
+            CHAT_SLOT,
+            self.chat_status_change_type,
+            &value,
+        )
     }
 
     pub fn toon_select(&self, toon_name: &str, realm: u32) -> Result<Vec<u8>> {
@@ -2360,6 +2410,34 @@ mod tests {
     }
 
     #[test]
+    fn decodes_party_datagram_connection_update() {
+        use crate::bsn::FromBsn as _;
+        let protocol = protocol();
+        let packet = hex::decode(
+            "4d0d0100014c32000000010c6e656c736f6e746573742334303400000000000000e00000000000000001000000000102",
+        )
+        .unwrap();
+        let Payload::Reflected(value) = decode_incoming(&protocol, &packet) else {
+            panic!("expected a reflected datagram connection update");
+        };
+        let typed =
+            crate::native::schema::chat::ClientChatDatagramConnectionUpdate::from_bsn(&value)
+                .unwrap();
+
+        let crate::native::schema::defines::ClientDefinesPlayerTarget::ToonName(target) =
+            typed.target
+        else {
+            panic!("expected the datagram target to be a toon name");
+        };
+        assert_eq!(target.region, 1);
+        assert_eq!(target.program_id.0, 0x5332);
+        assert_eq!(target.realm, 1);
+        assert_eq!(target.name, "nelsontest#404");
+        assert_eq!(typed.info.address_port.address.0, [0, 0, 224, 0]);
+        assert_eq!(typed.info.bound_address_port.port.0, [1, 0]);
+    }
+
+    #[test]
     fn registered_invite_layout_makes_typed_and_native_decoders_agree() {
         use crate::bsn::FromBsn as _;
         let protocol = protocol();
@@ -2600,6 +2678,40 @@ mod tests {
             "4635"
         );
         assert!(protocol.chat_invite_answer(7, true).is_err());
+        let party_online = protocol.chat_party_online(6, 91).unwrap();
+        let header = decode_routing_header(&party_online, None).unwrap();
+        assert_eq!(header.command_id, CHAT_STATUS_CHANGE_COMMAND);
+        assert_eq!(header.service_slot, Some(CHAT_SLOT));
+        let decoded = protocol
+            .codec()
+            .decode(
+                protocol.chat_status_change_type,
+                &party_online,
+                None,
+                header.bit_count,
+            )
+            .unwrap();
+        use crate::bsn::FromBsn as _;
+        let status =
+            crate::native::schema::chat::ClientChatStatusChangeRequest::from_bsn(&decoded.value)
+                .unwrap();
+        assert_eq!(status.channel_index, 6);
+        assert_eq!(status.member_handle, 91);
+        let crate::native::schema::chat::ChatMemberStatusSingle::Party(party) =
+            status.status_change
+        else {
+            panic!("expected party membership status");
+        };
+        assert!(matches!(
+            party.party_status,
+            crate::native::schema::chat::ChatPartyMemberStatusEnum::ONLINE
+        ));
+        assert!(matches!(
+            party.expansion_level,
+            Some(crate::native::schema::starcraft2::Starcraft2ExpansionLevelEnum::LEGACYOFTHEVOID)
+        ));
+        assert!(!party.captain);
+
         assert_eq!(
             hex::encode(
                 protocol
