@@ -112,6 +112,9 @@ impl LiveView {
                                     view.workspace.roster.selections.retain(|key, _| {
                                         view.channels.iter().any(|channel| &channel.key == key)
                                     });
+                                    view.roster_filters.retain(|key, _| {
+                                        view.channels.iter().any(|channel| &channel.key == key)
+                                    });
                                     if view.selected.as_ref().is_none_or(|selected| {
                                         !view
                                             .channels

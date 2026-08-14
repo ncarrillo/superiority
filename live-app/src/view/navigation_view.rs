@@ -8,7 +8,6 @@ impl LiveView {
         let outgoing = self.selected.replace(key.clone());
         self.workspace.transcript.selection.clear();
         self.workspace.roster.focused = false;
-        self.workspace.roster.filter.clear();
         self.workspace.roster.animation = None;
         let now = js_sys::Date::now();
         let fresh = self.channel_data.get(&key).is_some_and(|data| {

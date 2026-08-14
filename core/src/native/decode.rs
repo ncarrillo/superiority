@@ -2131,51 +2131,49 @@ pub(crate) fn conference_descriptions_with_provenance(
     let start_bit = reader.position();
     let is_last = read_spanned_u64(reader, 1)?;
     let reserved = read_spanned_u64(reader, 27)?;
-    let token_start = reader.position();
-    let token_present = reader.read(1)? != 0;
-    let token = if token_present {
-        Some(reader.read(32)?)
-    } else {
-        None
-    };
-    let token_end = reader.position();
+    let generated_present = read_spanned_u64(reader, 1)?;
+    let generated = (generated_present.value != 0)
+        .then(|| read_spanned_i32(reader))
+        .transpose()?;
     let count = read_spanned_usize(reader, 6)?;
     let mut provenance = vec![
         spanned_field("value.is_last", "bool", &is_last, 1),
         spanned_field("value.reserved", "reserved bits", &reserved, 1),
-        decoded_field(
-            "value.token",
-            "optional uint32",
-            token.map_or_else(|| "none".to_owned(), |value| value.to_string()),
-            token_start,
-            token_end,
+        spanned_field(
+            "value.generated.present",
+            "optional flag",
+            &generated_present,
             1,
         ),
         spanned_field("value.entries.count", "array length", &count, 2),
     ];
+    if let Some(generated) = &generated {
+        provenance.push(spanned_field(
+            "value.generated.value",
+            "generated field",
+            generated,
+            1,
+        ));
+    }
     let mut entries = Vec::with_capacity(count.value);
     for index in 0..count.value {
         let path = format!("value.entries[{index}]");
-        let item_start = reader.position();
-        let selector = read_spanned_u64(reader, 23)?;
+        let entry_start = reader.position();
+        let reserved = read_spanned_u64(reader, 23)?;
         let identifier = read_spanned_u32(reader, 32)?;
         let sort_order = read_spanned_u64(reader, 16)?;
         let marker = read_spanned_u64(reader, 1)?;
+        let entry_end = reader.position();
         provenance.extend([
             decoded_field(
                 path.clone(),
                 "ConferenceDescription",
                 "4 fields",
-                item_start,
-                reader.position(),
+                entry_start,
+                entry_end,
                 2,
             ),
-            spanned_field(
-                format!("{path}.wire_layout_selector"),
-                "obfuscation selector",
-                &selector,
-                3,
-            ),
+            spanned_field(format!("{path}.reserved"), "reserved bits", &reserved, 3),
             spanned_field(format!("{path}.identifier"), "uint32", &identifier, 3),
             spanned_field(format!("{path}.sort_order"), "uint16", &sort_order, 3),
             spanned_field(format!("{path}.marker"), "bool", &marker, 3),
@@ -2289,10 +2287,11 @@ pub(crate) fn chat_join(reader: &mut BitReader<'_>) -> Result<Payload> {
         reader.read(32)?;
         reader.read(32)?;
         let channel_type = read_u8(reader, 4)?;
-        let channel_name_id = if reader.read(1)? == 0 {
-            None
+        let (channel_name_id, channel_shard_index) = if reader.read(1)? == 0 {
+            (None, None)
         } else {
-            decode_channel_name(reader)?
+            let (name_id, shard_index) = decode_channel_name(reader)?;
+            (name_id, Some(shard_index))
         };
         if reader.read(1)? != 0 {
             decode_channel_config(reader)?;
@@ -2309,6 +2308,7 @@ pub(crate) fn chat_join(reader: &mut BitReader<'_>) -> Result<Payload> {
             member_handle: Some(member_handle),
             channel_type: Some(channel_type),
             channel_name_id,
+            channel_shard_index,
             reason: None,
             token,
         }));
@@ -2328,6 +2328,7 @@ pub(crate) fn chat_join(reader: &mut BitReader<'_>) -> Result<Payload> {
         member_handle: None,
         channel_type,
         channel_name_id: None,
+        channel_shard_index: None,
         reason: Some(reason),
         token,
     }))
@@ -2392,7 +2393,10 @@ pub(crate) fn chat_join_with_provenance(reader: &mut BitReader<'_>) -> Result<De
             1,
         )?)
         .expect("four-bit field fits in u8");
-        let channel_name_id = trace_channel_name(reader, &mut provenance)?;
+        let (channel_name_id, channel_shard_index) = trace_channel_name(reader, &mut provenance)?
+            .map_or((None, None), |name| {
+                (name.public_id, Some(name.shard_index))
+            });
         trace_optional_config(reader, &mut provenance)?;
         trace_optional_bits(reader, &mut provenance, "value.reserved", 32, 1)?;
         let token = trace_optional_bits(reader, &mut provenance, "value.token", 32, 1)?
@@ -2403,6 +2407,7 @@ pub(crate) fn chat_join_with_provenance(reader: &mut BitReader<'_>) -> Result<De
             member_handle: Some(member_handle),
             channel_type: Some(channel_type),
             channel_name_id,
+            channel_shard_index,
             reason: None,
             token,
         })
@@ -2427,6 +2432,7 @@ pub(crate) fn chat_join_with_provenance(reader: &mut BitReader<'_>) -> Result<De
             member_handle: None,
             channel_type,
             channel_name_id: None,
+            channel_shard_index: None,
             reason: Some(reason),
             token,
         })
@@ -2448,10 +2454,15 @@ pub(crate) fn chat_join_with_provenance(reader: &mut BitReader<'_>) -> Result<De
     Ok(DecodedPayload::new(payload, provenance))
 }
 
+struct DecodedChannelName {
+    public_id: Option<u16>,
+    shard_index: u16,
+}
+
 fn trace_channel_name(
     reader: &mut BitReader<'_>,
     fields: &mut Vec<DecodedField>,
-) -> Result<Option<u16>> {
+) -> Result<Option<DecodedChannelName>> {
     let container_start = reader.position();
     let present = trace_integer(
         reader,
@@ -2464,7 +2475,15 @@ fn trace_channel_name(
     if !present {
         return Ok(None);
     }
-    trace_integer(reader, fields, "value.channel_name.region", "uint16", 16, 2)?;
+    let shard_index = u16::try_from(trace_integer(
+        reader,
+        fields,
+        "value.channel_name.shard_index",
+        "uint16",
+        16,
+        2,
+    )?)
+    .expect("16-bit field fits in u16");
     trace_integer(
         reader,
         fields,
@@ -2481,7 +2500,7 @@ fn trace_channel_name(
         2,
         2,
     )?;
-    let id = match variant {
+    let public_id = match variant {
         2 => {
             trace_integer(reader, fields, "value.channel_name.locale", "fourcc", 32, 2)?;
             Some(
@@ -2524,7 +2543,10 @@ fn trace_channel_name(
         end_bit: reader.position(),
         depth: 1,
     });
-    Ok(id)
+    Ok(Some(DecodedChannelName {
+        public_id,
+        shard_index,
+    }))
 }
 
 fn trace_optional_config(reader: &mut BitReader<'_>, fields: &mut Vec<DecodedField>) -> Result<()> {
@@ -4221,25 +4243,26 @@ fn expect_bytes(value: BsnValue, label: &str) -> Result<Vec<u8>> {
     }
 }
 
-fn decode_channel_name(reader: &mut BitReader<'_>) -> Result<Option<u16>> {
-    reader.read(16)?;
+fn decode_channel_name(reader: &mut BitReader<'_>) -> Result<(Option<u16>, u16)> {
+    let shard_index = read_u16(reader, 16)?;
     reader.read(29)?;
-    match reader.read(2)? {
+    let public_id = match reader.read(2)? {
         2 => {
             reader.read(32)?;
-            Ok(Some(read_u16(reader, 16)?))
+            Some(read_u16(reader, 16)?)
         }
         1 | 3 => {
             reader.read(16)?;
             reader.read(32)?;
-            Ok(None)
+            None
         }
         0 => {
             decode_generated_utf8(reader, 7, 0, 124, 31)?;
-            Ok(None)
+            None
         }
         _ => unreachable!("two bits have only four values"),
-    }
+    };
+    Ok((public_id, shard_index))
 }
 
 fn decode_channel_config(reader: &mut BitReader<'_>) -> Result<()> {
@@ -4618,31 +4641,6 @@ mod tests {
     }
 
     #[test]
-    fn fixed_chat_directory_decoders_preserve_public_fields() {
-        let mut writer = BitWriter::new();
-        writer.write(1, 1).unwrap();
-        writer.write(0x12_3456, 27).unwrap();
-        writer.write(0, 1).unwrap();
-        writer.write(2, 6).unwrap();
-        for (identifier, order, marker) in [(0x1020_3040, 3, false), (0x5060_7080, 9, true)] {
-            writer.write(0x65_4321, 23).unwrap();
-            writer.write(identifier, 32).unwrap();
-            writer.write(order, 16).unwrap();
-            writer.write(u64::from(marker), 1).unwrap();
-        }
-        let bytes = writer.into_bytes();
-        let mut reader = BitReader::new(&bytes, None).unwrap();
-        let Payload::ConferenceDescriptions(directory) =
-            conference_descriptions(&mut reader).unwrap()
-        else {
-            panic!("expected conference descriptions");
-        };
-        assert!(directory.is_last);
-        assert_eq!(directory.entries[0].identifier, 0x1020_3040);
-        assert_eq!(directory.entries[1].sort_order, 9);
-    }
-
-    #[test]
     fn non_empty_account_block_page_uses_the_retail_generated_order() {
         let protocol = protocol();
         let mut writer = BitWriter::new();
@@ -4703,5 +4701,46 @@ mod tests {
         assert_eq!(response.items[1].publication_time, -7);
         assert_eq!(response.total_items, 7);
         assert_eq!(response.offset, 3);
+    }
+
+    #[test]
+    fn chat_directory_preserves_public_channel_identifiers() {
+        let mut writer = BitWriter::new();
+        writer.write(1, 1).unwrap();
+        writer.write(0x12_3456, 27).unwrap();
+        writer.write(1, 1).unwrap();
+        writer.write(0x1020_3040, 32).unwrap();
+        writer.write(2, 6).unwrap();
+        for (identifier, sort_order, marker) in [(1028, 3, false), (1033, 9, true)] {
+            writer.write(0x65_4321, 23).unwrap();
+            writer.write(identifier, 32).unwrap();
+            writer.write(sort_order, 16).unwrap();
+            writer.write(u64::from(marker), 1).unwrap();
+        }
+        let expected_bits = writer.position();
+        let bytes = writer.into_bytes();
+        let mut reader = BitReader::new(&bytes, Some(expected_bits)).unwrap();
+        let Payload::ConferenceDescriptions(directory) =
+            conference_descriptions(&mut reader).unwrap()
+        else {
+            panic!("expected conference descriptions");
+        };
+        assert!(directory.is_last);
+        assert_eq!(
+            directory.entries,
+            vec![
+                ConferenceDescription {
+                    identifier: 1028,
+                    sort_order: 3,
+                    marker: false,
+                },
+                ConferenceDescription {
+                    identifier: 1033,
+                    sort_order: 9,
+                    marker: true,
+                },
+            ]
+        );
+        assert_eq!(reader.position(), expected_bits);
     }
 }

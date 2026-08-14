@@ -7,6 +7,7 @@ impl SuperiorityView {
                 channel_index,
                 channel,
                 local_member_handle,
+                shard_index,
             } => {
                 self.join
                     .awaiting_joins
@@ -29,6 +30,7 @@ impl SuperiorityView {
                 self.channels.tabs[index].title.clone_from(&title);
                 self.channels.tabs[index].channel = Some(channel);
                 self.channels.tabs[index].channel_index = Some(channel_index);
+                self.channels.tabs[index].shard_index = shard_index;
                 self.channels.tabs[index].local_member_handle = Some(local_member_handle);
                 if transcript_was_empty {
                     self.append_chat_line(
@@ -41,6 +43,7 @@ impl SuperiorityView {
                 }
                 if self.channels.tabs.len() == 1 {
                     self.channels.active_tab = 0;
+                    self.sync_roster_filter_input();
                 }
                 self.persist_open_channels();
             }
@@ -168,20 +171,20 @@ impl SuperiorityView {
                     self.retitle_club_tabs(club_id, &name);
                 }
             }
-            ChatEvent::ConferenceDirectory {
-                identifiers,
-                complete,
-            } => {
+            ChatEvent::PublicChannelCatalog(channels) => {
                 Self::trace(format_args!(
-                    "conference directory batch={} complete={complete}",
-                    identifiers.len()
+                    "public channel catalog entries={}",
+                    channels.len()
                 ));
-                self.join.conference_channels.extend(identifiers);
-                if complete {
-                    self.join.conference_channels.sort_unstable();
-                    self.join.conference_channels.dedup();
+                if !channels.is_empty() {
+                    self.join.public_channels = channels
+                        .into_iter()
+                        .map(|channel| (channel.identifier, channel.name))
+                        .collect();
+                    self.retitle_public_tabs();
                 }
             }
+            ChatEvent::ConferenceDirectory { .. } => {}
             ChatEvent::Friends(friends) => {
                 if self.social.friends_snapshot != friends {
                     Self::trace(format_args!("friends snapshot={}", friends.len()));

@@ -7,7 +7,7 @@ use gpui::{
 };
 
 use crate::{
-    Portrait, RosterUser, UiAssets,
+    Portrait, RosterUser, RosterUserTone, UiAssets,
     animation::AnimationClock,
     components::controls,
     theme::{
@@ -645,6 +645,7 @@ pub struct RosterHeader {
     heading_color: Hsla,
     on_focus: Option<ClickHandler>,
     on_clear: Option<ClickHandler>,
+    tooltip: Option<(ChannelTooltipModel, UiAssets)>,
 }
 
 impl RosterHeader {
@@ -662,6 +663,7 @@ impl RosterHeader {
             heading_color: heading_color.into(),
             on_focus: None,
             on_clear: None,
+            tooltip: None,
         }
     }
 
@@ -682,6 +684,12 @@ impl RosterHeader {
         self.on_clear = Some(Box::new(handler));
         self
     }
+
+    #[must_use]
+    pub fn channel_tooltip(mut self, model: ChannelTooltipModel, assets: UiAssets) -> Self {
+        self.tooltip = Some((model, assets));
+        self
+    }
 }
 
 impl RenderOnce for RosterHeader {
@@ -692,6 +700,12 @@ impl RenderOnce for RosterHeader {
             .absolute()
             .inset_0()
             .font_family(FONT_INTERFACE);
+        if let Some((model, assets)) = self.tooltip {
+            header = header.tooltip(move |_, cx| {
+                cx.new(|_| ChannelTooltip::new(model.clone(), assets.clone()))
+                    .into()
+            });
+        }
         if let Some(on_focus) = self.on_focus {
             header = header
                 .cursor_pointer()
@@ -726,6 +740,84 @@ impl RenderOnce for RosterHeader {
             );
         }
         header
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelTooltipModel {
+    pub name: String,
+    pub channel_type: String,
+    pub shard: Option<u16>,
+    pub identity: String,
+}
+
+impl ChannelTooltipModel {
+    #[must_use]
+    pub fn new(
+        name: impl Into<String>,
+        channel_type: impl Into<String>,
+        shard: Option<u16>,
+        identity: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            channel_type: channel_type.into(),
+            shard,
+            identity: identity.into(),
+        }
+    }
+}
+
+pub struct ChannelTooltip {
+    model: ChannelTooltipModel,
+    assets: UiAssets,
+}
+
+impl ChannelTooltip {
+    #[must_use]
+    pub fn new(model: ChannelTooltipModel, assets: UiAssets) -> Self {
+        Self { model, assets }
+    }
+}
+
+impl Render for ChannelTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let shard = self
+            .model
+            .shard
+            .map_or_else(|| "Not reported".to_owned(), |shard| shard.to_string());
+        let tooltip = controls::tooltip_shell(300.0, 146.0, self.assets.tooltip_fill.clone())
+            .font_family(FONT_INTERFACE)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(16.0))
+                    .right(px(16.0))
+                    .top(px(17.0))
+                    .h(px(24.0))
+                    .flex()
+                    .items_center()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .font_family(FONT_INTERNATIONAL)
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_size(px(15.0))
+                    .text_color(rgb(TEXT))
+                    .child(self.model.name.clone()),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(16.0))
+                    .right(px(16.0))
+                    .top(px(49.0))
+                    .h(px(1.0))
+                    .bg(rgba(0x1853_78a6)),
+            )
+            .child(tooltip_detail("TYPE", &self.model.channel_type, 62.0))
+            .child(tooltip_detail("SHARD", &shard, 88.0))
+            .child(tooltip_detail("IDENTITY", &self.model.identity, 114.0));
+        controls::animated_tooltip(tooltip, "channel-tooltip-open", 0.0, 0.0, -8.0)
     }
 }
 
@@ -797,7 +889,11 @@ impl RenderOnce for RosterRow {
         if let Some(on_click) = self.on_click {
             row = row.on_click(move |event, window, cx| on_click(event, window, cx));
         }
-        row.child(selection(self.selected).group_hover(self.group, |style| style.opacity(1.0)))
+        row.child(segment_divider(&self.user))
+            .child(
+                selection(self.selected, self.user.tone)
+                    .group_hover(self.group, |style| style.opacity(1.0)),
+            )
             .child(row_body(&self.user, &self.assets))
     }
 }
@@ -829,7 +925,8 @@ fn row_body(user: &RosterUser, assets: &UiAssets) -> Div {
                 .whitespace_nowrap()
                 .font_family(FONT_INTERNATIONAL)
                 .text_size(px(13.0))
-                .text_color(rgb(TEXT))
+                .text_color(username_color(user.tone))
+                .opacity(if user.dimmed { 0.54 } else { 1.0 })
                 .child(user.name.clone()),
         )
         .child(
@@ -859,7 +956,12 @@ fn row_body(user: &RosterUser, assets: &UiAssets) -> Div {
 }
 
 #[must_use]
-fn selection(selected: bool) -> Div {
+fn selection(selected: bool, tone: RosterUserTone) -> Div {
+    let (background, border) = match tone {
+        RosterUserTone::Clan => (rgba(0x3b24_10eb), rgba(0xd68b_43e0)),
+        RosterUserTone::Party => (rgba(0x2816_3ceb), rgba(0x993d_dbd9)),
+        RosterUserTone::Normal => (rgba(0x1231_5ef5), rgba(0x003d_9be6)),
+    };
     div()
         .absolute()
         .left(px(4.0))
@@ -867,9 +969,35 @@ fn selection(selected: bool) -> Div {
         .top(px(1.0))
         .bottom(px(1.0))
         .opacity(if selected { 1.0 } else { 0.0 })
-        .bg(rgba(0x1231_5ef5))
+        .bg(background)
         .border_1()
-        .border_color(rgb(0x003d_9be6))
+        .border_color(border)
+}
+
+#[must_use]
+fn username_color(tone: RosterUserTone) -> Hsla {
+    match tone {
+        RosterUserTone::Clan => rgb(0xf0aa64).into(),
+        RosterUserTone::Party => rgb(0xf092c4).into(),
+        RosterUserTone::Normal => rgb(TEXT).into(),
+    }
+}
+
+#[must_use]
+fn segment_divider(user: &RosterUser) -> Div {
+    let color = match user.tone {
+        RosterUserTone::Clan => rgba(0xf0aa_648f),
+        RosterUserTone::Party => rgba(0xf092_c48f),
+        RosterUserTone::Normal => rgba(0x6bc2_f266),
+    };
+    div()
+        .absolute()
+        .left(px(8.0))
+        .right(px(8.0))
+        .top_0()
+        .h(px(1.0))
+        .bg(color)
+        .opacity(if user.segment_start { 1.0 } else { 0.0 })
 }
 
 #[must_use]
@@ -879,7 +1007,8 @@ pub fn static_row(user: &RosterUser, assets: &UiAssets, selected: bool) -> Div {
         .h(px(ROSTER_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
-        .child(selection(selected))
+        .child(segment_divider(user))
+        .child(selection(selected, user.tone))
         .child(row_body(user, assets))
 }
 

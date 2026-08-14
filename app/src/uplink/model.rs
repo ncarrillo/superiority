@@ -74,6 +74,10 @@ pub struct UserRef {
     pub presence: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait: Option<PortraitRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_local: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub joined_order: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -137,17 +141,23 @@ pub fn channel_identity(channel: &ChatChannel) -> String {
     }
 }
 
-fn channel_ref(channel: &ChatChannel, club_names: &BTreeMap<u32, String>) -> ChannelRef {
+fn channel_ref(
+    channel: &ChatChannel,
+    club_names: &BTreeMap<u32, String>,
+    public_names: &BTreeMap<u16, String>,
+) -> ChannelRef {
     ChannelRef {
         key: channel_identity(channel),
         name: match channel {
             // The learned group name when the session has one; otherwise no
             // claim — the viewer falls back to "Group {id}" like a fresh tab.
             ChatChannel::Club(club_id) => club_names.get(club_id).cloned(),
-            // The same static naming the app's tabs use.
-            ChatChannel::Public(_) | ChatChannel::Private(_) | ChatChannel::Party => {
-                Some(channel_title(channel))
-            }
+            // use the catalog learned from battle.net before the offline fallback.
+            ChatChannel::Public(identifier) => public_names
+                .get(identifier)
+                .cloned()
+                .or_else(|| Some(channel_title(channel))),
+            ChatChannel::Private(_) | ChatChannel::Party => Some(channel_title(channel)),
         },
     }
 }
@@ -164,7 +174,12 @@ pub fn presence_str(state: PresenceState) -> &'static str {
     }
 }
 
-fn user_ref(user: &ChatUser, with_presence: bool) -> UserRef {
+fn user_ref(
+    user: &ChatUser,
+    with_presence: bool,
+    is_local: Option<bool>,
+    joined_order: Option<u64>,
+) -> UserRef {
     UserRef {
         handle: user.handle,
         // The app never shows the #code (visible_name strips it); neither
@@ -179,6 +194,8 @@ fn user_ref(user: &ChatUser, with_presence: bool) -> UserRef {
             t: entry.table_id,
             o: entry.offset,
         }),
+        is_local,
+        joined_order,
     }
 }
 
@@ -210,13 +227,17 @@ pub struct ProjectionGates<'a> {
 #[derive(Default)]
 pub struct Projector {
     channels: BTreeMap<u8, ChatChannel>,
+    local_handles: BTreeMap<u8, u32>,
     roster_sent: BTreeSet<u8>,
     /// What the viewer knows of each channel's members, keyed by handle —
     /// diffing successive snapshots against this is what carries presence,
     /// name, and portrait resolution to the wire.
     roster_state: BTreeMap<u8, BTreeMap<u32, UserRef>>,
+    roster_order: BTreeMap<u8, BTreeMap<u32, u64>>,
+    next_roster_order: BTreeMap<u8, u64>,
     /// Group names learned from `GroupSummary`, as the app's tabs learn them.
     club_names: BTreeMap<u32, String>,
+    public_names: BTreeMap<u16, String>,
 }
 
 impl Projector {
@@ -243,14 +264,19 @@ impl Projector {
         if let ChatEvent::Joined {
             channel_index,
             channel,
+            local_member_handle,
             ..
         } = event
         {
             self.channels.insert(*channel_index, channel.clone());
+            self.local_handles
+                .insert(*channel_index, *local_member_handle);
             self.roster_sent.remove(channel_index);
             self.roster_state.remove(channel_index);
+            self.roster_order.remove(channel_index);
+            self.next_roster_order.remove(channel_index);
         }
-        // Group names are structural too: learned even while disabled, so a
+        // group names are structural too: learned even while disabled, so a
         // later enable names the tabs correctly from the start.
         if let ChatEvent::GroupSummary {
             club_id,
@@ -259,6 +285,12 @@ impl Projector {
         } = event
         {
             self.club_names.insert(*club_id, name.clone());
+        }
+        if let ChatEvent::PublicChannelCatalog(channels) = event {
+            self.public_names = channels
+                .iter()
+                .map(|channel| (channel.identifier, channel.name.clone()))
+                .collect();
         }
         if !enabled {
             return None;
@@ -272,11 +304,16 @@ impl Projector {
                     return None;
                 }
                 let channel = self.shared_index(snapshot.channel_index, shared)?;
-                let mirror: BTreeMap<u32, UserRef> = snapshot
+                let mirror = snapshot
                     .users
                     .iter()
-                    .map(|user| (user.handle, user_ref(user, true)))
-                    .collect();
+                    .map(|user| {
+                        (
+                            user.handle,
+                            self.roster_user_ref(snapshot.channel_index, user),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>();
                 if self.roster_sent.contains(&snapshot.channel_index) {
                     // The session re-emits a full snapshot on every membership
                     // or presence record; the viewer only needs what changed.
@@ -308,7 +345,7 @@ impl Projector {
                 channel_index,
                 user,
             } => {
-                let projected = user_ref(user, true);
+                let projected = self.roster_user_ref(*channel_index, user);
                 self.roster_state
                     .entry(*channel_index)
                     .or_default()
@@ -324,13 +361,24 @@ impl Projector {
                 user,
                 ..
             } => {
-                if let Some(known) = self.roster_state.get_mut(channel_index) {
-                    known.remove(&user.handle);
-                }
+                let projected = self
+                    .roster_state
+                    .get(channel_index)
+                    .and_then(|known| known.get(&user.handle))
+                    .cloned()
+                    .unwrap_or_else(|| self.roster_user_ref(*channel_index, user));
+                self.roster_state
+                    .entry(*channel_index)
+                    .or_default()
+                    .remove(&user.handle);
+                self.roster_order
+                    .entry(*channel_index)
+                    .or_default()
+                    .remove(&user.handle);
                 self.shared_index(*channel_index, shared)
                     .map(|channel| EventKind::MemberLeft {
                         channel,
-                        user: user_ref(user, true),
+                        user: projected,
                     })
             }
             // Being removed from a channel means it is no longer ours to
@@ -362,13 +410,14 @@ impl Projector {
                 .shared_index(*channel_index, shared)
                 .map(|channel| EventKind::Message {
                     channel,
-                    sender: user_ref(sender, false),
+                    sender: user_ref(sender, false, None, None),
                     body: truncated(body),
                 }),
-            // Everything else stays on the machine: catalog and UX noise
+            // everything else stays on the machine: catalog and ux noise
             // (ConferenceDirectory, Activity, JoinRejected, WhisperFailed,
             // Group*) and BlockedAccounts, which no opt-in covers.
-            ChatEvent::ConferenceDirectory { .. }
+            ChatEvent::PublicChannelCatalog(_)
+            | ChatEvent::ConferenceDirectory { .. }
             | ChatEvent::JoinRejected { .. }
             | ChatEvent::BlockedAccounts(_)
             | ChatEvent::Activity { .. }
@@ -397,9 +446,36 @@ impl Projector {
             None
         };
         self.channels.remove(&index);
+        self.local_handles.remove(&index);
         self.roster_sent.remove(&index);
         self.roster_state.remove(&index);
+        self.roster_order.remove(&index);
+        self.next_roster_order.remove(&index);
         announced
+    }
+
+    fn roster_user_ref(&mut self, channel_index: u8, user: &ChatUser) -> UserRef {
+        let joined_order = self
+            .roster_order
+            .get(&channel_index)
+            .and_then(|orders| orders.get(&user.handle))
+            .copied()
+            .unwrap_or_else(|| {
+                let next = self.next_roster_order.entry(channel_index).or_default();
+                let joined_order = *next;
+                *next = next.saturating_add(1);
+                self.roster_order
+                    .entry(channel_index)
+                    .or_default()
+                    .insert(user.handle, joined_order);
+                joined_order
+            });
+        user_ref(
+            user,
+            true,
+            Some(self.local_handles.get(&channel_index) == Some(&user.handle)),
+            Some(joined_order),
+        )
     }
 
     fn shared_index(&self, index: u8, shared: Option<&BTreeSet<String>>) -> Option<ChannelRef> {
@@ -413,10 +489,10 @@ impl Projector {
         shared: Option<&BTreeSet<String>>,
     ) -> Option<ChannelRef> {
         match shared {
-            None => Some(channel_ref(channel, &self.club_names)),
+            None => Some(channel_ref(channel, &self.club_names, &self.public_names)),
             Some(selection) => selection
                 .contains(&channel_identity(channel))
-                .then(|| channel_ref(channel, &self.club_names)),
+                .then(|| channel_ref(channel, &self.club_names, &self.public_names)),
         }
     }
 
@@ -603,6 +679,7 @@ mod tests {
             channel_index: index,
             channel,
             local_member_handle: 1,
+            shard_index: None,
         }
     }
 
@@ -827,7 +904,14 @@ mod tests {
     fn names_lose_their_character_codes() {
         let mut projector = Projector::default();
         let all = gates(true, None);
-        projector.project(&joined(0, ChatChannel::Public(1033)), all);
+        projector.project(
+            &ChatEvent::PublicChannelCatalog(vec![crate::chat::PublicChannel {
+                identifier: 1028,
+                name: "General".into(),
+            }]),
+            all,
+        );
+        projector.project(&joined(0, ChatChannel::Public(1028)), all);
         let message = ChatEvent::Message {
             channel_index: 0,
             sender: user(848, "Chalcuchimac#848"),
@@ -927,6 +1011,7 @@ mod tests {
         let mut projector = Projector::default();
         let share = shared(&["public:1033"]);
         let events = [
+            ChatEvent::PublicChannelCatalog(vec![]),
             ChatEvent::ConferenceDirectory {
                 identifiers: vec![1],
                 complete: true,
@@ -974,6 +1059,8 @@ mod tests {
                     clan_tag: Some("SLIM".into()),
                     presence: None,
                     portrait: None,
+                    is_local: None,
+                    joined_order: None,
                 },
                 body: "gl hf".into(),
             },

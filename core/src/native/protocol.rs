@@ -73,6 +73,8 @@ pub const CHAT_MEMBERSHIP_COMMAND: u8 = 1;
 pub const CHAT_CHANNEL_LIST_RESPONSE_COMMAND: u8 = 22;
 pub const CHAT_CONFERENCES_RESPONSE_COMMAND: u8 = 26;
 pub const CHAT_JOIN_NOTIFY_COMMAND: u8 = 27;
+pub const PARTY_NON_LOBBY_ATTRIBUTE_CHANGE_COMMAND: u8 = 0;
+pub const PARTY_BEGIN_READY_PROCESS_COMMAND: u8 = 12;
 pub const PARTY_MAP_OPTIONS_CHANGE_COMMAND: u8 = 20;
 pub const S2_MASTER_CURRENT_SEASON_COMMAND: u8 = 27;
 pub const S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND: u8 = 57;
@@ -209,6 +211,10 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
     (
         (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND),
         "Battlenet::Client::Cache::GetStreamItemsResponse",
+    ),
+    (
+        (PARTY_SLOT, PARTY_BEGIN_READY_PROCESS_COMMAND),
+        "Battlenet::Client::Party::BeginReadyProcess",
     ),
     (
         (PARTY_SLOT, PARTY_MAP_OPTIONS_CHANGE_COMMAND),

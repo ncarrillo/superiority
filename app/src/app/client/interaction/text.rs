@@ -14,7 +14,7 @@ impl SuperiorityView {
             roster_filter = roster_filter.chars().take(64).collect();
             self.roster.roster_input.set_content(roster_filter.clone());
         }
-        if roster_filter != self.roster.roster.filter {
+        if roster_filter != self.active_roster_filter() {
             self.set_roster_filter(roster_filter);
         }
     }

@@ -11,7 +11,10 @@ fn user(handle: u32, name: &str) -> UiUser {
         handle,
         name: name.to_owned(),
         presence_id: None,
+        clan_tag: None,
         presence: PresenceKind::Available,
         portrait: None,
+        tone: superiority_ui::RosterUserTone::Normal,
+        segment_start: false,
     }
 }

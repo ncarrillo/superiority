@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::client::roster::presented_roster_users;
 
 impl SuperiorityView {
     pub(in crate::app::client) fn queue_roster(&mut self, snapshot: RosterSnapshot) {
@@ -50,13 +51,6 @@ impl SuperiorityView {
         changed
     }
 
-    pub(in crate::app::client) fn roster_follows_bottom(&self) -> bool {
-        let scroll = self.roster_base_scroll();
-        let offset = -f32::from(scroll.offset().y);
-        let maximum = f32::from(scroll.max_offset().y);
-        maximum <= ROSTER_BOTTOM_TOLERANCE || (maximum - offset).abs() <= ROSTER_BOTTOM_TOLERANCE
-    }
-
     pub(in crate::app::client) fn apply_roster_snapshot(
         &mut self,
         snapshot: RosterSnapshot,
@@ -69,22 +63,19 @@ impl SuperiorityView {
         else {
             return false;
         };
-        let follows_bottom = position == self.channels.active_tab && self.roster_follows_bottom();
         let next_users = snapshot
             .users
             .iter()
             .map(|user| UiUser::live(user, &mut self.roster.portraits))
             .collect::<Vec<_>>();
-        let filter = self.roster.roster.filter.clone();
+        let filter = self.channels.tabs[position].roster_filter.clone();
         let previous_users = self.channels.tabs[position].users.clone();
-        let previous_visible = filtered_roster_users(&previous_users, &filter)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        let next_visible = filtered_roster_users(&next_users, &filter)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let previous_visible =
+            presented_roster_users(&self.channels.tabs, &self.channels.tabs[position], &filter);
+        let mut projected_tabs = self.channels.tabs.clone();
+        projected_tabs[position].users.clone_from(&next_users);
+        let next_visible =
+            presented_roster_users(&projected_tabs, &projected_tabs[position], &filter);
         let previous_handles = previous_visible
             .iter()
             .map(|user| user.handle)
@@ -112,16 +103,8 @@ impl SuperiorityView {
                 &next_visible,
             );
         }
-        if follows_bottom && next_handles.len() >= previous_handles.len() {
-            if !next_handles.is_empty() {
-                self.roster
-                    .roster
-                    .scroll
-                    .scroll_to_item(next_handles.len() - 1, ScrollStrategy::Bottom);
-            }
-        }
         Self::trace(format_args!(
-            "roster channel={} users={} visible={} follows_bottom={follows_bottom}",
+            "roster channel={} users={} visible={}",
             snapshot.channel_index,
             self.channels.tabs[position].users.len(),
             next_handles.len()

@@ -174,6 +174,7 @@ async function roster(db: D1Database, feedId: string, channelKey: string): Promi
   const result = await db
     .prepare(
       `SELECT r.user_handle, r.name, r.clan_tag, r.presence, r.updated_at,
+              r.is_local, r.joined_order,
               r.portrait_table, r.portrait_offset
        FROM roster r
        WHERE r.feed_id = ?1 AND r.channel_key = ?2
@@ -188,7 +189,7 @@ async function roster(db: D1Database, feedId: string, channelKey: string): Promi
              )
            ORDER BY synced_at DESC, started_at DESC LIMIT 1
          )
-       ORDER BY r.name COLLATE NOCASE ASC, r.user_handle ASC`,
+       ORDER BY r.joined_order IS NULL ASC, r.joined_order ASC, r.user_handle ASC`,
     )
     .bind(feedId, channelKey)
     .all();
@@ -200,6 +201,8 @@ async function roster(db: D1Database, feedId: string, channelKey: string): Promi
       clan_tag: row.clan_tag,
       presence: row.presence,
       updated_at: row.updated_at,
+      is_local: row.is_local === 1,
+      joined_order: row.joined_order,
       portrait:
         row.portrait_table === null || row.portrait_offset === null
           ? null

@@ -26,6 +26,7 @@ pub mod profile;
 pub mod realm;
 pub mod regulator;
 pub mod s2game;
+pub mod s2map;
 pub mod s2master;
 pub mod starcraft2;
 pub mod statistics;

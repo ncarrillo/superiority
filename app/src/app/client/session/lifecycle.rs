@@ -79,7 +79,6 @@ impl SuperiorityView {
         self.roster.roster_debounce_window = ROSTER_DEBOUNCE_BASE;
         self.roster.roster.animation = None;
         self.roster.roster_input.clear();
-        self.roster.roster.filter.clear();
         self.roster.roster.focused = false;
         self.composer.composer.clear();
         self.composer.composer_focused = false;

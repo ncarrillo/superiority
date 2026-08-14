@@ -58,6 +58,7 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Friends::ToonBlockNotify",
     "Battlenet::Client::Friends::ToonsOfFriendsNotify",
     "Battlenet::Client::Friends::ToonsOfFriendsRequest",
+    "Battlenet::Client::Party::BeginReadyProcess",
     "Battlenet::Client::Party::MapOptionsChange",
     "Battlenet::Client::Presence::FieldSpecAnnounce",
     "Battlenet::Client::Presence::StatisticsSubscribe",

@@ -28,7 +28,7 @@ impl RosterComponent {
                 })
             });
         let rows = if animating || !interactive {
-            self.row_slots(channel, selected_user, interactive, assets, cx)
+            self.row_slots(channels, channel, selected_user, interactive, assets, cx)
         } else {
             Vec::new()
         };
@@ -70,7 +70,7 @@ impl RosterComponent {
                     .children(rows)
             } else {
                 let item_count = channels.active().map_or(0, |channel| {
-                    filtered_roster_count(&channel.users, &self.roster.filter)
+                    filtered_roster_count(&channel.users, &channel.roster_filter)
                 });
                 layer.child(
                     uniform_list(
@@ -81,9 +81,10 @@ impl RosterComponent {
                                 .channels
                                 .active()
                                 .map(|channel| {
-                                    filtered_roster_range(
-                                        &channel.users,
-                                        &this.roster.roster.filter,
+                                    presented_roster_range(
+                                        &this.channels.tabs,
+                                        channel,
+                                        &channel.roster_filter,
                                         range,
                                     )
                                 })
@@ -133,11 +134,12 @@ impl RosterComponent {
     fn header(
         &self,
         channel: Option<&ChannelState>,
+        assets: &UiAssets,
         cx: &mut Context<SuperiorityView>,
     ) -> ui_roster::RosterHeader {
         let (title, total, filtered, complete) =
             channel.map_or(("No channel".to_owned(), 0, 0, true), |channel| {
-                let filtered = filtered_roster_count(&channel.users, &self.roster.filter);
+                let filtered = filtered_roster_count(&channel.users, &channel.roster_filter);
                 (
                     channel.title.clone(),
                     channel.users.len(),
@@ -154,13 +156,13 @@ impl RosterComponent {
             title,
             total,
             filtered,
-            &self.roster.filter,
+            channel.map_or("", |channel| channel.roster_filter.as_str()),
             self.roster.focused,
             availability,
         );
         let heading_color = model.heading_color(self.roster.focused);
         let header_id = channel.map_or(usize::MAX, |channel| channel.id as usize);
-        let header = ui_roster::RosterHeader::new(
+        let mut header = ui_roster::RosterHeader::new(
             format!("roster-header-{header_id}"),
             model.heading,
             model.count,
@@ -173,7 +175,25 @@ impl RosterComponent {
             this.roster.roster.focused = true;
             cx.notify();
         }));
-        if self.roster.filter.is_empty() {
+        if let Some(channel) = channel {
+            let (channel_type, identity) = match channel.channel.as_ref() {
+                Some(ChatChannel::Public(identifier)) => ("Public", format!("public:{identifier}")),
+                Some(ChatChannel::Private(name)) => ("Private", format!("private:{name}")),
+                Some(ChatChannel::Club(club_id)) => ("Group", format!("club:{club_id}")),
+                Some(ChatChannel::Party) => ("Party", "party".to_owned()),
+                None => ("Unknown", format!("channel:{}", channel.id)),
+            };
+            header = header.channel_tooltip(
+                ui_roster::ChannelTooltipModel::new(
+                    channel.title.clone(),
+                    channel_type,
+                    channel.shard_index,
+                    identity,
+                ),
+                assets.clone(),
+            );
+        }
+        if channel.is_none_or(|channel| channel.roster_filter.is_empty()) {
             header
         } else {
             header.on_clear(cx.listener(|this, _, _, cx| {
@@ -194,12 +214,12 @@ impl RosterComponent {
     ) -> ui_workspace::ChannelRoster {
         let now = Instant::now();
         let mut panel = ui_workspace::ChannelRoster::new(
-            self.header(channels.active(), cx),
+            self.header(channels.active(), assets, cx),
             self.scroll_layer(channels, channels.active(), selected_user, true, assets, cx),
         );
         if let Some(transition) = &channels.channel_transition {
             panel = panel.outgoing(
-                self.header(transition.outgoing.as_ref(), cx),
+                self.header(transition.outgoing.as_ref(), assets, cx),
                 self.scroll_layer(
                     channels,
                     transition.outgoing.as_ref(),

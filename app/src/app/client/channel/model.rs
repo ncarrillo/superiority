@@ -6,10 +6,12 @@ pub(in crate::app::client) struct ChannelState {
     pub(in crate::app::client) title: String,
     pub(in crate::app::client) channel: Option<ChatChannel>,
     pub(in crate::app::client) channel_index: Option<u8>,
+    pub(in crate::app::client) shard_index: Option<u16>,
     pub(in crate::app::client) local_member_handle: Option<u32>,
     pub(in crate::app::client) transcript: Vec<ChatLine>,
     pub(in crate::app::client) users: Vec<UiUser>,
     pub(in crate::app::client) roster_complete: bool,
+    pub(in crate::app::client) roster_filter: String,
     pub(in crate::app::client) unread: bool,
 }
 
@@ -28,10 +30,12 @@ impl ChannelState {
             title: preview::CHANNEL.to_owned(),
             channel: None,
             channel_index: None,
+            shard_index: None,
             local_member_handle: Some(0),
             transcript: preview::TRANSCRIPT.iter().map(ChatLine::from).collect(),
             users: (0..preview::USERS.len()).map(UiUser::fixture).collect(),
             roster_complete: true,
+            roster_filter: String::new(),
             unread: false,
         }
     }
@@ -46,9 +50,11 @@ impl ChannelState {
             title,
             channel: None,
             channel_index: None,
+            shard_index: None,
             local_member_handle: Some(0),
             users: (0..preview::USERS.len()).map(UiUser::fixture).collect(),
             roster_complete: true,
+            roster_filter: String::new(),
             unread: false,
         }
     }
@@ -59,10 +65,12 @@ impl ChannelState {
             title: channel_title(&channel),
             channel: Some(channel),
             channel_index: None,
+            shard_index: None,
             local_member_handle: None,
             transcript: Vec::new(),
             users: Vec::new(),
             roster_complete: false,
+            roster_filter: String::new(),
             unread: false,
         }
     }

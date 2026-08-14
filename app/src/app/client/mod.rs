@@ -18,7 +18,8 @@ use gpui::{
     rgb, rgba, size, uniform_list,
 };
 use superiority_ui::{
-    Portrait, PresenceKind, RosterUser, TranscriptLine, UiAssets, animation as ui_animation,
+    Portrait, PresenceKind, RosterChannelKind, RosterPresentation, RosterRelationship, RosterUser,
+    RosterUserTone, TranscriptLine, UiAssets, animation as ui_animation,
     components::{
         chat as ui_chat, controls as ui_controls, modal as ui_modal, navigation as ui_navigation,
         release_notes as ui_release_notes, roster as ui_roster, text_input as ui_text_input,
@@ -33,7 +34,7 @@ use superiority_ui::{
 use crate::{
     chat::{
         BlockedAccount, ChatChannel, ChatEvent, ChatFriend, ChatUser, RosterSnapshot,
-        channel_title, public_channel_name, strip_character_code,
+        channel_title, strip_character_code,
     },
     connection::DEFAULT_PUBLIC_CHANNEL,
     native::{ImageTableEntry, PresenceState, WhisperTarget, protocol::MAX_JOINED_CHANNELS},
@@ -88,10 +89,10 @@ use dialogs::{
 use join::{InvitationKind, JoinComponent, UiGroupSummary, UiInvitation};
 use overlays::{MODAL_CLOSE_DURATION, Overlay, OverlayComponent};
 use roster::{
-    ROSTER_BOTTOM_TOLERANCE, ROSTER_DEBOUNCE_BASE, ROSTER_DEBOUNCE_MAX_LATENCY,
-    ROSTER_DEBOUNCE_MAX_WINDOW, ROSTER_HOVER_DEFER_MAX, ROSTER_HOVER_RECHECK,
+    ROSTER_DEBOUNCE_BASE, ROSTER_DEBOUNCE_MAX_LATENCY, ROSTER_DEBOUNCE_MAX_WINDOW,
+    ROSTER_HOVER_DEFER_MAX, ROSTER_HOVER_RECHECK,
 };
-use roster::{RosterComponent, UiUser, filtered_roster_users, presence_kind, shared_roster_user};
+use roster::{RosterComponent, UiUser, presence_kind, shared_roster_user};
 use session::ClientRuntime;
 use settings::{SETTINGS_PAGE_CROSSFADE_DURATION, SettingsComponent};
 use social::{SOCIAL_PANE_SLIDE_DURATION, SocialComponent, UiFriend};

@@ -164,7 +164,6 @@ impl Default for TranscriptState {
 pub struct RosterState<K, T, C> {
     pub scroll: UniformListScrollHandle,
     pub focused: bool,
-    pub filter: String,
     pub animation: Option<TimedTransition<K, T, C>>,
     pub selections: HashMap<K, u32>,
 }
@@ -174,7 +173,6 @@ impl<K, T, C> Default for RosterState<K, T, C> {
         Self {
             scroll: UniformListScrollHandle::new(),
             focused: false,
-            filter: String::new(),
             animation: None,
             selections: HashMap::new(),
         }
@@ -237,7 +235,6 @@ where
 
     pub fn clear_interaction(&mut self) {
         self.focused = false;
-        self.filter.clear();
         self.animation = None;
     }
 

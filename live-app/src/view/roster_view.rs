@@ -25,6 +25,9 @@ impl LiveView {
             presence_label: presence.label().to_owned(),
             presence_icon: self.ui_assets.presence_icon(presence),
             portrait,
+            tone: member.tone,
+            dimmed: presence == PresenceKind::Away,
+            segment_start: member.segment_start,
         }
     }
 
@@ -86,9 +89,10 @@ impl LiveView {
         } else {
             channel.map_or(members.len(), |channel| channel.member_count)
         };
+        let filter = self.roster_filter(key);
         let filtered = members
             .iter()
-            .filter(|member| roster_member_matches(member, &self.workspace.roster.filter))
+            .filter(|member| roster_member_matches(member, filter))
             .count();
         let focused = interactive && self.workspace.roster.focused;
         let availability = match self.feed_state.as_str() {
@@ -96,14 +100,8 @@ impl LiveView {
             "reconnecting" => roster::RosterAvailability::Loading,
             _ => roster::RosterAvailability::Offline,
         };
-        let model = roster::RosterHeaderModel::new(
-            title,
-            total,
-            filtered,
-            &self.workspace.roster.filter,
-            focused,
-            availability,
-        );
+        let model =
+            roster::RosterHeaderModel::new(title, total, filtered, filter, focused, availability);
         let heading_color = model.heading_color(focused);
         let header_id = format!(
             "live-roster-header-{}-{}",
@@ -119,7 +117,7 @@ impl LiveView {
                 cx.notify();
             }));
         }
-        if interactive && !self.workspace.roster.filter.is_empty() {
+        if interactive && !filter.is_empty() {
             header = header.on_clear(cx.listener(|view, _, _, cx| {
                 view.set_roster_filter(String::new());
                 cx.stop_propagation();
@@ -138,11 +136,13 @@ impl LiveView {
             .channel_data
             .get(channel)
             .map(|data| {
-                data.roster
-                    .iter()
-                    .filter(|member| roster_member_matches(member, &self.workspace.roster.filter))
-                    .cloned()
-                    .collect::<Vec<_>>()
+                presented_roster_members(
+                    &self.channels,
+                    &self.channel_data,
+                    channel,
+                    &data.roster,
+                    self.roster_filter(Some(channel)),
+                )
             })
             .unwrap_or_default();
         let now = js_sys::Date::now();
@@ -222,7 +222,7 @@ impl LiveView {
                     .filter(|transition| transition.outgoing == channel)
                     .map(|transition| transition.outgoing_data.roster.clone())
                     .unwrap_or_default();
-                let filter = self.workspace.roster.filter.clone();
+                let filter = self.roster_filter(Some(channel)).to_owned();
                 let item_count = if interactive {
                     self.channel_data.get(channel).map_or(0, |data| {
                         data.roster
@@ -250,14 +250,24 @@ impl LiveView {
                                 .get(&channel)
                                 .map(|data| {
                                     filtered_roster_range(
+                                        &view.channels,
+                                        &view.channel_data,
+                                        &channel,
                                         &data.roster,
-                                        &view.workspace.roster.filter,
+                                        view.roster_filter(Some(&channel)),
                                         range,
                                     )
                                 })
                                 .unwrap_or_default()
                         } else {
-                            filtered_roster_range(&snapshot_members, &filter, range)
+                            filtered_roster_range(
+                                &view.channels,
+                                &view.channel_data,
+                                &channel,
+                                &snapshot_members,
+                                &filter,
+                                range,
+                            )
                         };
                         members
                             .into_iter()

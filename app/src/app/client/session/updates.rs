@@ -18,9 +18,11 @@ impl SuperiorityView {
             .as_ref()
             .map(|events| events.try_iter().collect::<Vec<_>>())
             .unwrap_or_default();
+        let mut quit_requested = false;
         for event in events {
             Self::trace(format_args!("update event: {event}"));
             changed = true;
+            quit_requested |= crate::app::update::update_requests_quit(&event);
             let startup_disposition = startup_check_disposition(&event);
             let previous_notes = self.updates.update_model.notes.clone();
             let should_present = self.updates.update_model.apply_event(&event);
@@ -60,6 +62,10 @@ impl SuperiorityView {
                 self.updates.update_dialog_closing = true;
                 self.updates.update_hide_due = Some(Instant::now() + MODAL_CLOSE_DURATION);
             }
+        }
+        if quit_requested {
+            cx.quit();
+            return true;
         }
         if self.updates.startup_update_check_pending
             && self

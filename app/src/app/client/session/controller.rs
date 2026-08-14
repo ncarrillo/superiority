@@ -186,7 +186,7 @@ impl SuperiorityView {
                 join_scroll: ScrollHandle::new(),
                 awaiting_joins: Vec::new(),
                 group_search_due: None,
-                conference_channels: Vec::new(),
+                public_channels: BTreeMap::new(),
                 groups: BTreeMap::new(),
                 remembered_group_names,
                 member_groups: BTreeSet::new(),

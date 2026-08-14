@@ -28,7 +28,7 @@ pub(super) struct JoinComponent {
     pub(super) join_scroll: ScrollHandle,
     pub(super) awaiting_joins: Vec<(ChatChannel, Instant)>,
     pub(super) group_search_due: Option<(Instant, String)>,
-    pub(super) conference_channels: Vec<u32>,
+    pub(super) public_channels: BTreeMap<u16, String>,
     pub(super) groups: BTreeMap<u32, UiGroupSummary>,
     pub(super) remembered_group_names: BTreeMap<u32, String>,
     pub(super) member_groups: BTreeSet<u32>,
@@ -65,11 +65,15 @@ impl JoinComponent {
         }
     }
 
-    pub(super) fn typed_target(query: &str) -> ChatChannel {
+    fn fallback_typed_target(query: &str) -> ChatChannel {
         query.parse::<u16>().map_or_else(
             |_| ChatChannel::Private(query.to_owned()),
             ChatChannel::Public,
         )
+    }
+
+    pub(super) fn target_for_query(&self, query: &str) -> ChatChannel {
+        target_for_query(query, &self.public_channels)
     }
 
     pub(super) fn rows(&self, tabs: &[ChannelState]) -> Vec<JoinRow> {
@@ -86,7 +90,7 @@ impl JoinComponent {
             .cloned()
             .collect::<Vec<_>>();
         if !query.is_empty() {
-            let target = Self::typed_target(query);
+            let target = self.target_for_query(query);
             if !catalogue.iter().any(|row| row.target == target) {
                 rows.insert(
                     0,
@@ -164,27 +168,17 @@ impl JoinComponent {
             }
         }
 
-        let mut public = self
-            .conference_channels
+        let public = self
+            .public_channels
             .iter()
-            .filter_map(|identifier| u16::try_from(*identifier).ok())
-            .map(ChatChannel::Public)
+            .map(|(identifier, name)| (ChatChannel::Public(*identifier), name.clone()))
             .collect::<Vec<_>>();
-        if public.is_empty() {
-            public.push(ChatChannel::Public(DEFAULT_PUBLIC_CHANNEL));
-        }
-        for target in public {
+        for (target, name) in public {
             if joined.contains(&target) {
                 continue;
             }
-            let ChatChannel::Public(identifier) = target else {
-                continue;
-            };
-            if identifier != DEFAULT_PUBLIC_CHANNEL && public_channel_name(identifier).is_none() {
-                continue;
-            }
             rows.push(JoinRow {
-                name: channel_title(&target),
+                name,
                 note: None,
                 source: JoinSource::Public,
                 target,
@@ -193,4 +187,17 @@ impl JoinComponent {
         }
         rows
     }
+}
+
+pub(in crate::app::client) fn target_for_query(
+    query: &str,
+    public_channels: &BTreeMap<u16, String>,
+) -> ChatChannel {
+    public_channels
+        .iter()
+        .find_map(|(identifier, name)| {
+            name.eq_ignore_ascii_case(query)
+                .then_some(ChatChannel::Public(*identifier))
+        })
+        .unwrap_or_else(|| JoinComponent::fallback_typed_target(query))
 }

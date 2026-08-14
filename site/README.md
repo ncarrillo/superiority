@@ -4,9 +4,10 @@ The download page at
 [superiority-sc2-updates.pages.dev](https://superiority-sc2-updates.pages.dev/),
 built with Astro. One static page, no client-side JavaScript.
 
-The page says nothing about a version. It links to `releases/Superiority.dmg`,
-one object that every release overwrites, so shipping a release changes nothing
-here and there is no version, size, or changelog to keep in step.
+The page says nothing about a version. It links to the stable
+`releases/Superiority.dmg` and `releases/Superiority-Windows.zip` objects that
+each platform release overwrites, so there is no version or size to keep in
+step.
 `SUPERIORITY_RELEASE_BASE_URL` points the download at a different bucket for a
 test deploy.
 

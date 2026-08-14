@@ -2,11 +2,16 @@ use super::*;
 
 impl SuperiorityView {
     pub(in crate::app::client) fn join_channel(&mut self, title: String, cx: &mut Context<Self>) {
-        let target = JoinComponent::typed_target(title.trim());
+        let target = self.join.target_for_query(title.trim());
         self.join_channel_target(target, cx);
     }
 
     pub(in crate::app::client) fn channel_label(&self, channel: &ChatChannel) -> String {
+        if let ChatChannel::Public(identifier) = channel
+            && let Some(name) = self.join.public_channels.get(identifier)
+        {
+            return name.clone();
+        }
         if let ChatChannel::Club(club_id) = channel {
             if let Some(group) = self.join.groups.get(club_id) {
                 return group.name.clone();
@@ -70,6 +75,7 @@ impl SuperiorityView {
                 .channels
                 .active_tab
                 .min(self.channels.tabs.len().saturating_sub(1));
+            self.sync_roster_filter_input();
             self.persist_open_channels();
         }
     }
@@ -101,6 +107,22 @@ impl SuperiorityView {
             }
             retitle_notices(&mut tab.transcript, &tab.title, name);
             tab.title = name.to_owned();
+        }
+    }
+
+    pub(in crate::app::client) fn retitle_public_tabs(&mut self) {
+        for tab in &mut self.channels.tabs {
+            let Some(ChatChannel::Public(identifier)) = tab.channel else {
+                continue;
+            };
+            let Some(name) = self.join.public_channels.get(&identifier) else {
+                continue;
+            };
+            if tab.title == *name {
+                continue;
+            }
+            retitle_notices(&mut tab.transcript, &tab.title, name);
+            tab.title.clone_from(name);
         }
     }
 
@@ -149,6 +171,7 @@ impl SuperiorityView {
                     }
                 }
             }
+            self.sync_roster_filter_input();
             self.overlays.active = None;
             self.overlays.closing = false;
             self.channels.tab_selection_started = Some(Instant::now());
@@ -168,6 +191,7 @@ impl SuperiorityView {
                 .push(ChannelState::fixture_joined(id, title));
             self.channels.active_tab = self.channels.tabs.len() - 1;
         }
+        self.sync_roster_filter_input();
         self.channels.tab_selection_started = Some(Instant::now());
         if self.channels.active().map(|channel| channel.id) != previous {
             self.begin_channel_transition(outgoing, outgoing_selected_user);

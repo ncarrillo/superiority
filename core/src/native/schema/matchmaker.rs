@@ -3,6 +3,23 @@
 use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatchMakerCoopModeEnum {
+    WITHAI,
+    WITHMMPLAYERS,
+}
+impl sc2_core::bsn::FromBsn for MatchMakerCoopModeEnum {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        match sc2_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::WITHAI),
+            1i128 => Ok(Self::WITHMMPLAYERS),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a valid MatchMakerCoopModeEnum"
+            ))),
+        }
+    }
+}
+
 #[derive(Clone, Debug, FromBsn)]
 pub struct MatchMakerHandle {
     #[bsn(name = "m_region")]

@@ -16,6 +16,7 @@ hmac = "0.12"
 prost = "0.14"
 rand = "0.9"
 rc4 = { version = "0.2", features = ["zeroize"] }
+roxmltree = "0.20"
 rsa = { version = "0.9", features = ["sha2"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -23,6 +24,7 @@ sha2 = "0.10"
 subtle = "2.6"
 thiserror = "2"
 tungstenite = { version = "0.30", features = ["native-tls"] }
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
 url = "2"
 zeroize = { version = "1.8", features = ["derive"] }
 

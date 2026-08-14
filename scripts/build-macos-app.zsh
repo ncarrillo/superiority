@@ -6,11 +6,8 @@ app="$root/app"
 bundle="$root/build/Superiority.app"
 contents="$bundle/Contents"
 resources="$app/macos/resources"
-export SUPERIORITY_SPARKLE_FRAMEWORK=$("$root/scripts/bootstrap-sparkle.zsh")
-sparkle_framework=$SUPERIORITY_SPARKLE_FRAMEWORK
 architectures=(aarch64-apple-darwin x86_64-apple-darwin)
 signing_identity=${SUPERIORITY_CODESIGN_IDENTITY:--}
-update_feed_url=${SUPERIORITY_UPDATE_FEED_URL:-https://superiority-sc2-updates.pages.dev/appcast.xml}
 
 if [[ ! -d "$resources/images/nine-patch" || ! -d "$resources/fonts" ]]; then
   print -u2 "missing curated client resources: $resources"
@@ -27,7 +24,12 @@ for architecture in $architectures; do
     --manifest-path "$app/Cargo.toml" \
     --release \
     --bin superiority \
-    --features sparkle \
+    --features rust-updater \
+    --target "$architecture"
+  cargo build \
+    --manifest-path "$root/updater/Cargo.toml" \
+    --release \
+    --bin superiority-updater-agent \
     --target "$architecture"
 done
 
@@ -37,19 +39,23 @@ if [[ "$bundle" != "$root/build/Superiority.app" ]]; then
 fi
 
 /bin/rm -rf "$bundle"
-/usr/bin/install -d "$contents/MacOS" "$contents/Resources" "$contents/Frameworks"
+/usr/bin/install -d "$contents/MacOS" "$contents/Resources" "$contents/Helpers"
 /usr/bin/lipo -create \
   "$root/target/aarch64-apple-darwin/release/superiority" \
   "$root/target/x86_64-apple-darwin/release/superiority" \
   -output "$contents/MacOS/superiority"
 /bin/chmod 755 "$contents/MacOS/superiority"
+/usr/bin/lipo -create \
+  "$root/target/aarch64-apple-darwin/release/superiority-updater-agent" \
+  "$root/target/x86_64-apple-darwin/release/superiority-updater-agent" \
+  -output "$contents/Helpers/superiority-updater-agent"
+/bin/chmod 755 "$contents/Helpers/superiority-updater-agent"
 /usr/bin/install -m 644 "$app/macos/Info.plist" "$contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :SUFeedURL $update_feed_url" "$contents/Info.plist"
 
 # one version source: app/Cargo.toml. a release build
 # (scripts/publish-update-macos.zsh
 # sets SUPERIORITY_RELEASE_BUILD) carries the bare patch number as its build
-# number; every other build gets patch.epoch — Sparkle orders that as newer
+# number; every other build gets patch.epoch — the updater orders that as newer
 # than the release it came from and older than the next one, so a locally
 # installed build can never wear a published build's number and make its
 # update invisible.
@@ -65,11 +71,17 @@ fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $display_version" "$contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $bundle_version" "$contents/Info.plist"
 /usr/bin/ditto "$resources" "$contents/Resources"
-/usr/bin/ditto "$sparkle_framework" "$contents/Frameworks/Sparkle.framework"
 
 if [[ "$signing_identity" == "-" ]]; then
+  /usr/bin/codesign --force --sign - "$contents/Helpers/superiority-updater-agent"
   /usr/bin/codesign --force --sign - "$bundle"
 else
+  /usr/bin/codesign \
+    --force \
+    --options runtime \
+    --timestamp \
+    --sign "$signing_identity" \
+    "$contents/Helpers/superiority-updater-agent"
   /usr/bin/codesign \
     --force \
     --options runtime \

@@ -736,6 +736,7 @@ mod tests {
             channel_index: index,
             channel: ChatChannel::Public(1033),
             local_member_handle: 1,
+            shard_index: None,
         }
     }
 

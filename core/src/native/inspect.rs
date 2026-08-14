@@ -11,7 +11,24 @@ use crate::{
     bsn::value::BsnValue,
 };
 
-use super::{Payload, Protocol, protocol::CHAT_SLOT};
+use super::{
+    Payload, Protocol,
+    protocol::{
+        AUTH_LOGON_COMMAND, AUTH_PROOF_COMMAND, AUTH_RESUME_COMMAND, AUTH_SINGLE_SIGN_ON_COMMAND,
+        AUTHENTICATION_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND, CACHE_SLOT,
+        CHAT_CHANNEL_LIST_REQUEST_COMMAND, CHAT_ENUM_CONFERENCES_COMMAND,
+        CHAT_INVITE_ACCEPT_COMMAND, CHAT_INVITE_DECLINE_COMMAND, CHAT_JOIN_REQUEST_COMMAND,
+        CHAT_LEAVE_REQUEST_COMMAND, CHAT_MESSAGE_COMMAND, CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND,
+        CHAT_WHISPER_SEND_COMMAND, CONNECTION_ENABLE_ENCRYPTION_COMMAND,
+        CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_PING_COMMAND, CONNECTION_SLOT, FRIENDS_SLOT,
+        FRIENDS_TOONS_COMMAND, PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND,
+        PRESENCE_TEMPORARY_COMMAND, PROFILE_ADDRESS_QUERY_COMMAND, PROFILE_READ_COMMAND,
+        PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND, PROFILE_SLOT,
+        S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND,
+        S2_MULTIPLAYER_INVITE_ACTION_COMMAND, S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND,
+        S2_MULTIPLAYER_SLOT, TOON_SELECT_COMMAND, TOON_SLOT,
+    },
+};
 
 const CAPTURE_LIMIT: usize = 512;
 
@@ -21,6 +38,30 @@ pub enum FieldRole {
     Control,
     Payload,
     Padding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Direction {
+    Incoming,
+    Outgoing,
+}
+
+impl Direction {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Incoming => "incoming",
+            Self::Outgoing => "outgoing",
+        }
+    }
+
+    #[must_use]
+    pub const fn marker(self) -> &'static str {
+        match self {
+            Self::Incoming => "←",
+            Self::Outgoing => "→",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,6 +124,7 @@ impl Field {
 pub struct Record {
     pub sequence: u64,
     pub captured_at_millis: u64,
+    pub direction: Direction,
     pub service: String,
     pub command: String,
     pub type_name: String,
@@ -110,6 +152,7 @@ struct CaptureState {
 struct RawRecord {
     sequence: u64,
     captured_at_millis: u64,
+    direction: Direction,
     header: RoutingHeader,
     bytes: Vec<u8>,
     logical_bits: usize,
@@ -136,20 +179,28 @@ pub fn live_capture_after(sequence: Option<u64>) -> Capture {
             records
                 .iter()
                 .filter_map(|raw| {
-                    let mut reader = BitReader::new(&raw.bytes, None).ok()?;
-                    reader.set_position(raw.header.bit_count).ok()?;
-                    let decoded = protocol
-                        .decode_incoming_with_provenance_from(&mut reader, raw.header)
-                        .ok()?;
-                    let mut record = inspect_incoming(
-                        &protocol,
-                        raw.header,
-                        decoded.type_id,
-                        &decoded.payload,
-                        &decoded.provenance,
-                        &raw.bytes,
-                        raw.logical_bits,
-                    )?;
+                    let mut record = match raw.direction {
+                        Direction::Incoming => {
+                            let mut reader = BitReader::new(&raw.bytes, None).ok()?;
+                            reader.set_position(raw.header.bit_count).ok()?;
+                            let decoded = protocol
+                                .decode_incoming_with_provenance_from(&mut reader, raw.header)
+                                .ok()?;
+                            inspect_decoded(
+                                &protocol,
+                                DecodedRecord {
+                                    direction: Direction::Incoming,
+                                    header: raw.header,
+                                    type_id: decoded.type_id,
+                                    payload: &decoded.payload,
+                                    provenance: &decoded.provenance,
+                                    bytes: &raw.bytes,
+                                    logical_bits: raw.logical_bits,
+                                },
+                            )?
+                        }
+                        Direction::Outgoing => inspect_outgoing(&protocol, &raw.bytes).ok()?,
+                    };
                     record.sequence = raw.sequence;
                     record.captured_at_millis = raw.captured_at_millis;
                     Some(record)
@@ -188,6 +239,29 @@ pub(crate) fn capture_incoming(
     bytes: &[u8],
     logical_bits: usize,
 ) {
+    capture_record(protocol, Direction::Incoming, header, bytes, logical_bits);
+}
+
+pub(crate) fn capture_outgoing(protocol: &Protocol, bytes: &[u8]) {
+    let Ok((header, _)) = read_routing_header(bytes) else {
+        return;
+    };
+    capture_record(
+        protocol,
+        Direction::Outgoing,
+        header,
+        bytes,
+        bytes.len() * 8,
+    );
+}
+
+fn capture_record(
+    protocol: &Protocol,
+    direction: Direction,
+    header: RoutingHeader,
+    bytes: &[u8],
+    logical_bits: usize,
+) {
     let mut state = capture_state()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -203,6 +277,7 @@ pub(crate) fn capture_incoming(
     state.records.push_back(RawRecord {
         sequence,
         captured_at_millis: now_millis(),
+        direction,
         header,
         bytes: bytes.to_vec(),
         logical_bits,
@@ -233,6 +308,25 @@ pub fn sample_capture() -> Capture {
 
 #[allow(clippy::too_many_lines)]
 pub fn inspect_chat_join(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
+    let (header, mut reader) = read_routing_header(bytes)?;
+    let decoded = protocol.decode_incoming_with_provenance_from(&mut reader, header)?;
+    let logical_bits = reader.position();
+    inspect_decoded(
+        protocol,
+        DecodedRecord {
+            direction: Direction::Incoming,
+            header,
+            type_id: decoded.type_id,
+            payload: &decoded.payload,
+            provenance: &decoded.provenance,
+            bytes,
+            logical_bits,
+        },
+    )
+    .ok_or_else(|| crate::Error::Native("chat join has no service slot".to_owned()))
+}
+
+fn read_routing_header(bytes: &[u8]) -> Result<(RoutingHeader, BitReader<'_>)> {
     let mut reader = BitReader::new(bytes, None)?;
     let command_id = u8::try_from(reader.read(6)?).expect("six bits fit in u8");
     let service_slot = if reader.read(1)? == 0 {
@@ -240,34 +334,465 @@ pub fn inspect_chat_join(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
     } else {
         Some(u8::try_from(reader.read(4)?).expect("four bits fit in u8"))
     };
-    let header = RoutingHeader {
-        command_id,
-        service_slot,
-        bit_count: reader.position(),
-    };
-    let decoded = protocol.decode_incoming_with_provenance_from(&mut reader, header)?;
-    let logical_bits = reader.position();
-    inspect_incoming(
-        protocol,
-        header,
-        decoded.type_id,
-        &decoded.payload,
-        &decoded.provenance,
-        bytes,
-        logical_bits,
-    )
-    .ok_or_else(|| crate::Error::Native("chat join has no service slot".to_owned()))
+    Ok((
+        RoutingHeader {
+            command_id,
+            service_slot,
+            bit_count: reader.position(),
+        },
+        reader,
+    ))
 }
 
-fn inspect_incoming(
-    protocol: &Protocol,
+fn inspect_outgoing(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
+    let (header, mut reader) = read_routing_header(bytes)?;
+    let service_slot = header.service_slot.ok_or_else(|| {
+        crate::Error::Native("native client record has no service slot".to_owned())
+    })?;
+    let route = (service_slot, header.command_id);
+    let reflected_type_name = reflected_outgoing_type(route);
+
+    if let Some(type_name) = reflected_type_name
+        && let Ok(type_id) = protocol.codec().schema().unique_type_id(type_name)
+        && let Ok(decoded) = protocol.codec().decode_traced_from(&mut reader, type_id)
+    {
+        let payload = Payload::Reflected(decoded.value);
+        let logical_bits = reader.position();
+        return inspect_decoded(
+            protocol,
+            DecodedRecord {
+                direction: Direction::Outgoing,
+                header,
+                type_id,
+                payload: &payload,
+                provenance: &decoded.fields,
+                bytes,
+                logical_bits,
+            },
+        )
+        .ok_or_else(|| crate::Error::Native("outgoing record has no service slot".to_owned()));
+    }
+
+    reader.set_position(header.bit_count)?;
+    let type_name = reflected_type_name
+        .or_else(|| manual_outgoing_type(route))
+        .map_or_else(
+            || {
+                format!(
+                    "Battlenet::Client::{}::Command{}Request",
+                    service_name(service_slot),
+                    header.command_id
+                )
+            },
+            str::to_owned,
+        );
+    let (service, command) = labels(&type_name);
+    let mut fields = route_fields(header, service_slot);
+    let payload_start = reader.position();
+    let payload_index = fields.len();
+    fields.push(Field::leaf(
+        "payload",
+        "outgoing payload",
+        command.clone(),
+        payload_start,
+        payload_start,
+        0,
+        FieldRole::Payload,
+    ));
+    let decoded = decode_manual_outgoing(route, &mut reader, &mut fields);
+    let logical_bits = if decoded.is_ok() {
+        reader.position()
+    } else {
+        fields.truncate(payload_index + 1);
+        bytes.len() * 8
+    };
+    fields[payload_index].end_bit = logical_bits;
+    if decoded.is_err() {
+        fields[payload_index].kind = "raw outgoing payload";
+        fields[payload_index].value = format!("{} bits", logical_bits - payload_start);
+        fields[payload_index].exact_range = false;
+    }
+    append_padding(&mut fields, logical_bits, bytes.len() * 8);
+    Ok(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: Direction::Outgoing,
+        service,
+        command,
+        type_name,
+        service_slot,
+        command_id: header.command_id,
+        bytes: bytes.to_vec(),
+        logical_bits,
+        fields,
+    })
+}
+
+fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
+    Some(match route {
+        (AUTHENTICATION_SLOT, AUTH_LOGON_COMMAND) => {
+            "Battlenet::Client::Authentication::LogonRequest3"
+        }
+        (AUTHENTICATION_SLOT, AUTH_RESUME_COMMAND) => {
+            "Battlenet::Client::Authentication::ResumeRequest"
+        }
+        (AUTHENTICATION_SLOT, AUTH_PROOF_COMMAND) => {
+            "Battlenet::Client::Authentication::ProofResponse"
+        }
+        (AUTHENTICATION_SLOT, AUTH_SINGLE_SIGN_ON_COMMAND) => {
+            "Battlenet::Client::Authentication::SingleSignOnRequest3"
+        }
+        (CONNECTION_SLOT, CONNECTION_ENABLE_ENCRYPTION_COMMAND) => {
+            "Battlenet::Client::Connection::EnableEncryption"
+        }
+        (CONNECTION_SLOT, CONNECTION_PING_COMMAND) => "Battlenet::Client::Connection::Ping",
+        (CONNECTION_SLOT, CONNECTION_MESSAGE_FRAME_COMMAND) => {
+            "Battlenet::Client::Connection::MessageFrame"
+        }
+        (CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND) => "Battlenet::Client::Chat::StatusChangeRequest",
+        (CHAT_SLOT, CHAT_CHANNEL_LIST_REQUEST_COMMAND) => {
+            "Battlenet::Client::Chat::ChannelListRequest"
+        }
+        (CHAT_SLOT, CHAT_ENUM_CONFERENCES_COMMAND) => {
+            "Battlenet::Client::Chat::EnumConferenceDescriptions"
+        }
+        (FRIENDS_SLOT, FRIENDS_TOONS_COMMAND) => {
+            "Battlenet::Client::Friends::ToonsOfFriendsRequest"
+        }
+        (PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND) => {
+            "Battlenet::Client::Presence::StatisticsSubscribe"
+        }
+        (PRESENCE_SLOT, PRESENCE_TEMPORARY_COMMAND) => {
+            "Battlenet::Client::Presence::TemporaryPresenceRequest"
+        }
+        (PROFILE_SLOT, PROFILE_ADDRESS_QUERY_COMMAND) => {
+            "Battlenet::Client::Profile::AddressQueryRequest"
+        }
+        (PROFILE_SLOT, PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND) => {
+            "Battlenet::Client::Profile::ResolveToonNameToHandleRequest"
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND) => {
+            "Battlenet::Client::Club::SearchClubsRequest"
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND) => {
+            "Battlenet::Client::Club::GetClubInfoRequest"
+        }
+        _ => return None,
+    })
+}
+
+fn manual_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
+    Some(match route {
+        (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND) => {
+            "Battlenet::Client::Cache::GetStreamItemsRequest"
+        }
+        (CHAT_SLOT, CHAT_JOIN_REQUEST_COMMAND) => "Battlenet::Client::Chat::JoinRequest",
+        (CHAT_SLOT, CHAT_LEAVE_REQUEST_COMMAND) => "Battlenet::Client::Chat::LeaveRequest",
+        (CHAT_SLOT, CHAT_INVITE_ACCEPT_COMMAND) => "Battlenet::Client::Chat::InviteAcceptRequest",
+        (CHAT_SLOT, CHAT_INVITE_DECLINE_COMMAND) => "Battlenet::Client::Chat::InviteDeclineRequest",
+        (CHAT_SLOT, CHAT_MESSAGE_COMMAND) => "Battlenet::Client::Chat::SendMessage",
+        (CHAT_SLOT, CHAT_WHISPER_SEND_COMMAND) => "Battlenet::Client::Chat::SendWhisper",
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND) => {
+            "Battlenet::Client::Club::GetToonClubsRequest"
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_INVITE_ACTION_COMMAND) => {
+            "Battlenet::Client::Club::InvitationActionRequest"
+        }
+        (TOON_SLOT, TOON_SELECT_COMMAND) => "Battlenet::Client::Toon::SelectRequest",
+        (PROFILE_SLOT, PROFILE_READ_COMMAND) => "Battlenet::Client::Profile::ReadRequest",
+        _ => return None,
+    })
+}
+
+fn service_name(slot: u8) -> &'static str {
+    match slot {
+        AUTHENTICATION_SLOT => "Authentication",
+        CONNECTION_SLOT => "Connection",
+        FRIENDS_SLOT => "Friends",
+        PRESENCE_SLOT => "Presence",
+        CHAT_SLOT => "Chat",
+        CACHE_SLOT => "Cache",
+        S2_MULTIPLAYER_SLOT => "Club",
+        PROFILE_SLOT => "Profile",
+        TOON_SLOT => "Toon",
+        _ => "Native",
+    }
+}
+
+fn decode_manual_outgoing(
+    route: (u8, u8),
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+) -> Result<()> {
+    match route {
+        (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND) => decode_cache_request(reader, fields),
+        (CHAT_SLOT, CHAT_JOIN_REQUEST_COMMAND) => decode_chat_join_request(reader, fields),
+        (
+            CHAT_SLOT,
+            CHAT_LEAVE_REQUEST_COMMAND | CHAT_INVITE_ACCEPT_COMMAND | CHAT_INVITE_DECLINE_COMMAND,
+        ) => {
+            read_number(reader, fields, "payload.channel_index", "uint3", 3, 1)?;
+            Ok(())
+        }
+        (CHAT_SLOT, CHAT_MESSAGE_COMMAND) => {
+            read_utf8(reader, fields, "payload.body", 10, 1)?;
+            read_number(reader, fields, "payload.channel_index", "uint3", 3, 1)?;
+            Ok(())
+        }
+        (CHAT_SLOT, CHAT_WHISPER_SEND_COMMAND) => decode_whisper_request(reader, fields),
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND) => {
+            read_number(reader, fields, "payload.token", "uint32", 32, 1)?;
+            read_number(reader, fields, "payload.toon.program_id", "fourcc", 32, 1)?;
+            read_number(reader, fields, "payload.toon.region", "uint8", 8, 1)?;
+            read_number(reader, fields, "payload.toon.realm", "uint32", 32, 1)?;
+            read_number(reader, fields, "payload.toon.id", "uint64", 64, 1)?;
+            Ok(())
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_INVITE_ACTION_COMMAND) => {
+            read_number(reader, fields, "payload.action", "uint2", 2, 1)?;
+            read_number(reader, fields, "payload.program_id", "fourcc", 32, 1)?;
+            read_number(reader, fields, "payload.region", "uint8", 8, 1)?;
+            read_number(reader, fields, "payload.realm", "uint32", 32, 1)?;
+            read_number(reader, fields, "payload.toon_id", "uint64", 64, 1)?;
+            read_number(reader, fields, "payload.club_id", "uint32", 32, 1)?;
+            read_number(reader, fields, "payload.reserved", "uint11", 11, 1)?;
+            read_number(reader, fields, "payload.trailing", "uint16", 16, 1)?;
+            Ok(())
+        }
+        (TOON_SLOT, TOON_SELECT_COMMAND) => {
+            let encoded_length =
+                read_number(reader, fields, "payload.name.encoded_length", "uint7", 7, 2)?;
+            read_utf8_bytes(
+                reader,
+                fields,
+                "payload.name",
+                usize::try_from(encoded_length + 2).unwrap_or(usize::MAX),
+                1,
+            )?;
+            read_number(reader, fields, "payload.checksum", "uint10", 10, 1)?;
+            read_number(reader, fields, "payload.realm", "uint32", 32, 1)?;
+            Ok(())
+        }
+        _ => Err(crate::Error::Native(
+            "outgoing route has no structured decoder".to_owned(),
+        )),
+    }
+}
+
+fn decode_cache_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+    read_number(reader, fields, "payload.token", "uint32", 32, 1)?;
+    read_number(reader, fields, "payload.checksum", "uint23", 23, 1)?;
+    let maximum = read_number(reader, fields, "payload.maximum_items", "uint6", 6, 1)?;
+    fields
+        .last_mut()
+        .expect("the maximum field was just added")
+        .value = (maximum + 1).to_string();
+    read_number(reader, fields, "payload.stream_kind", "uint1", 1, 1)?;
+    read_fourcc(reader, fields, "payload.channel", 1)?;
+    read_fourcc(reader, fields, "payload.item_name", 1)?;
+    read_fourcc(reader, fields, "payload.locale", 1)?;
+    read_number(reader, fields, "payload.reference_time", "int32", 32, 1)?;
+    read_number(reader, fields, "payload.direction", "bool", 1, 1)?;
+    Ok(())
+}
+
+fn decode_chat_join_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+    let kind = read_number(reader, fields, "payload.kind", "choice", 2, 1)?;
+    match kind {
+        0 => "private",
+        2 => "public",
+        3 => "club",
+        _ => "unknown",
+    }
+    .clone_into(
+        &mut fields
+            .last_mut()
+            .expect("the kind field was just added")
+            .value,
+    );
+    match kind {
+        0 => {
+            read_utf8(reader, fields, "payload.name", 7, 1)?;
+            read_number(reader, fields, "payload.token", "uint32", 32, 1)?;
+        }
+        2 => {
+            read_fourcc(reader, fields, "payload.locale", 1)?;
+            read_number(reader, fields, "payload.channel_name_id", "uint16", 16, 1)?;
+            read_number(reader, fields, "payload.token", "uint32", 32, 1)?;
+        }
+        3 => {
+            read_number(reader, fields, "payload.namespace", "uint16", 16, 1)?;
+            read_number(reader, fields, "payload.club_id", "uint32", 32, 1)?;
+            read_number(reader, fields, "payload.token", "uint32", 32, 1)?;
+        }
+        _ => {
+            return Err(crate::Error::Native(
+                "unknown outgoing chat join kind".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn decode_whisper_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+    let target = read_number(reader, fields, "payload.target.kind", "choice", 3, 1)?;
+    match target {
+        0 => {
+            read_number(
+                reader,
+                fields,
+                "payload.target.presence_id",
+                "uint32",
+                32,
+                2,
+            )?;
+        }
+        1 => {
+            read_number(reader, fields, "payload.target.region", "uint8", 8, 2)?;
+            read_fourcc(reader, fields, "payload.target.program_id", 2)?;
+            read_number(reader, fields, "payload.target.realm", "uint32", 32, 2)?;
+            let length = read_number(
+                reader,
+                fields,
+                "payload.target.name.encoded_length",
+                "uint7",
+                7,
+                3,
+            )?;
+            read_utf8_bytes(
+                reader,
+                fields,
+                "payload.target.name",
+                usize::try_from(length + 2).unwrap_or(usize::MAX),
+                2,
+            )?;
+        }
+        3 => {
+            read_number(reader, fields, "payload.target.account_id", "uint32", 32, 2)?;
+        }
+        5 => {
+            read_fourcc(reader, fields, "payload.target.program_id", 2)?;
+            read_number(reader, fields, "payload.target.region", "uint8", 8, 2)?;
+            read_number(reader, fields, "payload.target.realm", "uint32", 32, 2)?;
+            read_number(reader, fields, "payload.target.id", "uint64", 64, 2)?;
+        }
+        _ => {
+            return Err(crate::Error::Native(
+                "unknown outgoing whisper target".to_owned(),
+            ));
+        }
+    }
+    read_utf8(reader, fields, "payload.body", 10, 1)?;
+    Ok(())
+}
+
+fn read_number(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+    path: &str,
+    kind: &'static str,
+    width: usize,
+    depth: usize,
+) -> Result<u64> {
+    let start = reader.position();
+    let value = reader.read(width)?;
+    fields.push(Field::leaf(
+        path,
+        kind,
+        value.to_string(),
+        start,
+        reader.position(),
+        depth,
+        FieldRole::Payload,
+    ));
+    Ok(value)
+}
+
+fn read_fourcc(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+    path: &str,
+    depth: usize,
+) -> Result<u64> {
+    let value = read_number(reader, fields, path, "fourcc", 32, depth)?;
+    let bytes = u32::try_from(value)
+        .expect("fourcc is 32 bits")
+        .to_be_bytes();
+    fields
+        .last_mut()
+        .expect("the fourcc field was just added")
+        .value = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(value)
+}
+
+fn read_utf8(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+    path: &str,
+    length_bits: usize,
+    depth: usize,
+) -> Result<String> {
+    let start = reader.position();
+    let length = usize::try_from(reader.read(length_bits)?).map_err(|_| {
+        crate::Error::Native("outgoing string length exceeds platform limits".to_owned())
+    })?;
+    let length_end = reader.position();
+    let value = read_utf8_bytes(reader, fields, path, length, depth)?;
+    fields.push(Field::leaf(
+        format!("{path}.length"),
+        "length",
+        length.to_string(),
+        start,
+        length_end,
+        depth + 1,
+        FieldRole::Payload,
+    ));
+    Ok(value)
+}
+
+fn read_utf8_bytes(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+    path: &str,
+    length: usize,
+    depth: usize,
+) -> Result<String> {
+    let start = reader.position();
+    let bytes = reader.read_bytes(length, true)?;
+    let value = String::from_utf8_lossy(&bytes).into_owned();
+    fields.push(Field::leaf(
+        path,
+        "string",
+        value.clone(),
+        start,
+        reader.position(),
+        depth,
+        FieldRole::Payload,
+    ));
+    Ok(value)
+}
+
+#[derive(Clone, Copy)]
+struct DecodedRecord<'a> {
+    direction: Direction,
     header: RoutingHeader,
     type_id: u32,
-    payload: &Payload,
-    provenance: &[DecodedField],
-    bytes: &[u8],
+    payload: &'a Payload,
+    provenance: &'a [DecodedField],
+    bytes: &'a [u8],
     logical_bits: usize,
-) -> Option<Record> {
+}
+
+fn inspect_decoded(protocol: &Protocol, decoded: DecodedRecord<'_>) -> Option<Record> {
+    let DecodedRecord {
+        direction,
+        header,
+        type_id,
+        payload,
+        provenance,
+        bytes,
+        logical_bits,
+    } = decoded;
     let service_slot = header.service_slot?;
     let type_name = protocol
         .codec()
@@ -278,7 +803,33 @@ fn inspect_incoming(
         .unwrap_or_else(|| format!("type #{type_id}"));
     let (service, command) = labels(&type_name);
     let route_end = header.bit_count;
-    let mut fields = vec![
+    let mut fields = route_fields(header, service_slot);
+    let traced_fields = append_provenance(&mut fields, provenance);
+    if traced_fields == 0 {
+        append_decoded_payload(&mut fields, payload, route_end, logical_bits);
+    } else if traced_fields == 1 && payload.reflected().is_none() {
+        fields.pop();
+        append_decoded_payload(&mut fields, payload, route_end, logical_bits);
+    }
+    append_padding(&mut fields, logical_bits, bytes.len() * 8);
+    Some(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction,
+        service,
+        command,
+        type_name,
+        service_slot,
+        command_id: header.command_id,
+        bytes: bytes.to_vec(),
+        logical_bits,
+        fields,
+    })
+}
+
+fn route_fields(header: RoutingHeader, service_slot: u8) -> Vec<Field> {
+    let route_end = header.bit_count;
+    vec![
         Field::leaf(
             "route",
             "routing header",
@@ -315,15 +866,10 @@ fn inspect_incoming(
             1,
             FieldRole::Route,
         ),
-    ];
-    let traced_fields = append_provenance(&mut fields, provenance);
-    if traced_fields == 0 {
-        append_decoded_payload(&mut fields, payload, route_end, logical_bits);
-    } else if traced_fields == 1 && payload.reflected().is_none() {
-        fields.pop();
-        append_decoded_payload(&mut fields, payload, route_end, logical_bits);
-    }
-    let total_bits = bytes.len() * 8;
+    ]
+}
+
+fn append_padding(fields: &mut Vec<Field>, logical_bits: usize, total_bits: usize) {
     if logical_bits < total_bits {
         fields.push(Field::leaf(
             "padding",
@@ -335,18 +881,6 @@ fn inspect_incoming(
             FieldRole::Padding,
         ));
     }
-    Some(Record {
-        sequence: 0,
-        captured_at_millis: now_millis(),
-        service,
-        command,
-        type_name,
-        service_slot,
-        command_id: header.command_id,
-        bytes: bytes.to_vec(),
-        logical_bits,
-        fields,
-    })
 }
 
 fn append_provenance(fields: &mut Vec<Field>, provenance: &[DecodedField]) -> usize {
@@ -656,6 +1190,67 @@ mod tests {
     use super::*;
 
     #[test]
+    fn outgoing_cache_requests_are_captured_with_exact_fields() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol
+            .cache_get_stream_items(7, "BNET", "CONF", "enUS")
+            .unwrap();
+        let record = inspect_outgoing(&protocol, &bytes).unwrap();
+
+        assert_eq!(record.direction, Direction::Outgoing);
+        assert_eq!(record.service, "Cache");
+        assert_eq!(record.command, "GetStreamItemsRequest");
+        assert_eq!(record.logical_bits, 202);
+        for (path, value) in [
+            ("payload.token", "7"),
+            ("payload.maximum_items", "1"),
+            ("payload.channel", "BNET"),
+            ("payload.item_name", "CONF"),
+            ("payload.locale", "enUS"),
+        ] {
+            let field = record
+                .fields
+                .iter()
+                .find(|field| field.path == path)
+                .unwrap_or_else(|| panic!("missing {path}"));
+            assert_eq!(field.value, value);
+            assert!(field.exact_range);
+            assert!(field.end_bit > field.start_bit);
+        }
+    }
+
+    #[test]
+    fn outgoing_chat_messages_expose_body_and_channel() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol.chat_message(3, "hello world").unwrap();
+        let record = inspect_outgoing(&protocol, &bytes).unwrap();
+
+        assert_eq!(record.direction, Direction::Outgoing);
+        assert_eq!(record.service, "Chat");
+        assert_eq!(record.command, "SendMessage");
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.body" && field.value == "hello world" && field.exact_range
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.channel_index" && field.value == "3" && field.exact_range
+        }));
+    }
+
+    #[test]
+    fn reflected_outgoing_requests_retain_schema_provenance() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol.ping(123_456).unwrap();
+        let record = inspect_outgoing(&protocol, &bytes).unwrap();
+
+        assert_eq!(record.direction, Direction::Outgoing);
+        assert_eq!(record.service, "Connection");
+        assert_eq!(record.command, "Ping");
+        assert!(record.fields.iter().any(|field| {
+            field.path.ends_with("m_timeData.value") && field.value == "123456" && field.exact_range
+        }));
+    }
+
+    #[test]
     fn inspected_ranges_cover_the_real_chat_join_fixture() {
         let protocol = Protocol::current().unwrap();
         let bytes = sample_chat_join_bytes("General", 0x1020_3040, 2, 0x1122_3344);
@@ -722,14 +1317,17 @@ mod tests {
             .unwrap();
         let logical_bits = reader.position();
 
-        let record = inspect_incoming(
+        let record = inspect_decoded(
             &protocol,
-            header,
-            decoded.type_id,
-            &decoded.payload,
-            &decoded.provenance,
-            &bytes,
-            logical_bits,
+            DecodedRecord {
+                direction: Direction::Incoming,
+                header,
+                type_id: decoded.type_id,
+                payload: &decoded.payload,
+                provenance: &decoded.provenance,
+                bytes: &bytes,
+                logical_bits,
+            },
         )
         .unwrap();
 
@@ -764,14 +1362,17 @@ mod tests {
         let decoded = protocol
             .decode_incoming_with_provenance_from(&mut reader, header)
             .unwrap();
-        let record = inspect_incoming(
+        let record = inspect_decoded(
             &protocol,
-            header,
-            decoded.type_id,
-            &decoded.payload,
-            &decoded.provenance,
-            &bytes,
-            reader.position(),
+            DecodedRecord {
+                direction: Direction::Incoming,
+                header,
+                type_id: decoded.type_id,
+                payload: &decoded.payload,
+                provenance: &decoded.provenance,
+                bytes: &bytes,
+                logical_bits: reader.position(),
+            },
         )
         .unwrap();
 
@@ -870,14 +1471,17 @@ mod tests {
         let decoded = protocol
             .decode_incoming_with_provenance_from(&mut reader, header)
             .unwrap();
-        let record = inspect_incoming(
+        let record = inspect_decoded(
             &protocol,
-            header,
-            decoded.type_id,
-            &decoded.payload,
-            &decoded.provenance,
-            &bytes,
-            logical_bits,
+            DecodedRecord {
+                direction: Direction::Incoming,
+                header,
+                type_id: decoded.type_id,
+                payload: &decoded.payload,
+                provenance: &decoded.provenance,
+                bytes: &bytes,
+                logical_bits,
+            },
         )
         .unwrap();
 
@@ -954,14 +1558,17 @@ mod tests {
             .decode_incoming_with_provenance_from(&mut reader, header)
             .unwrap();
         let logical_bits = reader.position();
-        let record = inspect_incoming(
+        let record = inspect_decoded(
             &protocol,
-            header,
-            decoded.type_id,
-            &decoded.payload,
-            &decoded.provenance,
-            &bytes,
-            logical_bits,
+            DecodedRecord {
+                direction: Direction::Incoming,
+                header,
+                type_id: decoded.type_id,
+                payload: &decoded.payload,
+                provenance: &decoded.provenance,
+                bytes: &bytes,
+                logical_bits,
+            },
         )
         .unwrap();
 

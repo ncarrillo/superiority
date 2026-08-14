@@ -123,11 +123,8 @@ pub fn tooltip_shell(width: f32, height: f32, fill: ImageSource) -> Div {
         .w(px(width))
         .h(px(height))
         .overflow_hidden()
-        .bg(rgba(0x0106_0dfc))
-        .border_2()
-        .border_color(rgb(0x0033_a8f0))
         .rounded(px(1.0))
-        .shadow_lg()
+        .child(div().absolute().inset(px(3.0)).bg(rgba(0x0106_0dfc)))
         .child(
             img(fill)
                 .absolute()

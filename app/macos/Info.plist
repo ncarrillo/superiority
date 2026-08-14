@@ -34,12 +34,9 @@
 	<string>Independent protocol research client. Not affiliated with Blizzard Entertainment.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>SUEnableAutomaticChecks</key>
-	<false/>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://superiority-sc2-updates.pages.dev/appcast.xml</string>
+	<!-- Sparkle 2 rejects a signed transition update if the new bundle removes
+	     the old Ed25519 key. This inert value lets pre-Rust clients install the
+	     migration release; the application no longer links or starts Sparkle. -->
 	<key>SUPublicEDKey</key>
 	<string>IVqqIejocXACpzUqr/W4FpT8qkuJidILS7UqPZ7x7xE=</string>
 </dict>
