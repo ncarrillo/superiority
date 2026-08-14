@@ -5,7 +5,7 @@ mod state;
 mod view;
 
 pub(in crate::app::client) use model::{
-    UiUser, filtered_roster_count, filtered_roster_range, filtered_roster_users, presence_kind,
+    UiUser, filtered_roster_count, presence_kind, presented_roster_range, presented_roster_users,
     shared_roster_user,
 };
 
@@ -14,8 +14,6 @@ pub(in crate::app::client) const ROSTER_DEBOUNCE_MAX_WINDOW: Duration = Duration
 pub(in crate::app::client) const ROSTER_DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(380);
 pub(in crate::app::client) const ROSTER_HOVER_DEFER_MAX: Duration = Duration::from_secs(10);
 pub(in crate::app::client) const ROSTER_HOVER_RECHECK: Duration = Duration::from_millis(400);
-pub(in crate::app::client) const ROSTER_BOTTOM_TOLERANCE: f32 = 4.0;
-
 pub(super) struct RosterComponent {
     pub(super) roster: ui_workspace::RosterState<u64, UiUser, Instant>,
     pub(super) roster_input: ui_text_input::TextInput,
@@ -64,6 +62,7 @@ impl RosterComponent {
 
     pub(super) fn row_slots(
         &self,
+        channels: &ChannelComponent,
         channel: Option<&ChannelState>,
         selected_user: Option<u32>,
         interactive: bool,
@@ -72,12 +71,7 @@ impl RosterComponent {
     ) -> Vec<AnyElement> {
         let now = Instant::now();
         let users = channel
-            .map(|channel| {
-                filtered_roster_users(&channel.users, &self.roster.filter)
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
+            .map(|channel| presented_roster_users(&channels.tabs, channel, &channel.roster_filter))
             .unwrap_or_default();
         let animation = interactive
             .then_some((channel, self.roster.animation.as_ref()))

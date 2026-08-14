@@ -3,17 +3,10 @@ use std::sync::mpsc::Receiver;
 use serde_json::Value;
 use superiority_ui::components::release_notes::ReleaseNotesDocument;
 
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-use std::{
-    ffi::c_void,
-    ptr::NonNull,
-    sync::mpsc::{Sender, channel},
-};
-
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained};
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString};
+#[cfg(feature = "rust-updater")]
+const UPDATE_FEED_URL: &str = "https://superiority-sc2-updates.pages.dev/appcast.xml";
+#[cfg(feature = "rust-updater")]
+const UPDATE_PUBLIC_KEY: &str = "IVqqIejocXACpzUqr/W4FpT8qkuJidILS7UqPZ7x7xE=";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UpdatePrimaryAction {
@@ -136,6 +129,7 @@ impl UpdateModel {
             "error" => self.show_unavailable(message(&event)),
             "dismissed" => return false,
             "focus" => return true,
+            "quit_requested" => return false,
             _ => self.show_unavailable("The update service returned an unknown event."),
         }
         true
@@ -209,6 +203,14 @@ pub(crate) fn startup_check_disposition(json: &str) -> StartupCheckDisposition {
     }
 }
 
+pub(crate) fn update_requests_quit(json: &str) -> bool {
+    serde_json::from_str::<Value>(json)
+        .ok()
+        .and_then(|event| event.get("kind").and_then(Value::as_str).map(str::to_owned))
+        .as_deref()
+        == Some("quit_requested")
+}
+
 fn progress(event: &Value) -> f32 {
     event
         .get("progress")
@@ -231,107 +233,68 @@ fn format_size(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / 1_048_576.0)
 }
 
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-struct SparkleEventSinkIvars {
-    events: Sender<String>,
-}
-
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-define_class!(
-    #[unsafe(super = NSObject)]
-    #[thread_kind = MainThreadOnly]
-    #[ivars = SparkleEventSinkIvars]
-    struct SparkleEventSink;
-
-    unsafe impl NSObjectProtocol for SparkleEventSink {}
-
-    impl SparkleEventSink {
-        #[unsafe(method(superioritySparkleEvent:))]
-        fn sparkle_event(&self, event: &NSString) {
-            if std::env::var_os("SUPERIORITY_TRACE").is_some() {
-                eprintln!("superiority: Sparkle event sink received: {event}");
-            }
-            let _ = self.ivars().events.send(event.to_string());
-        }
-    }
-);
-
 pub(crate) struct UpdateService {
-    #[cfg(all(feature = "sparkle", target_os = "macos"))]
-    controller: NonNull<c_void>,
-    #[cfg(all(feature = "sparkle", target_os = "macos"))]
-    _sink: Retained<SparkleEventSink>,
+    #[cfg(feature = "rust-updater")]
+    client: superiority_updater::Client,
 }
 
 impl UpdateService {
-    #[cfg(all(feature = "sparkle", target_os = "macos"))]
+    #[cfg(feature = "rust-updater")]
     pub(crate) fn start() -> Option<(Self, Receiver<String>)> {
-        let mtm = MainThreadMarker::new()?;
-        let (events, receiver) = channel();
-        let sink = SparkleEventSink::alloc(mtm).set_ivars(SparkleEventSinkIvars { events });
-        let sink: Retained<SparkleEventSink> = unsafe { msg_send![super(sink), init] };
-        let controller = NonNull::new(unsafe {
-            superiority_sparkle_create(std::ptr::from_ref(&*sink).cast_mut().cast())
-        })?;
-        Some((
-            Self {
-                controller,
-                _sink: sink,
-            },
-            receiver,
-        ))
+        let feed_url = std::env::var("SUPERIORITY_UPDATE_FEED_URL")
+            .unwrap_or_else(|_| UPDATE_FEED_URL.to_owned());
+        let config = superiority_updater::Config::for_current_process(
+            &feed_url,
+            UPDATE_PUBLIC_KEY,
+            env!("CARGO_PKG_VERSION"),
+            "Superiority",
+            "com.superiority.sc2-chat",
+        )
+        .ok()?;
+        let (client, updater_events) = superiority_updater::Client::start(config);
+        let (events, receiver) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("superiority-updater-events".into())
+            .spawn(move || {
+                for event in updater_events {
+                    let Ok(event) = event.to_json() else {
+                        continue;
+                    };
+                    if events.send(event).is_err() {
+                        break;
+                    }
+                }
+            })
+            .ok()?;
+        Some((Self { client }, receiver))
     }
 
-    #[cfg(not(all(feature = "sparkle", target_os = "macos")))]
+    #[cfg(not(feature = "rust-updater"))]
     pub(crate) fn start() -> Option<(Self, Receiver<String>)> {
         None
     }
 
     pub(crate) fn check(&self) {
-        #[cfg(all(feature = "sparkle", target_os = "macos"))]
-        unsafe {
-            superiority_sparkle_check(self.controller.as_ptr());
-        }
+        #[cfg(feature = "rust-updater")]
+        self.client.check();
     }
 
     pub(crate) fn primary_action(&self) {
-        #[cfg(all(feature = "sparkle", target_os = "macos"))]
-        unsafe {
-            superiority_sparkle_primary_action(self.controller.as_ptr());
-        }
+        #[cfg(feature = "rust-updater")]
+        self.client.primary_action();
     }
 
     pub(crate) fn dismiss(&self) {
-        #[cfg(all(feature = "sparkle", target_os = "macos"))]
-        unsafe {
-            superiority_sparkle_dismiss(self.controller.as_ptr());
-        }
+        #[cfg(feature = "rust-updater")]
+        self.client.dismiss();
     }
-}
-
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-impl Drop for UpdateService {
-    fn drop(&mut self) {
-        unsafe {
-            superiority_sparkle_destroy(self.controller.as_ptr());
-        }
-    }
-}
-
-#[cfg(all(feature = "sparkle", target_os = "macos"))]
-unsafe extern "C" {
-    fn superiority_sparkle_create(event_sink: *mut c_void) -> *mut c_void;
-    fn superiority_sparkle_check(controller: *mut c_void);
-    fn superiority_sparkle_primary_action(controller: *mut c_void);
-    fn superiority_sparkle_dismiss(controller: *mut c_void);
-    fn superiority_sparkle_destroy(controller: *mut c_void);
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         StartupCheckDisposition, UpdateModel, UpdatePrimaryAction, UpdateStage,
-        startup_check_disposition,
+        startup_check_disposition, update_requests_quit,
     };
 
     #[test]
@@ -351,6 +314,12 @@ mod tests {
     }
 
     #[test]
+    fn updater_agent_can_request_a_clean_application_exit() {
+        assert!(update_requests_quit(r#"{"kind":"quit_requested"}"#));
+        assert!(!update_requests_quit(r#"{"kind":"installing"}"#));
+    }
+
+    #[test]
     fn update_model_tracks_installation_events() {
         let mut model = UpdateModel::default();
         assert!(model.apply_event(
@@ -362,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_results_survive_sparkles_housekeeping_dismissal() {
+    fn terminal_results_survive_a_housekeeping_dismissal() {
         let mut model = UpdateModel::default();
         assert!(model.apply_event(r#"{"kind":"not_found","message":"current"}"#));
         assert!(!model.apply_event(r#"{"kind":"dismissed"}"#));

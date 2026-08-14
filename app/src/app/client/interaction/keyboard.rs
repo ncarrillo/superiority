@@ -132,7 +132,7 @@ impl SuperiorityView {
         if self.roster.roster.focused && self.overlays.active.is_none() {
             let handled = match event.keystroke.key.as_str() {
                 "escape" => {
-                    if self.roster.roster.filter.is_empty() {
+                    if self.active_roster_filter().is_empty() {
                         self.roster.roster.focused = false;
                         self.focus_handle.focus(window, cx);
                     } else {

@@ -1,6 +1,19 @@
 use super::*;
 
 impl SuperiorityView {
+    pub(in crate::app::client) fn active_roster_filter(&self) -> &str {
+        self.channels
+            .active()
+            .map_or("", |channel| channel.roster_filter.as_str())
+    }
+
+    pub(in crate::app::client) fn sync_roster_filter_input(&mut self) {
+        let filter = self.active_roster_filter().to_owned();
+        if self.roster.roster_input.content() != filter {
+            self.roster.roster_input.set_content(filter);
+        }
+    }
+
     pub(in crate::app::client) fn selected_user(&self) -> Option<u32> {
         let channel = self.channels.active()?;
         self.roster.roster.selection(&channel.id)
@@ -13,11 +26,10 @@ impl SuperiorityView {
         self.roster.roster.set_selection(channel_id, selected);
     }
 
-    pub(in crate::app::client) fn visible_roster_users(&self) -> Vec<&UiUser> {
-        self.channels
-            .active()
-            .map(|channel| filtered_roster_users(&channel.users, &self.roster.roster.filter))
-            .unwrap_or_default()
+    pub(in crate::app::client) fn visible_roster_users(&self) -> Vec<UiUser> {
+        self.channels.active().map_or_else(Vec::new, |channel| {
+            presented_roster_users(&self.channels.tabs, channel, &channel.roster_filter)
+        })
     }
 
     pub(in crate::app::client) fn roster_base_scroll(&self) -> ScrollHandle {
@@ -25,20 +37,15 @@ impl SuperiorityView {
     }
 
     pub(in crate::app::client) fn set_roster_filter(&mut self, next: String) {
-        if self.roster.roster.filter == next {
+        if self.active_roster_filter() == next {
             return;
         }
-        let previous = self
-            .visible_roster_users()
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        self.roster.roster.filter = next;
-        let next = self
-            .visible_roster_users()
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let previous = self.visible_roster_users().into_iter().collect::<Vec<_>>();
+        let Some(channel) = self.channels.tabs.get_mut(self.channels.active_tab) else {
+            return;
+        };
+        channel.roster_filter = next;
+        let next = self.visible_roster_users().into_iter().collect::<Vec<_>>();
         let next_handles = next.iter().map(|user| user.handle).collect::<Vec<_>>();
         if self
             .selected_user()

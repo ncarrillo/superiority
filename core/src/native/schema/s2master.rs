@@ -44,3 +44,34 @@ pub struct ClientS2MasterCurrentSeasonResponseResultSuccess {
     #[bsn(name = "m_leagueConfigs")]
     pub league_configs: Vec<super::matchmaker::MatchMakerLeagueConfig>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum S2MasterAdvertPostModeEnum {
+    JOINPUBLIC,
+    JOINORCREATEPUBLIC,
+    CREATEPUBLIC,
+    CREATEPRIVATE,
+    RANDOMHOTORNOT,
+}
+impl sc2_core::bsn::FromBsn for S2MasterAdvertPostModeEnum {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        match sc2_core::bsn::FromBsn::from_bsn(value)? {
+            1i128 => Ok(Self::JOINPUBLIC),
+            2i128 => Ok(Self::JOINORCREATEPUBLIC),
+            3i128 => Ok(Self::CREATEPUBLIC),
+            4i128 => Ok(Self::CREATEPRIVATE),
+            5i128 => Ok(Self::RANDOMHOTORNOT),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a valid S2MasterAdvertPostModeEnum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct S2MasterReplayFileData {
+    #[bsn(name = "m_replayHandle")]
+    pub replay_handle: Bytes,
+    #[bsn(name = "m_archiveHandles")]
+    pub archive_handles: Vec<Bytes>,
+}

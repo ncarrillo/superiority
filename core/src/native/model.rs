@@ -228,6 +228,7 @@ pub struct ChatJoin {
     pub member_handle: Option<u32>,
     pub channel_type: Option<u8>,
     pub channel_name_id: Option<u16>,
+    pub channel_shard_index: Option<u16>,
     pub reason: Option<u16>,
     pub token: Option<u32>,
 }

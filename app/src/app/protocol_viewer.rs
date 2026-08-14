@@ -994,7 +994,8 @@ impl ProtocolViewer {
                 (filter.is_empty()
                     || record.service.to_lowercase().contains(&filter)
                     || record.command.to_lowercase().contains(&filter)
-                    || record.type_name.to_lowercase().contains(&filter))
+                    || record.type_name.to_lowercase().contains(&filter)
+                    || record.direction.label().contains(&filter))
                 .then_some(index)
             })
             .collect()
@@ -1026,7 +1027,7 @@ impl ProtocolViewer {
                             .gap(px(9.0))
                             .child(
                                 div()
-                                    .w(px(30.0))
+                                    .w(px(44.0))
                                     .h(px(18.0))
                                     .flex_shrink_0()
                                     .flex()
@@ -1043,7 +1044,11 @@ impl ProtocolViewer {
                                     .font_family("monospace")
                                     .text_size(px(10.5))
                                     .text_color(category_text)
-                                    .child(format!("{:02}", index + 1)),
+                                    .child(format!(
+                                        "{} {:02}",
+                                        record.direction.marker(),
+                                        index + 1
+                                    )),
                             )
                             .child(
                                 div()
@@ -1064,7 +1069,7 @@ impl ProtocolViewer {
                     .child(
                         div()
                             .mt(px(7.0))
-                            .pl(px(39.0))
+                            .pl(px(53.0))
                             .flex()
                             .items_center()
                             .gap(px(8.0))
@@ -1782,7 +1787,7 @@ impl ProtocolViewer {
                         format!("Decoded payload  /  {}", self.field_filter_value)
                     },
                     if self.field_filter_value.is_empty() {
-                        record.type_name.clone()
+                        format!("{} · {}", record.direction.label(), record.type_name)
                     } else {
                         format!("{visible_count} / {}", record.fields.len())
                     },

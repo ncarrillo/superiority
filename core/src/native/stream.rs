@@ -5,7 +5,7 @@ use crate::{
     bsn::bits::{BitReader, RoutingHeader},
     native::{
         crypto::{Rc4State, derive_transport_rc4_keys},
-        protocol::{Protocol, Record},
+        protocol::{PARTY_NON_LOBBY_ATTRIBUTE_CHANGE_COMMAND, PARTY_SLOT, Protocol, Record},
     },
 };
 
@@ -113,8 +113,29 @@ impl<S> RecordStream<S> {
         let logical_bits = reader.position();
         let byte_count = reader.position().div_ceil(8);
         let padding = byte_count * 8 - reader.position();
-        if padding != 0 && reader.read(padding)? != 0 {
-            return Err(native_error("native record has non-zero padding"));
+        if padding != 0 {
+            let padding_value = reader.read(padding)?;
+            if padding_value != 0 {
+                if std::env::var_os("SUPERIORITY_TRACE").is_some()
+                    || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
+                {
+                    eprintln!(
+                        "superiority: non-zero inbound padding slot={:?} command={} type={} logical_bits={} padding_bits={} padding_value={} buffer={}",
+                        header.service_slot,
+                        header.command_id,
+                        type_id,
+                        logical_bits,
+                        padding,
+                        padding_value,
+                        hex::encode(&self.buffer),
+                    );
+                }
+                return Err(native_error(format!(
+                    "native record {service_slot}/{command_id} has non-zero padding",
+                    service_slot = header.service_slot.unwrap_or_default(),
+                    command_id = header.command_id,
+                )));
+            }
         }
         super::inspect::capture_incoming(
             &self.protocol,
@@ -162,6 +183,7 @@ impl<S: Read + Write> RecordStream<S> {
             self.stream.write_all(data)?;
         }
         self.stream.flush()?;
+        super::inspect::capture_outgoing(&self.protocol, data);
         Ok(())
     }
 
@@ -206,6 +228,7 @@ impl<S: Read + Write> RecordStream<S> {
 
 const fn unmapped_record_length(slot: u8, command: u8) -> Option<usize> {
     match (slot, command) {
+        (PARTY_SLOT, PARTY_NON_LOBBY_ATTRIBUTE_CHANGE_COMMAND) => Some(18),
         // the supported protocol emits s2mp/50 as a fixed 38-byte record.
         (13, 50) => Some(38),
         _ => None,
@@ -228,7 +251,9 @@ mod tests {
         bsn::bits::BitWriter,
         native::{
             model::Payload,
-            protocol::{CHAT_JOIN_NOTIFY_COMMAND, CHAT_SLOT},
+            protocol::{
+                CHAT_JOIN_NOTIFY_COMMAND, CHAT_SLOT, PARTY_BEGIN_READY_PROCESS_COMMAND, PARTY_SLOT,
+            },
         },
     };
 
@@ -441,5 +466,71 @@ mod tests {
                 result: 0x1ff,
             })
         );
+    }
+
+    #[test]
+    fn party_non_lobby_attributes_preserve_the_following_record_boundary() {
+        let mut chunk = hex::decode(concat!(
+            "c00400000001000177740877000007670000",
+            "c0040000000100027dd40a7d000007670000",
+            "c0040000000100028aa00b0a000007670000",
+            "c00400000001000179930879000007670000",
+            "c00400000001000178850878000007670001",
+            "c00400000001000178860878000007670000",
+            "c00400000001000179940879000007670000",
+            "c00400000001000296640b16000007670000",
+            "c00400000001000179900879000007670000",
+            "c00400000001000179910879000007670000",
+            "c00400000001000271100a71000007670000",
+            "c00400000001000271110a71000007670000",
+            "c00400000001000271120a71000007670000",
+            "c00400000001000271130a71000007670000",
+            "c00400000001000271140a71000007670000",
+            "c00400000001000271150a71000007670000",
+        ))
+        .unwrap();
+        chunk.extend_from_slice(&named_join("Party", 6, 0x5060_7080, 0x5566_7788));
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([chunk]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let record = records.receive().unwrap();
+        assert_eq!(record.header.service_slot, Some(CHAT_SLOT));
+        let Payload::ChatJoin(join) = record.value else {
+            panic!("expected chat join after party attributes");
+        };
+        assert_eq!(join.channel_index, Some(6));
+        assert_eq!(records.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn party_ready_process_preserves_the_following_record_boundary() {
+        let mut chunk = hex::decode(
+            "cc0401000299120000090205097332716800005553f9da4b8c897218058a871f4fbbf7f2dddbdc08fe0f00cf93a19072379ffb8d4bcafebabe7e5b880c000000000000",
+        )
+        .unwrap();
+        chunk.extend_from_slice(&named_join("Party", 6, 0x5060_7080, 0x5566_7788));
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([chunk]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let ready = records.receive().unwrap();
+        assert_eq!(ready.header.service_slot, Some(PARTY_SLOT));
+        assert_eq!(ready.header.command_id, PARTY_BEGIN_READY_PROCESS_COMMAND);
+        assert_eq!(ready.byte_count, 67);
+
+        let record = records.receive().unwrap();
+        assert_eq!(record.header.service_slot, Some(CHAT_SLOT));
+        let Payload::ChatJoin(join) = record.value else {
+            panic!("expected chat join after party ready process");
+        };
+        assert_eq!(join.channel_index, Some(6));
+        assert_eq!(records.buffered_bytes(), 0);
     }
 }

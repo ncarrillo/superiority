@@ -1,5 +1,6 @@
 use gloo_net::http::Request;
 use serde::{Deserialize, de::DeserializeOwned};
+use superiority_ui::RosterUserTone;
 
 #[derive(Clone, Deserialize)]
 pub(crate) struct FeedStatus {
@@ -95,6 +96,13 @@ pub(crate) struct RosterMember {
     pub clan_tag: Option<String>,
     pub presence: String,
     pub portrait: Option<PortraitRecord>,
+    #[serde(default)]
+    pub is_local: bool,
+    pub joined_order: Option<u64>,
+    #[serde(skip)]
+    pub tone: RosterUserTone,
+    #[serde(skip)]
+    pub segment_start: bool,
 }
 
 #[derive(Deserialize)]

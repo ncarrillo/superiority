@@ -48,8 +48,7 @@ pub fn chrome(width: f32, height: f32, frame: Option<ImageSource>, assets: &UiAs
         .left_0()
         .w(px(width))
         .h(px(height))
-        .bg(rgba(0x0107_0ffb))
-        .shadow_lg()
+        .child(div().absolute().inset(px(22.0)).bg(rgba(0x0107_0ffb)))
         .child(
             img(assets.modal_hex.clone())
                 .absolute()

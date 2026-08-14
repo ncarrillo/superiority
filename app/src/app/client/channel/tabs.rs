@@ -26,6 +26,7 @@ impl SuperiorityView {
         let outgoing = self.channels.active().cloned();
         let outgoing_selected_user = self.selected_user();
         self.channels.active_tab = index;
+        self.sync_roster_filter_input();
         self.channels.tab_selection_started = Some(Instant::now());
         self.channels.tabs[index].unread = false;
         self.composer.composer_focused = false;
@@ -65,6 +66,7 @@ impl SuperiorityView {
                 .saturating_sub(1)
                 .min(self.channels.tabs.len() - 1);
         }
+        self.sync_roster_filter_input();
         self.channels.tab_selection_started = Some(Instant::now());
         self.composer.composer_focused = false;
         if closing_active {

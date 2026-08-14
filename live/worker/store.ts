@@ -283,7 +283,7 @@ function rosterBulkUpsert(
     .prepare(
       `INSERT INTO roster
          (feed_id, session_id, channel_key, user_handle, name, clan_tag, presence, last_seq, updated_at,
-          portrait_table, portrait_offset)
+          portrait_table, portrait_offset, is_local, joined_order)
        SELECT ?1, ?2, ?3,
               CAST(json_extract(value, '$.handle') AS INTEGER),
               json_extract(value, '$.name'),
@@ -291,7 +291,9 @@ function rosterBulkUpsert(
               COALESCE(json_extract(value, '$.presence'), ''),
               ?5, ?6,
               json_extract(value, '$.portrait.t'),
-              json_extract(value, '$.portrait.o')
+              json_extract(value, '$.portrait.o'),
+              CASE WHEN json_extract(value, '$.is_local') THEN 1 ELSE 0 END,
+              json_extract(value, '$.joined_order')
        FROM json_each(?4)
        WHERE EXISTS (
          SELECT 1 FROM channels
@@ -301,7 +303,9 @@ function rosterBulkUpsert(
          name = excluded.name, clan_tag = excluded.clan_tag, presence = excluded.presence,
          last_seq = excluded.last_seq, updated_at = excluded.updated_at,
          portrait_table = COALESCE(excluded.portrait_table, roster.portrait_table),
-         portrait_offset = COALESCE(excluded.portrait_offset, roster.portrait_offset)
+         portrait_offset = COALESCE(excluded.portrait_offset, roster.portrait_offset),
+         is_local = excluded.is_local,
+         joined_order = COALESCE(roster.joined_order, excluded.joined_order)
        WHERE excluded.last_seq > roster.last_seq`,
     )
     .bind(feedId, session.id, channelKey, JSON.stringify(users), seq, ts);
@@ -320,8 +324,8 @@ function rosterUpsert(
     .prepare(
       `INSERT INTO roster
          (feed_id, session_id, channel_key, user_handle, name, clan_tag, presence, last_seq, updated_at,
-          portrait_table, portrait_offset)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+          portrait_table, portrait_offset, is_local, joined_order)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
        WHERE EXISTS (
          SELECT 1 FROM channels
          WHERE feed_id = ?1 AND session_id = ?2 AND key = ?3 AND closed_at IS NULL
@@ -330,7 +334,9 @@ function rosterUpsert(
          name = excluded.name, clan_tag = excluded.clan_tag, presence = excluded.presence,
          last_seq = excluded.last_seq, updated_at = excluded.updated_at,
          portrait_table = COALESCE(excluded.portrait_table, roster.portrait_table),
-         portrait_offset = COALESCE(excluded.portrait_offset, roster.portrait_offset)
+         portrait_offset = COALESCE(excluded.portrait_offset, roster.portrait_offset),
+         is_local = excluded.is_local,
+         joined_order = COALESCE(roster.joined_order, excluded.joined_order)
        WHERE excluded.last_seq > roster.last_seq`,
     )
     .bind(
@@ -345,6 +351,8 @@ function rosterUpsert(
       ts,
       user.portrait?.t ?? null,
       user.portrait?.o ?? null,
+      user.is_local === true ? 1 : 0,
+      user.joined_order ?? null,
     );
 }
 

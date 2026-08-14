@@ -1,4 +1,12 @@
 .DS_Store
+.env
+.env.*
+!.env.example
+*.key
+*.keystore
+*.p12
+*.pem
+*.pfx
 __pycache__/
 *.py[cod]
 .venv/

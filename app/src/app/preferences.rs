@@ -14,6 +14,9 @@ mod macos {
     const SHOW_MEMBERSHIP_KEY: &str = "showJoinLeaveNotifications";
     const LIVE_ENABLED_KEY: &str = "liveUplinkEnabled";
     const OPEN_CHANNELS_KEY: &str = "openChannels";
+    const CHANNEL_CATALOG_VERSION_KEY: &str = "publicChannelCatalogVersion";
+    const CHANNEL_CATALOG_VERSION: isize = 1;
+    const LEGACY_GENERAL_CHANNEL: u16 = 1033;
     const GROUP_NAMES_KEY: &str = "groupNames";
     const LEGACY_HOME_CHANNELS_KEY: &str = "homeChannels";
 
@@ -145,6 +148,14 @@ mod macos {
                     })
             })
             .unwrap_or_default();
+        let catalog_version = integer(&defaults, CHANNEL_CATALOG_VERSION_KEY)
+            .or_else(|| integer(&standard, CHANNEL_CATALOG_VERSION_KEY))
+            .unwrap_or_default();
+        if catalog_version < CHANNEL_CATALOG_VERSION {
+            migrate_legacy_general(&mut channels, default_channel);
+            save_open_channels(&channels);
+            save_integer(CHANNEL_CATALOG_VERSION_KEY, CHANNEL_CATALOG_VERSION);
+        }
         channels.truncate(MAX_JOINED_CHANNELS);
         if channels.is_empty() {
             channels.push(ChatChannel::Public(default_channel));
@@ -276,6 +287,30 @@ mod macos {
         standard.synchronize();
     }
 
+    fn save_integer(key: &str, value: isize) {
+        let defaults = app_defaults();
+        defaults.setInteger_forKey(value, &NSString::from_str(key));
+        defaults.synchronize();
+        let standard = NSUserDefaults::standardUserDefaults();
+        standard.setInteger_forKey(value, &NSString::from_str(key));
+        standard.synchronize();
+    }
+
+    fn migrate_legacy_general(channels: &mut Vec<ChatChannel>, default_channel: u16) {
+        for channel in &mut *channels {
+            if *channel == ChatChannel::Public(LEGACY_GENERAL_CHANNEL) {
+                *channel = ChatChannel::Public(default_channel);
+            }
+        }
+        let mut unique = Vec::with_capacity(channels.len());
+        for channel in channels.drain(..) {
+            if !unique.contains(&channel) {
+                unique.push(channel);
+            }
+        }
+        *channels = unique;
+    }
+
     fn parse_channel(value: &str) -> Option<ChatChannel> {
         if let Some(value) = value.strip_prefix("public:") {
             value.parse().ok().map(ChatChannel::Public)
@@ -374,6 +409,9 @@ mod windows {
     const SHOW_MEMBERSHIP_KEY: &str = "showJoinLeaveNotifications";
     const LIVE_ENABLED_KEY: &str = "liveUplinkEnabled";
     const OPEN_CHANNELS_KEY: &str = "openChannels";
+    const CHANNEL_CATALOG_VERSION_KEY: &str = "publicChannelCatalogVersion";
+    const CHANNEL_CATALOG_VERSION: u64 = 1;
+    const LEGACY_GENERAL_CHANNEL: u16 = 1033;
     const GROUP_NAMES_KEY: &str = "groupNames";
     const LEGACY_HOME_CHANNELS_KEY: &str = "homeChannels";
 
@@ -483,6 +521,18 @@ mod windows {
                     })
             })
             .unwrap_or_default();
+        let catalog_version = values
+            .get(CHANNEL_CATALOG_VERSION_KEY)
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        if catalog_version < CHANNEL_CATALOG_VERSION {
+            migrate_legacy_general(&mut channels, default_channel);
+            save_open_channels(&channels);
+            save_value(
+                CHANNEL_CATALOG_VERSION_KEY,
+                Value::from(CHANNEL_CATALOG_VERSION),
+            );
+        }
         channels.truncate(MAX_JOINED_CHANNELS);
         if channels.is_empty() {
             channels.push(ChatChannel::Public(default_channel));
@@ -572,6 +622,21 @@ mod windows {
 
     fn string(values: &Map<String, Value>, key: &str) -> Option<String> {
         values.get(key).and_then(Value::as_str).map(str::to_owned)
+    }
+
+    fn migrate_legacy_general(channels: &mut Vec<ChatChannel>, default_channel: u16) {
+        for channel in &mut *channels {
+            if *channel == ChatChannel::Public(LEGACY_GENERAL_CHANNEL) {
+                *channel = ChatChannel::Public(default_channel);
+            }
+        }
+        let mut unique = Vec::with_capacity(channels.len());
+        for channel in channels.drain(..) {
+            if !unique.contains(&channel) {
+                unique.push(channel);
+            }
+        }
+        *channels = unique;
     }
 
     fn parse_channel(value: &str) -> Option<ChatChannel> {

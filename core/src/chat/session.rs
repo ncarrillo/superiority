@@ -5,11 +5,16 @@ use std::{
 
 use rand::random;
 
-use super::portrait_catalog;
+use super::{portrait_catalog, public_channels};
 
 const CLUB_LOOKUP_BATCH: usize = 8;
+const NAMED_CHANNEL_TYPE: u8 = 1;
 const PARTY_CHANNEL_TYPE: u8 = 3;
+const PUBLIC_CHANNEL_TYPE: u8 = 4;
+const CLUB_CHANNEL_TYPE: u8 = 5;
 const PARTY_UI_CHANNEL_INDEX: u8 = u8::MAX;
+
+pub const GENERAL_PUBLIC_CHANNEL: u16 = 1028;
 
 const JOIN_ANSWER_WINDOW: Duration = Duration::from_secs(20);
 
@@ -74,30 +79,17 @@ pub fn strip_character_code(name: &str) -> &str {
 #[must_use]
 pub fn channel_title(channel: &ChatChannel) -> String {
     match channel {
-        ChatChannel::Public(1033) => "General".into(),
-        ChatChannel::Public(identifier) => public_channel_name(*identifier)
-            .map_or_else(|| format!("Public {identifier}"), ToOwned::to_owned),
+        ChatChannel::Public(GENERAL_PUBLIC_CHANNEL) => "General".into(),
+        ChatChannel::Public(identifier) => format!("Public {identifier}"),
         ChatChannel::Private(name) => name.clone(),
         ChatChannel::Club(club_id) => format!("Group {club_id}"),
         ChatChannel::Party => "Party".into(),
     }
 }
 
-#[must_use]
-pub fn public_channel_name(identifier: u16) -> Option<&'static str> {
-    match identifier {
-        1027 => Some("Looking for Team"),
-        1028 => Some("General Chat"),
-        1030 => Some("Arcade"),
-        1031 => Some("StarCraft II Strategy"),
-        1032 => Some("Hero League"),
-        1034 => Some("New Player"),
-        _ => None,
-    }
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct RosterMember {
+    joined_order: u64,
     presence_id: Option<u32>,
     name: Option<String>,
     toon_name: Option<ToonFullName>,
@@ -139,6 +131,7 @@ pub struct BlockedAccount {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChatEvent {
+    PublicChannelCatalog(Vec<public_channels::PublicChannel>),
     ConferenceDirectory {
         identifiers: Vec<u32>,
         complete: bool,
@@ -147,6 +140,7 @@ pub enum ChatEvent {
         channel_index: u8,
         channel: ChatChannel,
         local_member_handle: u32,
+        shard_index: Option<u16>,
     },
     JoinRejected {
         channel: Option<ChatChannel>,
@@ -210,6 +204,7 @@ struct ChannelState {
     channel: Option<ChatChannel>,
     local_member_handle: Option<u32>,
     roster: BTreeMap<u32, RosterMember>,
+    next_roster_order: u64,
     initial_roster_complete: bool,
 }
 
@@ -308,12 +303,13 @@ impl LiveChat {
         let protocol = session.records().protocol().clone();
         request_conference_cache(&mut session, &protocol)?;
 
-        let mut cache_received = false;
         let mut toon_selection_sent = false;
         let mut toon_selected = false;
         let mut local_toon_realm = None;
         let mut local_toon_handle = None;
         let mut directory_complete = false;
+        let mut public_catalog_loaded = false;
+        let mut general_channel_id = None;
         let mut channel_list_received = false;
         let mut presence_statistics_subscribed = false;
         let mut queries_sent = false;
@@ -329,7 +325,33 @@ impl LiveChat {
             let record = session.records_mut().receive()?;
             let profile_changed = profiles.observe(&record.value);
             match &record.value {
-                Payload::CacheStreamItems(_) => cache_received = true,
+                Payload::CacheStreamItems(response) => {
+                    let catalog = public_channels::load(response)?;
+                    let resolved_general = catalog
+                        .iter()
+                        .find(|channel| channel.name.eq_ignore_ascii_case("General"))
+                        .map(|channel| channel.identifier)
+                        .ok_or_else(|| {
+                            protocol_error("Battle.net public-channel catalog omits General")
+                        })?;
+                    general_channel_id = Some(resolved_general);
+                    if let ChatChannel::Public(identifier) = &mut initial_channel
+                        && (*identifier == GENERAL_PUBLIC_CHANNEL
+                            || !catalog
+                                .iter()
+                                .any(|channel| channel.identifier == *identifier))
+                    {
+                        *identifier = resolved_general;
+                    }
+                    if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                        eprintln!(
+                            "superiority: Battle.net public-channel catalog entries={} General={resolved_general}",
+                            catalog.len()
+                        );
+                    }
+                    events.push(ChatEvent::PublicChannelCatalog(catalog));
+                    public_catalog_loaded = true;
+                }
                 Payload::ToonList(list) if !toon_selection_sent => {
                     local_toon_realm = list.displays.first().map(|toon| toon.realm);
                     select_first_toon(&mut session, &protocol, list)?;
@@ -350,19 +372,35 @@ impl LiveChat {
                     });
                 }
                 Payload::ChatJoin(result) => {
-                    if !result.success && initial_channel != ChatChannel::Public(1033) {
+                    if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                        eprintln!(
+                            "superiority: join response requested={initial_channel:?} success={} returned_name_id={:?} shard={:?} channel_index={:?}",
+                            result.success,
+                            result.channel_name_id,
+                            result.channel_shard_index,
+                            result.channel_index
+                        );
+                    }
+                    if !result.success
+                        && Some(initial_channel.clone())
+                            != general_channel_id.map(ChatChannel::Public)
+                    {
                         events.push(ChatEvent::JoinRejected {
                             channel: Some(initial_channel.clone()),
                             reason: result.reason,
                         });
-                        initial_channel = ChatChannel::Public(1033);
+                        let general_channel_id = general_channel_id.ok_or_else(|| {
+                            protocol_error("General was not resolved from Battle.net")
+                        })?;
+                        initial_channel = ChatChannel::Public(general_channel_id);
                         session.records_mut().send(&protocol.chat_join_public(
-                            1033,
+                            general_channel_id,
                             random(),
                             "enUS",
                         )?)?;
                         continue;
                     }
+                    validate_public_join(&initial_channel, result)?;
                     let (channel_index, member_handle) = accepted_join(result)?;
                     default_channel_index = Some(channel_index);
                     let channel = channels.entry(channel_index).or_default();
@@ -373,12 +411,20 @@ impl LiveChat {
                         channel_index,
                         channel: joined,
                         local_member_handle: member_handle,
+                        shard_index: result.channel_shard_index,
                     });
                 }
                 Payload::ChatMembership(membership) => {
                     let channel = channels.entry(membership.channel_index).or_default();
                     let local = channel.local_member_handle;
-                    apply_membership(&mut channel.roster, membership, false, local, &mut events);
+                    apply_membership(
+                        &mut channel.roster,
+                        &mut channel.next_roster_order,
+                        membership,
+                        false,
+                        local,
+                        &mut events,
+                    );
                     channel.initial_roster_complete |= membership.end_of_initial;
                     events.push(ChatEvent::Roster(roster_snapshot(
                         &channel.roster,
@@ -417,27 +463,30 @@ impl LiveChat {
             profiles.enqueue_missing(channels.values(), &friends);
             profiles.pump(&mut session, &protocol)?;
 
-            if cache_received
-                && toon_selection_sent
-                && toon_selected
-                && !presence_statistics_subscribed
-            {
+            if toon_selection_sent && toon_selected && !presence_statistics_subscribed {
                 session
                     .records_mut()
                     .send(&protocol.presence_statistics_subscribe(true)?)?;
                 presence_statistics_subscribed = true;
             }
-            if cache_received && toon_selection_sent && toon_selected && !queries_sent {
+            if toon_selection_sent && toon_selected && !queries_sent {
                 session
                     .records_mut()
                     .send(&protocol.chat_enum_conference_descriptions()?)?;
                 session.records_mut().send(&protocol.chat_channel_list()?)?;
                 queries_sent = true;
             }
-            if directory_complete && channel_list_received && !join_sent {
+            let catalog_ready =
+                !matches!(initial_channel, ChatChannel::Public(_)) || public_catalog_loaded;
+            if directory_complete && channel_list_received && catalog_ready && !join_sent {
                 let token = random();
                 let request = match &initial_channel {
                     ChatChannel::Public(channel_name_id) => {
+                        if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                            eprintln!(
+                                "superiority: joining public channel id={channel_name_id} locale=enUS"
+                            );
+                        }
                         protocol.chat_join_public(*channel_name_id, token, "enUS")?
                     }
                     ChatChannel::Private(name) => protocol.chat_join_private(name, token)?,
@@ -964,6 +1013,7 @@ impl LiveChat {
                     visible.channel_index = PARTY_UI_CHANNEL_INDEX;
                     apply_membership(
                         &mut party.state.roster,
+                        &mut party.state.next_roster_order,
                         &visible,
                         was_complete,
                         local,
@@ -976,6 +1026,7 @@ impl LiveChat {
                     let local = channel.local_member_handle;
                     apply_membership(
                         &mut channel.roster,
+                        &mut channel.next_roster_order,
                         membership,
                         was_complete,
                         local,
@@ -1005,6 +1056,7 @@ impl LiveChat {
                                 channel_index: PARTY_UI_CHANNEL_INDEX,
                                 channel: ChatChannel::Party,
                                 local_member_handle,
+                                shard_index: None,
                             },
                         );
                         party.announced = true;
@@ -1060,12 +1112,13 @@ impl LiveChat {
             Payload::ChatJoin(result) => {
                 self.expire_pending_joins();
                 trace_party(format_args!(
-                    "chat join success={} index={:?} member={:?} type={:?} locator={:?} token={:?}",
+                    "chat join success={} index={:?} member={:?} type={:?} locator={:?} shard={:?} token={:?}",
                     result.success,
                     result.channel_index,
                     result.member_handle,
                     result.channel_type,
                     result.channel_name_id,
+                    result.channel_shard_index,
                     result.token,
                 ));
                 let rejoins_party = result.success
@@ -1096,27 +1149,19 @@ impl LiveChat {
                             channel_index: PARTY_UI_CHANNEL_INDEX,
                             channel: ChatChannel::Party,
                             local_member_handle,
+                            shard_index: None,
                         })
                     }
                 } else {
-                    let requested = result
-                        .token
-                        .and_then(|token| self.pending_joins.remove(&token))
-                        .map(|(channel, _)| channel)
-                        .or_else(|| {
-                            (self.pending_joins.len() == 1)
-                                .then(|| {
-                                    self.pending_joins
-                                        .pop_first()
-                                        .map(|(_, (channel, _))| channel)
-                                })
-                                .flatten()
-                        });
+                    let requested = take_requested_join(&mut self.pending_joins, result)?;
                     if !result.success {
                         return Ok(ChatEvent::JoinRejected {
                             channel: requested,
                             reason: result.reason,
                         });
+                    }
+                    if let Some(requested) = &requested {
+                        validate_public_join(requested, result)?;
                     }
                     let (channel_index, local_member_handle) = accepted_join(result)?;
                     let joined = requested
@@ -1134,6 +1179,7 @@ impl LiveChat {
                             channel_index,
                             channel: joined,
                             local_member_handle,
+                            shard_index: result.channel_shard_index,
                         })
                     } else {
                         trace_party(format_args!(
@@ -2070,6 +2116,58 @@ fn append_profile_rosters(
     }
 }
 
+fn take_requested_join(
+    pending: &mut BTreeMap<u32, (ChatChannel, Instant)>,
+    result: &ChatJoin,
+) -> Result<Option<ChatChannel>> {
+    if let Some(token) = result.token {
+        return Ok(pending.remove(&token).map(|(channel, _)| channel));
+    }
+
+    let candidates = pending
+        .iter()
+        .filter_map(|(token, (channel, _))| {
+            join_result_matches_channel(result, channel).then_some(*token)
+        })
+        .collect::<Vec<_>>();
+    match candidates.as_slice() {
+        [] => Ok(None),
+        [token] => Ok(pending.remove(token).map(|(channel, _)| channel)),
+        _ => Err(protocol_error(
+            "Battle.net omitted the join token for multiple matching requests",
+        )),
+    }
+}
+
+fn join_result_matches_channel(result: &ChatJoin, channel: &ChatChannel) -> bool {
+    match channel {
+        ChatChannel::Public(identifier) => {
+            result.channel_type == Some(PUBLIC_CHANNEL_TYPE)
+                && (!result.success || result.channel_name_id == Some(*identifier))
+        }
+        ChatChannel::Private(_) => result.channel_type == Some(NAMED_CHANNEL_TYPE),
+        ChatChannel::Club(_) => result.channel_type == Some(CLUB_CHANNEL_TYPE),
+        ChatChannel::Party => result.channel_type == Some(PARTY_CHANNEL_TYPE),
+    }
+}
+
+fn validate_public_join(requested: &ChatChannel, result: &ChatJoin) -> Result<()> {
+    let ChatChannel::Public(expected) = requested else {
+        return Ok(());
+    };
+    let Some(actual) = result.channel_name_id else {
+        return Err(protocol_error(format!(
+            "Battle.net omitted the public channel ID after {expected} was requested"
+        )));
+    };
+    if actual != *expected {
+        return Err(protocol_error(format!(
+            "Battle.net joined public channel {actual} after {expected} was requested"
+        )));
+    }
+    Ok(())
+}
+
 fn accepted_join(result: &ChatJoin) -> Result<(u8, u32)> {
     if !result.success {
         return Err(Error::Server(format!(
@@ -2143,6 +2241,7 @@ fn request_conference_cache(session: &mut Session, protocol: &Protocol) -> Resul
 
 fn apply_membership(
     roster: &mut BTreeMap<u32, RosterMember>,
+    next_roster_order: &mut u64,
     membership: &crate::native::model::ChatMembership,
     emit_incremental: bool,
     local_member_handle: Option<u32>,
@@ -2178,9 +2277,18 @@ fn apply_membership(
                 }
             }
             MembershipKind::Join => {
+                let joined_order = roster.get(&change.member_handle).map_or_else(
+                    || {
+                        let order = *next_roster_order;
+                        *next_roster_order = (*next_roster_order).saturating_add(1);
+                        order
+                    },
+                    |member| member.joined_order,
+                );
                 roster.insert(
                     change.member_handle,
                     RosterMember {
+                        joined_order,
                         presence_id: change.presence_id,
                         name: change.display_name.clone(),
                         toon_name: change.toon_name.clone(),
@@ -2205,16 +2313,34 @@ fn apply_membership(
                 }
             }
             MembershipKind::Status => {
+                if !roster.contains_key(&change.member_handle) {
+                    let joined_order = *next_roster_order;
+                    *next_roster_order = (*next_roster_order).saturating_add(1);
+                    roster.insert(
+                        change.member_handle,
+                        RosterMember {
+                            joined_order,
+                            ..RosterMember::default()
+                        },
+                    );
+                }
                 if let Some(name) = &change.display_name {
-                    roster.entry(change.member_handle).or_default().name = Some(name.clone());
+                    roster
+                        .get_mut(&change.member_handle)
+                        .expect("status member was just inserted")
+                        .name = Some(name.clone());
                 }
                 if let Some(toon_name) = &change.toon_name {
-                    roster.entry(change.member_handle).or_default().toon_name =
-                        Some(toon_name.clone());
+                    roster
+                        .get_mut(&change.member_handle)
+                        .expect("status member was just inserted")
+                        .toon_name = Some(toon_name.clone());
                 }
                 if let Some(party_status) = change.party_status {
-                    roster.entry(change.member_handle).or_default().party_status =
-                        Some(party_status);
+                    roster
+                        .get_mut(&change.member_handle)
+                        .expect("status member was just inserted")
+                        .party_status = Some(party_status);
                 }
             }
         }
@@ -2269,27 +2395,25 @@ fn roster_snapshot(
 ) -> RosterSnapshot {
     let mut users = roster
         .iter()
-        .map(|(handle, member)| ChatUser {
-            handle: *handle,
-            presence_id: member.presence_id,
-            name: member.name.clone(),
-            clan_tag: member.clan_tag.clone(),
-            avatar: member.avatar,
-            presence: member.presence,
+        .map(|(handle, member)| {
+            (
+                member.joined_order,
+                ChatUser {
+                    handle: *handle,
+                    presence_id: member.presence_id,
+                    name: member.name.clone(),
+                    clan_tag: member.clan_tag.clone(),
+                    avatar: member.avatar,
+                    presence: member.presence,
+                },
+            )
         })
         .collect::<Vec<_>>();
-    users.sort_by(|left, right| {
-        left.name
-            .as_deref()
-            .unwrap_or_default()
-            .to_lowercase()
-            .cmp(&right.name.as_deref().unwrap_or_default().to_lowercase())
-            .then_with(|| left.handle.cmp(&right.handle))
-    });
+    users.sort_by_key(|(joined_order, _)| *joined_order);
     RosterSnapshot {
         channel_index,
         initial_complete,
-        users,
+        users: users.into_iter().map(|(_, user)| user).collect(),
     }
 }
 
@@ -2590,9 +2714,11 @@ mod tests {
     #[test]
     fn roster_preserves_presence_identity_across_status_updates() {
         let mut roster = BTreeMap::new();
+        let mut next_roster_order = 0;
         let mut events = Vec::new();
         apply_membership(
             &mut roster,
+            &mut next_roster_order,
             &ChatMembership {
                 channel_index: 0,
                 end_of_initial: false,
@@ -2612,6 +2738,7 @@ mod tests {
         );
         apply_membership(
             &mut roster,
+            &mut next_roster_order,
             &ChatMembership {
                 channel_index: 0,
                 end_of_initial: true,
@@ -2644,6 +2771,44 @@ mod tests {
     }
 
     #[test]
+    fn roster_snapshots_preserve_join_order() {
+        let mut roster = BTreeMap::new();
+        let mut next_roster_order = 0;
+        let mut events = Vec::new();
+        for (handle, name) in [(20, "Zulu"), (10, "Alpha"), (30, "Mike")] {
+            apply_membership(
+                &mut roster,
+                &mut next_roster_order,
+                &ChatMembership {
+                    channel_index: 0,
+                    end_of_initial: false,
+                    changes: vec![MembershipChange {
+                        kind: MembershipKind::Join,
+                        member_handle: handle,
+                        presence_id: None,
+                        display_name: Some(name.into()),
+                        toon_name: None,
+                        party_status: None,
+                        reason: None,
+                    }],
+                },
+                false,
+                None,
+                &mut events,
+            );
+        }
+
+        assert_eq!(
+            roster_snapshot(&roster, 0, true)
+                .users
+                .iter()
+                .map(ChatUser::visible_name)
+                .collect::<Vec<_>>(),
+            vec!["Zulu", "Alpha", "Mike"]
+        );
+    }
+
+    #[test]
     fn a_leave_carries_its_reason_and_self_removal_is_distinct() {
         let mut roster =
             BTreeMap::from([(17, RosterMember::default()), (99, RosterMember::default())]);
@@ -2662,7 +2827,15 @@ mod tests {
         };
 
         let mut events = Vec::new();
-        apply_membership(&mut roster, &leave(99, 70), true, Some(17), &mut events);
+        let mut next_roster_order = 2;
+        apply_membership(
+            &mut roster,
+            &mut next_roster_order,
+            &leave(99, 70),
+            true,
+            Some(17),
+            &mut events,
+        );
         assert_eq!(
             events,
             vec![ChatEvent::MemberLeft {
@@ -2680,7 +2853,14 @@ mod tests {
         );
 
         let mut events = Vec::new();
-        apply_membership(&mut roster, &leave(17, 70), true, Some(17), &mut events);
+        apply_membership(
+            &mut roster,
+            &mut next_roster_order,
+            &leave(17, 70),
+            true,
+            Some(17),
+            &mut events,
+        );
         assert_eq!(
             events,
             vec![ChatEvent::Removed {
@@ -2699,6 +2879,7 @@ mod tests {
                 roster: BTreeMap::from([(
                     17,
                     RosterMember {
+                        joined_order: 0,
                         presence_id: Some(91),
                         name: Some("Nova".into()),
                         toon_name: None,
@@ -2747,6 +2928,7 @@ mod tests {
                 roster: BTreeMap::from([(
                     17,
                     RosterMember {
+                        joined_order: 0,
                         presence_id: Some(41),
                         name: Some("Tagban#542".into()),
                         toon_name: None,
@@ -2792,6 +2974,7 @@ mod tests {
             channel.roster.insert(
                 17,
                 RosterMember {
+                    joined_order: 0,
                     presence_id: Some(u32::from(channel_index)),
                     name: Some(name.into()),
                     toon_name: None,
@@ -2839,6 +3022,7 @@ mod tests {
             member_handle: Some(91),
             channel_type: Some(PARTY_CHANNEL_TYPE),
             channel_name_id: None,
+            channel_shard_index: None,
             reason: None,
             token: None,
         };
@@ -2852,6 +3036,70 @@ mod tests {
         assert_eq!(party.state.channel, Some(ChatChannel::Party));
         assert!(!party.state.initial_roster_complete);
         assert!(party.state.roster.is_empty());
+    }
+
+    #[test]
+    fn public_join_without_a_token_matches_the_returned_channel_id() {
+        let now = Instant::now();
+        let mut pending = BTreeMap::from([
+            (11, (ChatChannel::Public(1028), now)),
+            (12, (ChatChannel::Public(1030), now)),
+        ]);
+        let result = ChatJoin {
+            success: true,
+            channel_index: Some(2),
+            member_handle: Some(91),
+            channel_type: Some(PUBLIC_CHANNEL_TYPE),
+            channel_name_id: Some(1030),
+            channel_shard_index: Some(1),
+            reason: None,
+            token: None,
+        };
+
+        assert_eq!(
+            take_requested_join(&mut pending, &result).unwrap(),
+            Some(ChatChannel::Public(1030))
+        );
+        assert_eq!(pending.len(), 1);
+        assert!(pending.contains_key(&11));
+    }
+
+    #[test]
+    fn missing_join_token_never_guesses_between_matching_requests() {
+        let now = Instant::now();
+        let mut pending = BTreeMap::from([
+            (11, (ChatChannel::Private("one".into()), now)),
+            (12, (ChatChannel::Private("two".into()), now)),
+        ]);
+        let result = ChatJoin {
+            success: true,
+            channel_index: Some(2),
+            member_handle: Some(91),
+            channel_type: Some(NAMED_CHANNEL_TYPE),
+            channel_name_id: None,
+            channel_shard_index: Some(1),
+            reason: None,
+            token: None,
+        };
+
+        assert!(take_requested_join(&mut pending, &result).is_err());
+        assert_eq!(pending.len(), 2);
+    }
+
+    #[test]
+    fn public_join_rejects_a_different_returned_channel_id() {
+        let result = ChatJoin {
+            success: true,
+            channel_index: Some(2),
+            member_handle: Some(91),
+            channel_type: Some(PUBLIC_CHANNEL_TYPE),
+            channel_name_id: Some(1033),
+            channel_shard_index: Some(2),
+            reason: None,
+            token: Some(11),
+        };
+
+        assert!(validate_public_join(&ChatChannel::Public(1028), &result).is_err());
     }
 
     #[test]

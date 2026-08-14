@@ -3,6 +3,7 @@ members = [
     "core",
     "ui",
     "app",
+    "updater",
     "live-app",
     "bsn-derive",
     "tools/bsn-schema-generator",

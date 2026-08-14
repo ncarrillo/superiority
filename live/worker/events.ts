@@ -22,6 +22,8 @@ export interface WireUser {
   clan_tag?: string | null;
   presence?: string | null;
   portrait?: WirePortrait | null;
+  is_local?: boolean | null;
+  joined_order?: number | null;
 }
 
 export type WireEvent = {
@@ -157,6 +159,8 @@ export function userField(value: unknown): WireUser | null {
     clan_tag: isString(value.clan_tag, 32) ? (value.clan_tag as string) : null,
     presence: isString(value.presence, 16) ? (value.presence as string) : null,
     portrait: portraitField(value.portrait),
+    is_local: typeof value.is_local === "boolean" ? value.is_local : null,
+    joined_order: isNonNegativeInt(value.joined_order) ? (value.joined_order as number) : null,
   };
 }
 

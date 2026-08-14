@@ -14,6 +14,7 @@ impl SuperiorityView {
                     self.connection.error = None;
                     self.channels.tabs.clear();
                     self.channels.active_tab = 0;
+                    self.sync_roster_filter_input();
                     self.social.friends_snapshot.clear();
                     self.social.friends.clear();
                     self.social.blocked_accounts.clear();
@@ -22,7 +23,7 @@ impl SuperiorityView {
                     self.social.conversation_input.clear();
                     self.social.social_detail_open = false;
                     self.social.social_pane_transition = None;
-                    self.join.conference_channels.clear();
+                    self.join.public_channels.clear();
                     self.join.groups.clear();
                     self.join.member_groups.clear();
                     self.join.group_search.clear();

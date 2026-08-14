@@ -1,7 +1,9 @@
 mod portrait_catalog;
+mod public_channels;
 mod session;
 
+pub use public_channels::PublicChannel;
 pub use session::{
-    BlockedAccount, ChatChannel, ChatEvent, ChatFriend, ChatUser, LiveChat, RosterSnapshot,
-    channel_title, public_channel_name, strip_character_code,
+    BlockedAccount, ChatChannel, ChatEvent, ChatFriend, ChatUser, GENERAL_PUBLIC_CHANNEL, LiveChat,
+    RosterSnapshot, channel_title, strip_character_code,
 };

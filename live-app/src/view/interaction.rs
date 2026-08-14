@@ -1,45 +1,55 @@
 use super::*;
 
 impl LiveView {
+    pub(super) fn roster_filter(&self, channel: Option<&str>) -> &str {
+        channel
+            .and_then(|channel| self.roster_filters.get(channel))
+            .map_or("", String::as_str)
+    }
+
     pub(super) fn set_roster_filter(&mut self, filter: String) {
-        if self.workspace.roster.filter == filter {
+        let Some(channel) = self.selected.clone() else {
+            return;
+        };
+        let previous_filter = self.roster_filter(Some(&channel)).to_owned();
+        if previous_filter == filter {
             return;
         }
-        let channel = self.selected.clone();
-        let previous = channel
-            .as_deref()
-            .and_then(|channel| self.channel_data.get(channel))
-            .map(|data| {
-                data.roster
-                    .iter()
-                    .filter(|member| roster_member_matches(member, &self.workspace.roster.filter))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        self.workspace.roster.filter = filter;
-        if let Some(channel) = self.selected.as_deref()
-            && let Some(selected) = self.workspace.roster.selection(channel)
-            && self.channel_data.get(channel).is_none_or(|data| {
+        let previous = self
+            .channel_data
+            .get(&channel)
+            .map_or_else(Vec::new, |data| {
+                presented_roster_members(
+                    &self.channels,
+                    &self.channel_data,
+                    &channel,
+                    &data.roster,
+                    &previous_filter,
+                )
+            });
+        if filter.is_empty() {
+            self.roster_filters.remove(&channel);
+        } else {
+            self.roster_filters.insert(channel.clone(), filter);
+        }
+        let active_filter = self.roster_filter(Some(&channel));
+        if let Some(selected) = self.workspace.roster.selection(&channel)
+            && self.channel_data.get(&channel).is_none_or(|data| {
                 !data.roster.iter().any(|member| {
-                    member.handle == selected
-                        && roster_member_matches(member, &self.workspace.roster.filter)
+                    member.handle == selected && roster_member_matches(member, active_filter)
                 })
             })
         {
-            self.workspace
-                .roster
-                .set_selection(channel.to_owned(), None);
+            self.workspace.roster.set_selection(channel.clone(), None);
         }
-        if let Some(channel) = channel
-            && let Some(data) = self.channel_data.get(&channel)
-        {
-            let next = data
-                .roster
-                .iter()
-                .filter(|member| roster_member_matches(member, &self.workspace.roster.filter))
-                .cloned()
-                .collect::<Vec<_>>();
+        if let Some(data) = self.channel_data.get(&channel) {
+            let next = presented_roster_members(
+                &self.channels,
+                &self.channel_data,
+                &channel,
+                &data.roster,
+                self.roster_filter(Some(&channel)),
+            );
             self.workspace.roster.begin_transition(
                 channel,
                 previous,
@@ -58,11 +68,16 @@ impl LiveView {
             .channel_data
             .get(&channel)
             .map(|data| {
-                data.roster
-                    .iter()
-                    .filter(|member| roster_member_matches(member, &self.workspace.roster.filter))
-                    .map(|member| member.handle)
-                    .collect::<Vec<_>>()
+                presented_roster_members(
+                    &self.channels,
+                    &self.channel_data,
+                    &channel,
+                    &data.roster,
+                    self.roster_filter(Some(&channel)),
+                )
+                .into_iter()
+                .map(|member| member.handle)
+                .collect::<Vec<_>>()
             })
             .unwrap_or_default();
         if members.is_empty() {
@@ -103,14 +118,14 @@ impl LiveView {
         }
         match event.keystroke.key.as_str() {
             "escape" => {
-                if self.workspace.roster.filter.is_empty() {
+                if self.roster_filter(self.selected.as_deref()).is_empty() {
                     self.workspace.roster.focused = false;
                 } else {
                     self.set_roster_filter(String::new());
                 }
             }
             "backspace" | "delete" => {
-                let mut filter = self.workspace.roster.filter.clone();
+                let mut filter = self.roster_filter(self.selected.as_deref()).to_owned();
                 filter.pop();
                 self.set_roster_filter(filter);
             }
@@ -123,7 +138,7 @@ impl LiveView {
                     && let Some(value) = &event.keystroke.key_char
                     && value.chars().all(|character| !character.is_control())
                 {
-                    let mut filter = self.workspace.roster.filter.clone();
+                    let mut filter = self.roster_filter(self.selected.as_deref()).to_owned();
                     if filter.chars().count() < 64 {
                         filter.extend(value.chars().filter(|character| !character.is_control()));
                         filter = filter.chars().take(64).collect();

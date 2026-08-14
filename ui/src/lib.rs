@@ -5,4 +5,7 @@ pub mod model;
 pub mod theme;
 
 pub use assets::UiAssets;
-pub use model::{Portrait, PresenceKind, RosterUser, TranscriptLine};
+pub use model::{
+    Portrait, PresenceKind, RosterChannelKind, RosterPresentation, RosterRelationship, RosterUser,
+    RosterUserTone, TranscriptLine,
+};

@@ -18,6 +18,7 @@ const VERIFIED_REFLECTED: &[&str] = &[
     "Battlenet::Client::Chat::WhisperEchoRecv",
     "Battlenet::Client::Connection::ServerVersion",
     "Battlenet::Client::Connection::RegulatorUpdate",
+    "Battlenet::Client::Party::BeginReadyProcess",
     "Battlenet::Client::Party::MapOptionsChange",
     "Battlenet::Client::Presence::StatisticsUpdate",
     "Battlenet::Client::Presence::TemporaryPresenceResponse",

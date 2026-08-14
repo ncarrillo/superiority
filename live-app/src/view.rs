@@ -9,7 +9,7 @@ use gpui::{
     Stateful, UniformListScrollHandle, Window, div, ease_in_out, prelude::*, px, rgb, uniform_list,
 };
 use superiority_ui::{
-    Portrait, RosterUser, UiAssets,
+    Portrait, PresenceKind, RosterUser, UiAssets,
     components::{chat, navigation, roster, workspace},
     theme::{FONT_INTERFACE, FONT_NAVIGATION, MARGIN, MUTED, ONLINE, ROSTER_ROW_GAP},
 };
@@ -41,6 +41,7 @@ pub(crate) struct LiveView {
     channels: Vec<ChannelSummary>,
     selected: Option<String>,
     channel_data: HashMap<String, ChannelData>,
+    roster_filters: HashMap<String, String>,
     channel_transition: Option<ChannelTransition>,
     workspace: LiveWorkspace,
     error: Option<String>,
@@ -66,6 +67,7 @@ impl LiveView {
             channels: Vec::new(),
             selected: None,
             channel_data: HashMap::new(),
+            roster_filters: HashMap::new(),
             channel_transition: None,
             workspace: LiveWorkspace::default(),
             error: None,

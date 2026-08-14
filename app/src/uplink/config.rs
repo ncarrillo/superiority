@@ -29,7 +29,7 @@ pub const IDENTITY_FILENAME: &str = "live-feed.json";
 pub struct UplinkConfig {
     /// Master switch. Off means the tap projects nothing and sends nothing.
     pub enabled: bool,
-    /// Channel identity strings (`public:1033`, `private:Op Test`,
+    /// Channel identity strings (`public:1028`, `private:Op Test`,
     /// `club:5322`) the user chose to share.
     pub shared_channels: BTreeSet<String>,
     /// Backend origin override; the env var and then the default fill in.

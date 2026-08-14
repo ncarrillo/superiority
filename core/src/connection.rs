@@ -11,12 +11,12 @@ use crate::{
     Error, Result,
     auth::{CredentialStore, FileCredentialStore, authenticate_cached},
     bgs::{Client, Endpoint, SecretBytes},
-    chat::{ChatChannel, ChatEvent, LiveChat},
+    chat::{ChatChannel, ChatEvent, GENERAL_PUBLIC_CHANNEL, LiveChat},
     native::{Connector, Protocol, WhisperTarget, protocol::MAX_JOINED_CHANNELS},
     observer::{SessionObserver, SessionObserverFactory},
 };
 
-pub const DEFAULT_PUBLIC_CHANNEL: u16 = 1033;
+pub const DEFAULT_PUBLIC_CHANNEL: u16 = GENERAL_PUBLIC_CHANNEL;
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(60);
 const OBSERVER_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
@@ -168,7 +168,6 @@ fn connect_once(
         &mut browser,
         force_interactive,
     )?;
-
     emit(events, ClientEvent::Stage(ConnectionStage::GameUtilities));
     let bootstrap = bgs.process_client_request(&authentication.session)?;
     emit(

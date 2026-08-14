@@ -61,6 +61,7 @@ impl SuperiorityView {
                     .channels
                     .active_tab
                     .min(self.channels.tabs.len().saturating_sub(1));
+                self.sync_roster_filter_input();
                 self.persist_open_channels();
             }
         }

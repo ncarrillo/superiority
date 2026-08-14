@@ -6,7 +6,7 @@ use std::{
 
 use gpui::UniformListScrollHandle;
 use superiority_ui::{
-    PresenceKind, TranscriptLine,
+    PresenceKind, RosterChannelKind, RosterPresentation, RosterRelationship, TranscriptLine,
     components::{roster, workspace},
 };
 use wasm_bindgen::JsValue;
@@ -57,13 +57,103 @@ pub(super) fn reconcile_channel_order(
 }
 
 pub(super) fn filtered_roster_range(
+    channels: &[ChannelSummary],
+    channel_data: &HashMap<String, ChannelData>,
+    channel: &str,
     members: &[RosterMember],
     filter: &str,
     range: Range<usize>,
 ) -> Vec<RosterMember> {
-    roster::filtered_range(members, filter, range, |member, filter| {
-        roster_member_matches(member, filter)
-    })
+    presented_roster_members(channels, channel_data, channel, members, filter)
+        .into_iter()
+        .skip(range.start)
+        .take(range.len())
+        .collect()
+}
+
+pub(super) fn presented_roster_members(
+    channels: &[ChannelSummary],
+    channel_data: &HashMap<String, ChannelData>,
+    channel: &str,
+    members: &[RosterMember],
+    filter: &str,
+) -> Vec<RosterMember> {
+    let kind = channels
+        .iter()
+        .find(|summary| summary.key == channel)
+        .map_or(RosterChannelKind::Standard, |summary| {
+            match summary.kind.as_str() {
+                "club" => RosterChannelKind::Group,
+                "party" => RosterChannelKind::Party,
+                _ => RosterChannelKind::Standard,
+            }
+        });
+    let local_clan = channels
+        .iter()
+        .filter_map(|channel| channel_data.get(&channel.key))
+        .flat_map(|data| &data.roster)
+        .find(|member| member.is_local)
+        .and_then(|member| member.clan_tag.as_deref())
+        .map(str::to_lowercase);
+    let shared_party = membership_keys(channels, channel_data, "party");
+    let mut members = members
+        .iter()
+        .filter(|member| roster_member_matches(member, filter))
+        .cloned()
+        .map(|mut member| {
+            let key = member_identity(&member);
+            let is_local = member.is_local;
+            let shares_clan = !is_local
+                && member.clan_tag.as_ref().is_some_and(|clan_tag| {
+                    local_clan
+                        .as_ref()
+                        .is_some_and(|local_clan| clan_tag.to_lowercase() == *local_clan)
+                });
+            let in_party = shared_party.contains(&key);
+            let presentation = RosterPresentation::resolve(RosterRelationship {
+                shared_clan: shares_clan,
+                shared_party: in_party,
+                away: member.presence == "away",
+            });
+            member.tone = presentation.tone;
+            (member, presentation)
+        })
+        .collect::<Vec<_>>();
+    if kind != RosterChannelKind::Party {
+        members.sort_by_key(|(member, presentation)| {
+            (presentation.rank, member.joined_order.unwrap_or(u64::MAX))
+        });
+        let mut previous = None;
+        for (member, presentation) in &mut members {
+            member.segment_start = previous.is_some_and(|previous| previous != presentation.rank);
+            previous = Some(presentation.rank);
+        }
+    } else {
+        for (member, _) in &mut members {
+            member.segment_start = false;
+        }
+    }
+    members.into_iter().map(|(member, _)| member).collect()
+}
+
+fn membership_keys(
+    channels: &[ChannelSummary],
+    channel_data: &HashMap<String, ChannelData>,
+    kind: &str,
+) -> std::collections::BTreeSet<String> {
+    channels
+        .iter()
+        .filter(|channel| channel.kind == kind)
+        .filter_map(|channel| channel_data.get(&channel.key))
+        .flat_map(|data| data.roster.iter().map(member_identity))
+        .collect()
+}
+
+fn member_identity(member: &RosterMember) -> String {
+    member
+        .name
+        .as_deref()
+        .map_or_else(|| format!("handle:{}", member.handle), str::to_lowercase)
 }
 
 pub(super) fn roster_member_matches(member: &RosterMember, filter: &str) -> bool {

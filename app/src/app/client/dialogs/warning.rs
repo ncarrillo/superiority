@@ -29,8 +29,7 @@ impl WarningComponent {
                     .top(px(18.0))
                     .w(px(584.0))
                     .h(px(274.0))
-                    .bg(rgba(0x1b0f04fc))
-                    .shadow_lg(),
+                    .bg(rgba(0x1b0f04fc)),
             );
         if disconnected {
             card = card
