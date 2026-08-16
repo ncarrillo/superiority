@@ -1,27 +1,27 @@
 use std::{env, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
-        && std::env::consts::OS == "windows"
-    {
-        build_windows_manifest()?;
+    let version = env::var("SUPERIORITY_APP_VERSION")
+        .unwrap_or_else(|_| env::var("CARGO_PKG_VERSION").expect("package version"));
+    println!("cargo:rerun-if-env-changed=SUPERIORITY_APP_VERSION");
+    println!("cargo:rustc-env=SUPERIORITY_EFFECTIVE_VERSION={version}");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        build_windows_manifest(&version)?;
     }
     Ok(())
 }
 
-fn build_windows_manifest() -> Result<(), Box<dyn std::error::Error>> {
+fn build_windows_manifest(version: &str) -> Result<(), Box<dyn std::error::Error>> {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let resources = manifest.join("windows");
     let manifest_file = resources.join("Superiority.manifest.xml");
     let icon_file = resources.join("Superiority.ico");
     let resource_file = PathBuf::from(env::var("OUT_DIR")?).join("Superiority.rc");
-    let version = env::var("CARGO_PKG_VERSION")?;
-
     println!("cargo:rerun-if-changed={}", manifest_file.display());
     println!("cargo:rerun-if-changed={}", icon_file.display());
     std::fs::write(
         &resource_file,
-        windows_resources(&manifest_file, &icon_file, &version, "Superiority"),
+        windows_resources(&manifest_file, &icon_file, version, "Superiority"),
     )?;
     embed_resource::compile(&resource_file, embed_resource::NONE)
         .manifest_required()

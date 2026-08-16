@@ -1,162 +1,318 @@
 ---
 import ServiceSection from "../components/ServiceSection.astro";
 import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
 ---
 
 <ServiceSection id="service-chat">
-  <Fragment slot="title">9.10 <code>Chat</code> — channels, roster, and messages</Fragment>
-<p>The four-bit service slot in the outer route selects the Chat service. The
-    separate three-bit <code>channelIndex</code> inside Chat payloads selects one of
-    the rooms already joined by this client; it is returned by a successful join and
-    must be preserved for later message, roster, and leave records.</p>
+  <Fragment slot="title"><code>Chat</code> — channels, roster, and messages</Fragment>
+<p>The four-bit service slot selects the Chat service. The three-bit
+    <code>channelIndex</code> selects a joined channel. A successful join returns
+    this index. The client must store it for messages, roster updates, and leave
+    records. The documented implementation permits six concurrent joined channels.</p>
     <p class="endpoint-index">
       <a href="#chat-bootstrap">bootstrap order</a>
       <a href="#chat-channel-list-query">Chat/21</a><a href="#chat-channel-list-result">Chat/22</a>
+      <a href="#chat-category-query">Chat/23</a><a href="#chat-category-result">Chat/24</a>
       <a href="#chat-conference-query">Chat/25</a><a href="#chat-conference-result">Chat/26</a>
       <a href="#chat-join-request">Chat/0</a><a href="#chat-notify">Chat/1</a>
       <a href="#chat-leave-request">Chat/2</a><a href="#chat-message-send">Chat/11 send</a>
       <a href="#chat-message-recv">Chat/11 receive</a><a href="#chat-join-result">Chat/27</a>
       <a href="#chat-whisper-send">Chat/19 send</a><a href="#chat-whisper-recv">Chat/19 receive</a>
       <a href="#chat-whisper-echo">Chat/30</a><a href="#chat-whisper-undeliverable">Chat/20</a>
-      <a href="#chat-list-request">Chat/32</a><a href="#chat-list-response">Chat/33</a>
+      <a href="#chat-invite-notify">Chat/4</a><a href="#chat-invite-answer">Chat/5 and Chat/6</a>
+      <a href="#chat-status-change">Chat/9</a><a href="#chat-datagram-update">Chat/13</a>
+      <a href="#chat-modify-channel-list">Chat/32 and Chat/33</a>
     </p>
 
-    <h4 id="chat-bootstrap">Becoming ready to join chat</h4>
-    <p>Entering the protected BSN stream does not immediately make the session
-    chat-ready. Base97563 establishes the playable identity and loads the regional
-    channel directory before it attempts a join:</p>
+    <h4 id="chat-bootstrap">Chat readiness</h4>
+    <p>Base97563 prepares chat by selecting a playable identity and loading the
+    regional channel directory.</p>
     <ol>
       <li>Request <a href="#cache-get-stream-items-request"><code>Cach/9</code></a>
-      stream item <code>BNET/CONF/enUS</code>.</li>
+      stream items <code>BNET/ERRS/enUS</code> and <code>BNET/CONF/enUS</code> with
+      distinct request tokens.</li>
       <li>When <a href="#toon-list"><code>Toon/0</code></a> supplies the account's
       playable identities, choose one with <a href="#toon-select"><code>Toon/5</code></a>.
-      Wait for both the cache response and <a href="#toon-selected"><code>Toon/6</code></a>.</li>
-      <li>Send <a href="#chat-conference-query"><code>Chat/25</code></a> and
+      Wait for <a href="#toon-selected"><code>Toon/6</code></a>.</li>
+      <li>After <code>Toon/6</code>, send <code>Pres/2</code>. Then send
+      <a href="#chat-conference-query"><code>Chat/25</code></a> and
       <a href="#chat-channel-list-query"><code>Chat/21</code></a>. Collect
       <code>Chat/26</code> pages until <code>isLast</code> is true, and wait for
       <code>Chat/22</code>.</li>
+      <li>For a public channel, also wait for the cache response. Select the channel
+      ID from the downloaded <code>BNET/CONF/enUS</code> catalog.</li>
       <li>Send <a href="#chat-join-request"><code>Chat/0</code></a> for the desired
-      public or private channel. A successful <a href="#chat-join-result"><code>Chat/27</code></a>
+      public, private, or club channel. A successful <a href="#chat-join-result"><code>Chat/27</code></a>
       assigns the <code>channelIndex</code> and local member handle.</li>
       <li>Apply <a href="#chat-notify"><code>Chat/1</code></a> membership batches
       until <code>endOfInitial</code> is true. The roster is then complete and the
-      assigned channel index can be used by <code>Chat/11</code> and <code>Chat/2</code>.</li>
+      client can use the assigned channel index with <code>Chat/11</code> and
+      <code>Chat/2</code>.</li>
     </ol>
-    <p>These are state dependencies, not TCP adjacency rules. Other protected
-    records may appear between them, so a client must continue dispatching every
-    complete record while it waits for each milestone.</p>
+    <p>These steps define state dependencies. Other protected records can occur
+    between them, and the client must dispatch each complete record.</p>
 
     <Endpoint id="chat-channel-list-query" direction="client → server" phase="protected discovery" structure="empty payload" status="live verified">
       <Fragment slot="title"><code>Chat/21</code> Chat::ChannelListRequest</Fragment>
       <p>Requests the account's current channel-list descriptors.</p>
-<pre is:raw><span class="syn-type">ChannelListRequest</span> { }  <span class="syn-comment">zero payload bits</span></pre>
+      <RustSchema code={`struct ChannelListRequest; // zero payload bits`} />
+    </Endpoint>
+
+    <Endpoint id="chat-category-query" direction="client → server" phase="protected discovery" structure="empty payload" status="capture verified">
+      <Fragment slot="title"><code>Chat/23</code> Chat::EnumCategoryDescriptions</Fragment>
+      <p>Requests the category directory used to group public conferences.</p>
+      <RustSchema code={`struct EnumCategoryDescriptions; // zero payload bits`} />
+    </Endpoint>
+
+    <Endpoint id="chat-category-result" direction="server → client" phase="protected discovery" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>Chat/24</code> Chat::CategoryDescriptions</Fragment>
+      <p>Returns one page of category descriptions. Each entry exposes its logical
+      category ID, localized name ID, and sort order. The generated entry also
+      contains internal state and a locator variant that are skipped by the current
+      value decoder.</p>
+      <RustSchema code={`struct CategoryDescriptions {
+    entries: Vec<CategoryDescription>, // count: 6 wire bits
+    is_last: bool,
+}
+
+struct CategoryDescription {
+    id: u8,
+    name: u16,
+    sort_order: u16,
+}`} />
     </Endpoint>
 
     <Endpoint id="chat-channel-list-result" direction="server → client" phase="protected discovery" structure="generated order" status="live verified">
       <Fragment slot="title"><code>Chat/22</code> Chat::ChannelListResponse</Fragment>
       <p>Returns auto-join and recently joined channel descriptors.</p>
-<pre is:raw><span class="syn-keyword">reserved</span>    <span class="syn-type">bits</span>[<span class="syn-number">37</span>] <span class="syn-comment">27 + 1 + 9 generated bits</span>
-<span class="syn-field">entryCount</span>  <span class="syn-type">u6</span>
-<span class="syn-keyword">repeat</span> entryCount:
-    <span class="syn-field">kind</span>        <span class="syn-type">u8</span>
-    <span class="syn-field">index</span>       <span class="syn-type">u16</span>
-    <span class="syn-keyword">reserved</span>    <span class="syn-type">bits</span>[<span class="syn-number">24</span>]
-<span class="syn-field">identifier</span>  <span class="syn-type">u16</span></pre>
-      <p class="endpoint-note">The descriptor identifier is not a public
-      <code>ChannelNameStringId</code> and cannot be copied into a public join.</p>
+      <RustSchema code={`struct ChannelListResponse {
+    _reserved: Reserved<37>, // generated runs: 27 + 1 + 9 bits
+    entries: Vec<ChannelDescriptor>, // count: 6 wire bits
+    identifier: u16,
+}
+
+struct ChannelDescriptor {
+    kind: u8,
+    index: u16,
+    _reserved: Reserved<24>,
+}`} />
+      <p class="endpoint-note">The descriptor ID and public
+      <code>ChannelNameStringId</code> occupy separate namespaces. Public joins use
+      the ID from the regional cache catalog.</p>
     </Endpoint>
 
     <Endpoint id="chat-conference-query" direction="client → server" phase="protected discovery" structure="empty payload" status="live verified">
       <Fragment slot="title"><code>Chat/25</code> Chat::EnumConferenceDescriptions</Fragment>
       <p>Requests the regional public-conference catalog.</p>
-<pre is:raw><span class="syn-type">EnumConferenceDescriptions</span> { }  <span class="syn-comment">zero payload bits</span></pre>
+      <RustSchema code={`struct EnumConferenceDescriptions; // zero payload bits`} />
     </Endpoint>
 
     <Endpoint id="chat-conference-result" direction="server → client" phase="protected discovery" structure="generated order" status="live verified">
       <Fragment slot="title"><code>Chat/26</code> Chat::ConferenceDescriptions</Fragment>
       <p>Returns one page of public numeric conference descriptions.</p>
-<pre is:raw><span class="syn-field">isLast</span>       <span class="syn-type">bool</span>
-<span class="syn-keyword">reserved</span>     <span class="syn-type">bits</span>[<span class="syn-number">27</span>]
-<span class="syn-field">decoy?</span>        <span class="syn-type">s32</span>
-<span class="syn-field">entryCount</span>   <span class="syn-type">u6</span>
-<span class="syn-keyword">repeat</span> entryCount:
-    <span class="syn-keyword">reserved</span>   <span class="syn-type">bits</span>[<span class="syn-number">23</span>]
-    <span class="syn-field">identifier</span> <span class="syn-type">u32</span>
-    <span class="syn-field">sortOrder</span>  <span class="syn-type">u16</span>
-    <span class="syn-field">marker</span>     <span class="syn-type">bool</span></pre>
+      <RustSchema code={`struct ConferenceDescriptions {
+    is_last: bool,
+    _reserved: Reserved<27>,
+    decoy: Option<i32>,
+    entries: Vec<ConferenceDescription>, // count: 6 wire bits
+}
+
+struct ConferenceDescription {
+    _reserved: Reserved<23>,
+    identifier: u32,
+    sort_order: u16,
+    marker: bool,
+}`} />
     </Endpoint>
 
     <Endpoint id="chat-join-request" direction="client → server" phase="protected" structure="logical order" status="verified">
       <Fragment slot="title"><code>Chat/0</code> Chat::JoinRequest2</Fragment>
       <p>Requests membership in a private, public, or club conference.</p>
-<pre is:raw><span class="syn-field">token</span>  <span class="syn-type">u32</span>
-<span class="syn-field">key</span>    <span class="syn-type">Conference::LocatorKey</span> <span class="syn-keyword">choice</span> {
-    <span class="syn-number">0</span> <span class="syn-keyword">private</span>  <span class="syn-type">UTF-8</span>[<span class="syn-number">0..31 chars</span>, <span class="syn-number">0..124 bytes</span>]
-    <span class="syn-number">2</span> <span class="syn-keyword">public</span>   { <span class="syn-field">locale</span> <span class="syn-type">FourCC</span>, <span class="syn-field">name</span> <span class="syn-type">u16</span> }
-    <span class="syn-number">3</span> <span class="syn-keyword">club</span>     { <span class="syn-keyword">reserved</span> <span class="syn-type">bits</span>[<span class="syn-number">16</span>], <span class="syn-field">club</span> <span class="syn-type">u32</span> }
-}</pre>
-      <p class="endpoint-note">Choice value 1 has no defined arm. Generated code
-      writes the locator before the request token. The private arm uses a
-      seven-bit UTF-8 byte count, byte alignment, and then the name bytes. The
-      club arm writes sixteen reserved bits (all zero) before the group id; a
-      live join of group 535241 (<code>…41560980001800</code>) places the id at
-      bit 29 and the request token at bit 61. Both public ID 1033 and a named
-      private room have been acknowledged live.</p>
+      <RustSchema code={`struct JoinRequest {
+    token: u32,
+    key: ConferenceLocator,
+}
+
+enum ConferenceLocator {
+    Private(String),                 // tag 0; 0..=31 chars, 0..=124 bytes
+    Public { locale: FourCC, name: u16 }, // tag 2
+    Club { _reserved: Reserved<16>, club_id: u32 }, // tag 3
+}
+
+// Selector tag 1 is reserved.`} />
+      <p class="endpoint-note">Choice value 1 is reserved. Generated code writes
+      the locator before the request token. The private arm uses a seven-bit UTF-8
+      byte count. It then aligns to a byte and writes the name.</p>
+      <p class="endpoint-note">The club arm writes 16 zero bits before the group
+      ID. For live group 535241, the ID starts at bit 29. The request token starts
+      at bit 61. Live data confirms public ID 1033 and a named private room.</p>
     </Endpoint>
 
     <Endpoint id="chat-join-result" direction="server → client" phase="protected" structure="generated order" status="live verified">
       <Fragment slot="title"><code>Chat/27</code> Chat::JoinNotify2</Fragment>
       <p>Acknowledges or rejects a join and assigns the local channel index used by
       membership, message, and leave records.</p>
-<pre is:raw><span class="syn-field">result</span>  <span class="syn-keyword">choice</span> {
-    <span class="syn-number">0</span> <span class="syn-keyword">success</span> { <span class="syn-field">memberHandle</span> <span class="syn-type">u32</span>, <span class="syn-field">channelIndex</span> <span class="syn-type">u3</span>,
-                <span class="syn-field">voiceSessionId</span>, <span class="syn-field">channelType</span> <span class="syn-type">u4</span>,
-                <span class="syn-field">name?</span>, <span class="syn-field">config?</span>, <span class="syn-field">inviter?</span> }
-    <span class="syn-number">1</span> <span class="syn-keyword">failure</span> { <span class="syn-field">reason</span> <span class="syn-type">u16</span>, <span class="syn-field">channelType?</span> <span class="syn-type">u4</span> }
+      <RustSchema code={`struct JoinNotify {
+    result: JoinResult,
+    token: Option<u32>, // generated order places this last
 }
-<span class="syn-field">token?</span>  <span class="syn-type">u32</span></pre>
+
+enum JoinResult {
+    Success {
+        member_handle: u32,
+        channel_index: Bits<3>, // 0..=6
+        voice_session_id: VoiceSessionId,
+        channel_type: Bits<4>,
+        name: Option<String>,
+        config: Option<ChannelConfig>,
+        inviter: Option<PlayerTarget>,
+    },
+    Failure { reason: u16, channel_type: Option<Bits<4>> },
+}`} />
       <p class="endpoint-note">The generated decoder is result-first/token-last and
-      includes reserved runs absent from reflection metadata.</p>
+      includes reserved runs absent from reflection metadata. Correlate a response
+      by token when the optional token is present. If it is omitted, fall back to
+      the requested channel type. A successful public result may omit the redundant
+      public channel name ID; when present, it must match the request.</p>
     </Endpoint>
 
     <Endpoint id="chat-notify" direction="server → client" phase="protected" structure="generated order" status="live verified">
       <Fragment slot="title"><code>Chat/1</code> Chat notify family</Fragment>
       <p>Command 1 carries <code>MembershipChangeNotify</code>, which creates the
       initial roster and then applies incremental membership changes.</p>
-<pre is:raw><span class="syn-field">endOfInitial</span>  <span class="syn-type">bool</span>
-<span class="syn-field">channelIndex</span>  <span class="syn-type">u3</span> <span class="syn-comment">0..6</span>
-<span class="syn-field">changes</span>       <span class="syn-type">MembershipChange</span>[<span class="syn-number">1..64</span>]
+      <RustSchema code={`struct MembershipChangeNotify {
+    end_of_initial: bool,
+    channel_index: Bits<3>,        // 0..=6
+    changes: Vec<MembershipChange>, // count: 1..=64
+}
 
-<span class="syn-type">MembershipChange</span> = <span class="syn-keyword">choice</span> {
-    <span class="syn-keyword">leaving</span>
-    <span class="syn-keyword">joining</span>       <span class="syn-comment">member handle, presence ID, status values</span>
-    <span class="syn-keyword">updateStatus</span>  <span class="syn-comment">member handle, one status value</span>
-}</pre>
+enum MembershipChange {
+    Leaving(LeavingMember),
+    Joining {
+        member_handle: u32,
+        presence_id: u32,
+        statuses: Vec<MemberStatus>,
+    },
+    UpdateStatus { member_handle: u32, status: MemberStatus },
+}`} />
       <p class="endpoint-note"><code>endOfInitial</code> marks completion of the
       initial roster snapshot. Generated ToonName status values provide display
       names directly. After the initial snapshot, the same structure carries joins,
       leaves, and status changes.</p>
     </Endpoint>
 
+    <Endpoint id="chat-invite-notify" direction="server → client" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Chat/4</code> Chat::InviteNotify</Fragment>
+      <p>Announces an invitation to a party channel. The channel index is stored for
+      the later accept or decline record.</p>
+      <RustSchema code={`struct InviteNotify {
+    channel_type: Bits<4>,
+    inviter_presence: u32,
+    channel_index: Bits<3>, // 0..=6
+}`} />
+      <p class="endpoint-note">The generated order is channel type, inviter
+      presence, then channel index. The metadata member order is different.</p>
+    </Endpoint>
+
+    <Endpoint id="chat-invite-answer" direction="client → server" phase="protected" structure="generated order" status="verified">
+      <Fragment slot="title"><code>Chat/5</code> InviteAccept and <code>Chat/6</code> InviteDecline</Fragment>
+      <p>Answers a party-channel invitation. The selected command identifies the
+      answer.</p>
+      <RustSchema code={`struct InviteAnswer {
+    channel_index: Bits<3>, // 0..=6
+}`} />
+    </Endpoint>
+
+    <Endpoint id="chat-status-change" direction="client → server" phase="protected" structure="verified reflected order" status="verified">
+      <Fragment slot="title"><code>Chat/9</code> Chat::StatusChangeRequest</Fragment>
+      <p>This record is sent after a party invitation is accepted. It marks the
+      local member as online.</p>
+      <RustSchema code={`struct StatusChangeRequest {
+    channel_index: Bits<3>,
+    member_handle: u32,
+    status_change: StatusChange,
+}
+
+enum StatusChange {
+    Party {
+        party_status: u8,    // 1 = online
+        expansion_level: u8, // 3
+        captain: bool,       // false
+    },
+}`} />
+      <p class="endpoint-note">The service-less acknowledgement uses the same
+      six-bit command value. It carries a nine-bit result.</p>
+    </Endpoint>
+
+    <Endpoint id="chat-datagram-update" direction="server → client" phase="protected" structure="verified reflected order" status="decoded">
+      <Fragment slot="title"><code>Chat/13</code> Chat::DatagramConnectionUpdate</Fragment>
+      <p>Supplies a datagram target and connection information. The record is
+      decoded and reported as generic activity.</p>
+      <RustSchema code={`struct DatagramConnectionUpdate {
+    target: PlayerTarget,
+    info: DatagramConnectionInfo,
+}`} />
+    </Endpoint>
+
+    <Endpoint id="chat-modify-channel-list" direction="bidirectional" phase="protected" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>Chat/32</code> ModifyChannelList and <code>Chat/33</code> response</Fragment>
+      <p>Updates the account's auto-join or recently joined channel list. Two
+      request generations share command 32: one carries a public partial name, and
+      the other carries a general conference locator.</p>
+      <RustSchema code={`// client → server, Chat/32
+struct ModifyChannelListRequest {
+    token: u32,
+    index: u8,
+    name: String,
+    list_type: ChannelListType,
+}
+
+struct ModifyChannelListRequest2 {
+    token: u32,
+    index: u8,
+    key: ConferenceLocator,
+    list_type: ChannelListType,
+}
+
+// server → client, Chat/33
+struct ModifyChannelListResponse2 {
+    token: u32,
+    result: Result<(), u16>,
+}`} />
+      <p class="endpoint-note">The two request types require discriminator logic;
+      a discriminator combines with route <code>Chat/32</code> to select the type.</p>
+    </Endpoint>
+
     <Endpoint id="chat-whisper-send" direction="client → server" phase="protected" structure="generated order" status="verified">
       <Fragment slot="title"><code>Chat/19</code> Chat::WhisperSend</Fragment>
       <p>Sends a private message to one resolved Battle.net identity. The three-bit
-      <code>PlayerTarget</code> choice selects how that identity is named; the
-      body then follows the same ten-bit length used by <code>Chat/11</code>.</p>
-<pre is:raw><span class="syn-field">target</span>  <span class="syn-type">PlayerTarget</span> <span class="syn-keyword">choice</span> <span class="syn-type">u3</span> {
-    <span class="syn-number">0</span> <span class="syn-keyword">localPresenceId</span>  { <span class="syn-field">presenceId</span> <span class="syn-type">u32</span> }
-    <span class="syn-number">1</span> <span class="syn-keyword">toonName</span>         { <span class="syn-field">region</span> <span class="syn-type">u8</span>, <span class="syn-field">programId</span> <span class="syn-type">u32</span>, <span class="syn-field">realm</span> <span class="syn-type">u32</span>,
-                         <span class="syn-field">nameLen</span> <span class="syn-type">u7</span> <span class="syn-comment">= byteLen−2</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">name</span> <span class="syn-type">bytes</span>[byteLen] }
-    <span class="syn-number">3</span> <span class="syn-keyword">accountId</span>        { <span class="syn-field">accountId</span> <span class="syn-type">u32</span> }
-    <span class="syn-number">5</span> <span class="syn-keyword">toonHandle</span>       { <span class="syn-field">programId</span> <span class="syn-type">u32</span>, <span class="syn-field">region</span> <span class="syn-type">u8</span>, <span class="syn-field">realm</span> <span class="syn-type">u32</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }
+      <code>PlayerTarget</code> choice selects the identity form. The body uses the
+      same ten-bit length as <code>Chat/11</code>.</p>
+      <RustSchema code={`struct WhisperSend {
+    target: PlayerTarget, // selector: 3 wire bits
+    body: String,         // byte count: 10 wire bits, 0..=1020; byte-aligned
 }
-<span class="syn-field">bodyByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1020</span>
-<span class="syn-keyword">alignToByte</span>
-<span class="syn-field">body</span>           <span class="syn-type">UTF-8 bytes</span>
-<span class="syn-keyword">alignToByte</span></pre>
+
+enum PlayerTarget {
+    LocalPresenceId { presence_id: u32 }, // tag 0
+    ToonName {                            // tag 1
+        region: u8,
+        program_id: u32,
+        realm: u32,
+        name: String, // byte count: 7 wire bits, stored as len - 2
+    },
+    AccountId { account_id: u32 }, // tag 3
+    ToonHandle {                   // tag 5
+        program_id: u32,
+        region: u8,
+        realm: u32,
+        id: u64,
+    },
+}`} />
       <p class="endpoint-note">The generated writer emits a ten-bit body count,
-      deliberately bypassing the stale eight-bit reflection shape. Choice tags 2
-      and 4 are not emitted. Note the arm field order differs: <code>toonName</code>
+      deliberately bypassing the stale eight-bit reflection shape. The writer emits
+      choice tags 0, 1, 3, and 5. The arm field order differs: <code>toonName</code>
       is region → program → realm, while <code>toonHandle</code> is program →
       region → realm → id. The retail vector <code>53050add6816012e…</code>
       confirms the choice-0 arm.</p>
@@ -166,44 +322,49 @@ import Endpoint from "../components/Endpoint.astro";
       <Fragment slot="title"><code>Chat/19</code> Chat::WhisperRecv</Fragment>
       <p>Delivers an inbound whisper. The peer is carried as a full
       <code>ToonName</code> so the reply can target the sender's toon directly.</p>
-<pre is:raw><span class="syn-field">whisper</span>        <span class="syn-type">Whisper</span> <span class="syn-comment">metadata base member</span>
-<span class="syn-field">peer</span>  <span class="syn-type">ToonFullName</span> {
-    <span class="syn-field">region</span>       <span class="syn-type">u8</span>
-    <span class="syn-field">programId</span>    <span class="syn-type">u32</span>
-    <span class="syn-field">realm</span>        <span class="syn-type">u32</span>
-    <span class="syn-field">nameLen</span>      <span class="syn-type">u7</span> <span class="syn-comment">= byteLen−2</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">name</span> <span class="syn-type">bytes</span>[byteLen]
+      <RustSchema code={`struct WhisperRecv {
+    whisper: Whisper,
+    peer: ToonFullName,
+    body: String, // byte count: 10 wire bits, 0..=1020; byte-aligned
 }
-<span class="syn-field">bodyByteCount</span>  <span class="syn-type">u10</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">body</span> <span class="syn-type">UTF-8 bytes</span></pre>
+
+struct ToonFullName {
+    region: u8,
+    program_id: u32,
+    realm: u32,
+    name: String, // byte count: 7 wire bits, stored as len - 2
+}`} />
     </Endpoint>
 
     <Endpoint id="chat-whisper-echo" direction="server → client" phase="protected" structure="generated order" status="verified">
       <Fragment slot="title"><code>Chat/30</code> Chat::WhisperEchoRecv</Fragment>
       <p>The server's echo of a whisper this client itself sent, so an outbound
       whisper appears in the conversation once acknowledged.</p>
-<pre is:raw><span class="syn-comment">identical layout to Chat/19 WhisperRecv (same decoder, echo = true)</span>
-<span class="syn-field">whisper</span> <span class="syn-type">Whisper</span>; <span class="syn-field">peer</span> <span class="syn-type">ToonFullName</span>; <span class="syn-field">body</span> <span class="syn-type">u10</span>-framed <span class="syn-type">UTF-8</span></pre>
+      <RustSchema code={`// Same wire layout and decoder as Chat/19 WhisperRecv.
+type WhisperEchoRecv = WhisperRecv;`} />
     </Endpoint>
 
-    <Endpoint id="chat-whisper-undeliverable" direction="server → client" phase="protected" structure="unresolved" status="defined, not decoded">
+    <Endpoint id="chat-whisper-undeliverable" direction="server → client" phase="protected" structure="unresolved" status="defined, decoding pending">
       <Fragment slot="title"><code>Chat/20</code> Chat::WhisperUndeliverable</Fragment>
-      <p>The whisper-undeliverable sibling of the whisper family. The command id
-      is defined, but the route is not yet mapped or decoded, so its generated
-      order is unestablished.</p>
+      <p>The whisper-undeliverable sibling of the whisper family. Route mapping,
+      decoding, and generated-order recovery remain pending.</p>
     </Endpoint>
 
     <Endpoint id="chat-leave-request" direction="client → server" phase="protected" structure="logical order" status="verified">
       <Fragment slot="title"><code>Chat/2</code> Chat::LeaveRequest</Fragment>
       <p>Leaves one locally tracked chat room.</p>
-<pre is:raw><span class="syn-field">channelIndex</span>  <span class="syn-type">u3</span> <span class="syn-comment">0..6</span></pre>
+      <RustSchema code={`struct LeaveRequest {
+    channel_index: Bits<3>, // 0..=6
+}`} />
     </Endpoint>
 
     <Endpoint id="chat-message-send" direction="client → server" phase="protected" structure="generated order" status="verified">
       <Fragment slot="title"><code>Chat/11</code> Chat::MessageSend</Fragment>
       <p>Sends a UTF-8 message to one joined room.</p>
-<pre is:raw><span class="syn-field">bodyByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1020</span>
-<span class="syn-keyword">alignToByte</span>      <span class="syn-type">zero bits</span>
-<span class="syn-field">body</span>             <span class="syn-type">UTF-8 bytes</span>
-<span class="syn-field">channelIndex</span>     <span class="syn-type">u3</span> <span class="syn-comment">0..6</span></pre>
+      <RustSchema code={`struct MessageSend {
+    body: String,                // byte count: 10 wire bits, 0..=1020; byte-aligned
+    channel_index: Bits<3>,      // 0..=6
+}`} />
       <p class="endpoint-note">Generated validation separately limits the body to
       255 Unicode characters. Reflection lists channel index before body.</p>
     </Endpoint>
@@ -211,31 +372,13 @@ import Endpoint from "../components/Endpoint.astro";
     <Endpoint id="chat-message-recv" direction="server → client" phase="protected" structure="generated order" status="verified">
       <Fragment slot="title"><code>Chat/11</code> Chat::MessageRecv</Fragment>
       <p>Delivers a message with the sender's channel-local member handle.</p>
-<pre is:raw><span class="syn-field">memberHandle</span>   <span class="syn-type">u32</span>
-<span class="syn-field">bodyByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1020</span>
-<span class="syn-keyword">alignToByte</span>      <span class="syn-type">zero bits</span>
-<span class="syn-field">body</span>             <span class="syn-type">UTF-8 bytes</span>
-<span class="syn-field">channelIndex</span>     <span class="syn-type">u3</span> <span class="syn-comment">0..6</span></pre>
+      <RustSchema code={`struct MessageRecv {
+    member_handle: u32,
+    body: String,           // byte count: 10 wire bits, 0..=1020; byte-aligned
+    channel_index: Bits<3>, // 0..=6
+}`} />
       <p class="endpoint-note">The 32-bit handle starts at the payload's current
-      bit position and is not necessarily byte-aligned in the complete record.</p>
+      bit position and can cross byte boundaries in the complete record.</p>
     </Endpoint>
 
-    <Endpoint id="chat-list-request" direction="client → server" phase="protected" structure="logical order" status="verified">
-      <Fragment slot="title"><code>Chat/32</code> Chat::ModifyChannelListRequest2</Fragment>
-      <p>Adds or updates an auto-join or recently-joined channel-list entry.</p>
-<pre is:raw><span class="syn-field">token</span>  <span class="syn-type">u32</span>
-<span class="syn-field">index</span>  <span class="syn-type">u8</span>
-<span class="syn-field">key</span>    <span class="syn-type">Conference::LocatorKey</span>
-<span class="syn-field">type</span>   <span class="syn-type">u1 enum</span> { <span class="syn-number">0</span>=<span class="syn-keyword">AUTO_JOIN</span>, <span class="syn-number">1</span>=<span class="syn-keyword">RECENTLY_JOINED</span> }</pre>
-    </Endpoint>
-
-    <Endpoint id="chat-list-response" direction="server → client" phase="protected" structure="logical order" status="verified">
-      <Fragment slot="title"><code>Chat/33</code> Chat::ModifyChannelListResponse2</Fragment>
-      <p>Correlates to Chat/32 by token and reports success or failure.</p>
-<pre is:raw><span class="syn-field">token</span>   <span class="syn-type">u32</span>
-<span class="syn-field">result</span>  <span class="syn-keyword">choice</span> {
-    <span class="syn-number">0</span> <span class="syn-keyword">success</span>  <span class="syn-type">s32</span> <span class="syn-comment">time value</span>
-    <span class="syn-number">1</span> <span class="syn-keyword">failure</span>  <span class="syn-type">u16</span> <span class="syn-comment">error code</span>
-}</pre>
-    </Endpoint>
 </ServiceSection>

@@ -9,6 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "windows")]
+use gpui::WindowControlArea;
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, AssetSource, Bounds, ClipboardItem, Context,
     Div, DragMoveEvent, ElementId, FocusHandle, Focusable, FontWeight, ImageSource, KeyBinding,
@@ -19,7 +21,7 @@ use gpui::{
 };
 use superiority_ui::{
     Portrait, PresenceKind, RosterChannelKind, RosterPresentation, RosterRelationship, RosterUser,
-    RosterUserTone, TranscriptLine, UiAssets, animation as ui_animation,
+    RosterUserTone, TranscriptLine, UiAssets, WithScrollbar as _, animation as ui_animation,
     components::{
         chat as ui_chat, controls as ui_controls, modal as ui_modal, navigation as ui_navigation,
         release_notes as ui_release_notes, roster as ui_roster, text_input as ui_text_input,

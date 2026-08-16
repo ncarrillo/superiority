@@ -48,6 +48,35 @@ pub type DecodeTracedWireLayout = for<'data> fn(
 ) -> Result<(BsnValue, Vec<DecodedField>)>;
 pub type EncodeWireLayout = fn(&Codec, u32, &mut BitWriter, &BsnValue) -> Result<()>;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WireField {
+    pub logical_field: usize,
+    pub filler_before: u8,
+}
+
+impl WireField {
+    #[must_use]
+    pub const fn new(logical_field: usize, filler_before: u8) -> Self {
+        Self {
+            logical_field,
+            filler_before,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StructWireLayout {
+    name: &'static str,
+    fields: &'static [WireField],
+}
+
+impl StructWireLayout {
+    #[must_use]
+    pub const fn new(name: &'static str, fields: &'static [WireField]) -> Self {
+        Self { name, fields }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct WireLayout {
     name: &'static str,
@@ -98,13 +127,16 @@ impl std::fmt::Debug for WireLayout {
 
 #[derive(Clone, Copy, Debug)]
 enum RegisteredWireLayout {
+    CandidateReflected,
     VerifiedReflected,
+    Struct(StructWireLayout),
     Custom(WireLayout),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WireLayoutSupport {
     Reflected,
+    CandidateReflected,
     VerifiedReflected,
     Custom(&'static str),
     UnsupportedObfuscated,
@@ -145,10 +177,67 @@ impl Codec {
         self.register_obfuscated(type_id, RegisteredWireLayout::VerifiedReflected)
     }
 
+    pub fn register_candidate_reflected(&mut self, exact_name: &str) -> Result<()> {
+        let type_id = self.schema.unique_type_id(exact_name)?;
+        self.register_obfuscated(type_id, RegisteredWireLayout::CandidateReflected)
+    }
+
+    pub fn register_struct_wire_layout(
+        &mut self,
+        exact_name: &str,
+        layout: StructWireLayout,
+    ) -> Result<()> {
+        let type_id = self.schema.unique_type_id(exact_name)?;
+        let shape = self.schema.shape(type_id)?;
+        if shape.kind != TypeKind::Struct {
+            return Err(codec_error(format!(
+                "type {} (#{type_id}) is not a struct",
+                self.type_name(type_id)
+            )));
+        }
+        if layout.fields.len() != shape.member_types.len() {
+            return Err(codec_error(format!(
+                "struct wire layout {} has {} fields, expected {}",
+                layout.name,
+                layout.fields.len(),
+                shape.member_types.len()
+            )));
+        }
+        let mut seen = vec![false; shape.member_types.len()];
+        for field in layout.fields {
+            let Some(slot) = seen.get_mut(field.logical_field) else {
+                return Err(codec_error(format!(
+                    "struct wire layout {} references field {} outside 0..{}",
+                    layout.name,
+                    field.logical_field,
+                    shape.member_types.len()
+                )));
+            };
+            if *slot {
+                return Err(codec_error(format!(
+                    "struct wire layout {} repeats field {}",
+                    layout.name, field.logical_field
+                )));
+            }
+            *slot = true;
+        }
+        if self.wire_layouts.contains_key(&type_id) {
+            return Err(codec_error(format!(
+                "type {} (#{type_id}) already has a wire-layout registration",
+                self.type_name(type_id)
+            )));
+        }
+        self.wire_layouts
+            .insert(type_id, RegisteredWireLayout::Struct(layout));
+        Ok(())
+    }
+
     pub fn wire_layout_support(&self, type_id: u32) -> Result<WireLayoutSupport> {
         let shape = self.schema.shape(type_id)?;
         Ok(match self.wire_layouts.get(&type_id) {
+            Some(RegisteredWireLayout::CandidateReflected) => WireLayoutSupport::CandidateReflected,
             Some(RegisteredWireLayout::VerifiedReflected) => WireLayoutSupport::VerifiedReflected,
+            Some(RegisteredWireLayout::Struct(layout)) => WireLayoutSupport::Custom(layout.name),
             Some(RegisteredWireLayout::Custom(layout)) => WireLayoutSupport::Custom(layout.name),
             None if shape.obfuscated => WireLayoutSupport::UnsupportedObfuscated,
             None => WireLayoutSupport::Reflected,
@@ -227,6 +316,9 @@ impl Codec {
         reflected_scope: bool,
     ) -> Result<()> {
         let shape = self.schema.shape(type_id)?;
+        if let Some(RegisteredWireLayout::Struct(layout)) = self.wire_layouts.get(&type_id) {
+            return self.encode_struct_layout(writer, type_id, &shape, value, *layout);
+        }
         if let Some(RegisteredWireLayout::Custom(layout)) = self.wire_layouts.get(&type_id) {
             return (layout.encode)(self, type_id, writer, value);
         }
@@ -471,6 +563,10 @@ impl Codec {
         fields: &mut Option<Vec<DecodedField>>,
     ) -> Result<BsnValue> {
         let shape = self.schema.shape(type_id)?;
+        if let Some(RegisteredWireLayout::Struct(layout)) = self.wire_layouts.get(&type_id) {
+            return self
+                .decode_struct_layout(reader, type_id, &shape, *layout, path, depth, fields);
+        }
         if let Some(RegisteredWireLayout::Custom(layout)) = self.wire_layouts.get(&type_id) {
             if let Some(decode_traced) = layout.decode_traced
                 && let Some(destination) = fields
@@ -483,14 +579,33 @@ impl Codec {
         }
         let reflected_scope = self.reflected_scope(type_id, &shape, reflected_scope)?;
         match shape.kind {
-            TypeKind::Alias => self.decode_from_scoped_traced(
-                reader,
-                required_element(&shape)?,
-                reflected_scope,
-                path,
-                depth,
-                fields,
-            ),
+            TypeKind::Alias => {
+                let value = self.decode_from_scoped_traced(
+                    reader,
+                    required_element(&shape)?,
+                    reflected_scope,
+                    path,
+                    depth,
+                    fields,
+                )?;
+                if self
+                    .schema
+                    .type_metadata(type_id)
+                    .ok()
+                    .and_then(|metadata| metadata.name)
+                    .as_deref()
+                    == Some("Battlenet::Error::Code")
+                    && let BsnValue::Integer(code) = &value
+                    && let Ok(code) = u16::try_from(*code)
+                    && let Some(field) = fields
+                        .as_mut()
+                        .and_then(|fields| fields.iter_mut().rev().find(|field| field.path == path))
+                {
+                    field.kind = "Battle.net error";
+                    field.value = crate::native::errors::description(code);
+                }
+                Ok(value)
+            }
             TypeKind::Void => Ok(BsnValue::Void),
             TypeKind::Bool => Ok(BsnValue::Bool(reader.read(1)? != 0)),
             TypeKind::Integer | TypeKind::Enum => {
@@ -618,7 +733,12 @@ impl Codec {
             return Ok(inherited);
         }
         match self.wire_layouts.get(&type_id) {
-            Some(RegisteredWireLayout::VerifiedReflected) => Ok(true),
+            Some(
+                RegisteredWireLayout::CandidateReflected | RegisteredWireLayout::VerifiedReflected,
+            ) => Ok(true),
+            Some(RegisteredWireLayout::Struct(_)) => {
+                unreachable!("struct layouts are dispatched before reflected_scope")
+            }
             Some(RegisteredWireLayout::Custom(_)) => {
                 unreachable!("custom layouts are dispatched before reflected_scope")
             }
@@ -667,6 +787,113 @@ impl Codec {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "wire-layout decoding keeps schema, path, depth, and trace state explicit"
+    )]
+    fn decode_struct_layout(
+        &self,
+        reader: &mut BitReader<'_>,
+        type_id: u32,
+        shape: &TypeShape,
+        layout: StructWireLayout,
+        path: &str,
+        depth: usize,
+        fields: &mut Option<Vec<DecodedField>>,
+    ) -> Result<BsnValue> {
+        let mut logical_fields = std::iter::repeat_with(|| None)
+            .take(shape.member_types.len())
+            .collect::<Vec<Option<BsnField>>>();
+        for entry in layout.fields {
+            let position = entry.logical_field;
+            let field_name = shape.member_names[position].as_deref().map_or_else(
+                || format!("#{}", shape.index_values[position]),
+                str::to_owned,
+            );
+            if entry.filler_before != 0 {
+                let start_bit = reader.position();
+                reader.read(usize::from(entry.filler_before))?;
+                if let Some(fields) = fields {
+                    fields.push(DecodedField {
+                        path: format!("{path}.filler_before_{field_name}"),
+                        kind: "filler bits",
+                        value: "ignored".to_owned(),
+                        start_bit,
+                        end_bit: reader.position(),
+                        depth: depth + 1,
+                    });
+                }
+            }
+            let value = self.decode_from_scoped_traced(
+                reader,
+                shape.member_types[position],
+                false,
+                &format!("{path}.{field_name}"),
+                depth + 1,
+                fields,
+            )?;
+            logical_fields[position] = Some(BsnField {
+                index: shape.index_values[position],
+                name: shape.member_names[position].clone(),
+                value,
+            });
+        }
+        let logical_fields = logical_fields
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| {
+                codec_error(format!(
+                    "struct wire layout {} omitted a field",
+                    layout.name
+                ))
+            })?;
+        Ok(BsnValue::Struct(BsnStruct::new(type_id, logical_fields)))
+    }
+
+    fn encode_struct_layout(
+        &self,
+        writer: &mut BitWriter,
+        type_id: u32,
+        shape: &TypeShape,
+        value: &BsnValue,
+        layout: StructWireLayout,
+    ) -> Result<()> {
+        let BsnValue::Struct(value) = value else {
+            return Err(codec_error("BSN struct value must be a struct"));
+        };
+        let by_index = value
+            .fields
+            .iter()
+            .map(|field| (field.index, &field.value))
+            .collect::<BTreeMap<_, _>>();
+        let mut filler_state = u32::try_from(shape.member_types.len())
+            .map_err(|_| codec_error("struct field count exceeds filler-state range"))?;
+        for entry in layout.fields {
+            if entry.filler_before != 0 {
+                filler_state =
+                    next_filler_value(filler_state, writer.position(), writer.as_bytes());
+                let width = usize::from(entry.filler_before);
+                let filler = if width >= 32 {
+                    u64::from(filler_state)
+                } else {
+                    u64::from(filler_state & ((1_u32 << width) - 1))
+                };
+                writer.write(filler, width)?;
+            }
+            let position = entry.logical_field;
+            let index = shape.index_values[position];
+            let member_type = shape.member_types[position];
+            if let Some(value) = by_index.get(&index) {
+                self.encode_into_scoped(writer, member_type, value, false)?;
+            } else {
+                let default = self.default_value(member_type)?;
+                self.encode_into_scoped(writer, member_type, &default, false)?;
+            }
+        }
+        let _ = type_id;
+        Ok(())
+    }
+
     fn default_value(&self, type_id: u32) -> Result<BsnValue> {
         let shape = self.schema.shape(type_id)?;
         match shape.kind {
@@ -681,6 +908,31 @@ impl Codec {
             ))),
         }
     }
+}
+
+fn next_filler_value(mut state: u32, used_bits: usize, output: &[u8]) -> u32 {
+    let byte = used_bits / 8;
+    state = match used_bits {
+        0..=7 => !state,
+        8..=15 => state.wrapping_add(u32::from(output[byte - 1])),
+        16..=31 => state.wrapping_add(u32::from(u16::from_le_bytes([
+            output[byte - 2],
+            output[byte - 1],
+        ]))),
+        _ => {
+            let previous_word = u32::from_le_bytes([
+                output[byte - 4],
+                output[byte - 3],
+                output[byte - 2],
+                output[byte - 1],
+            ]);
+            let previous_half = u32::from(u16::from_le_bytes([output[byte - 2], output[byte - 1]]));
+            state
+                .wrapping_add(previous_word)
+                .wrapping_add(previous_half)
+        }
+    };
+    state.rotate_left(8)
 }
 
 fn required_range(shape: &TypeShape) -> Result<IntegerRange> {
@@ -916,6 +1168,93 @@ mod tests {
                 .map(|field| (field.path.as_str(), field.start_bit, field.end_bit))
                 .collect::<Vec<_>>(),
             [("value", 3, 8), ("value.flag", 3, 4), ("value.count", 4, 8),]
+        );
+    }
+
+    #[test]
+    fn declarative_struct_layout_reorders_fields_and_skips_filler() {
+        static TYPES: &[StaticTypeShape] = &[
+            StaticTypeShape {
+                type_id: 0,
+                name: Some("Count"),
+                kind: TypeKind::Integer,
+                implicit_indices: false,
+                obfuscated: false,
+                value_range: Some(IntegerRange {
+                    encoding: 0,
+                    bit_width: Some(4),
+                    control_flag: false,
+                    minimum: 0,
+                    maximum: 15,
+                }),
+                element_type: None,
+                index_values: &[],
+                member_types: &[],
+                member_names: &[],
+            },
+            StaticTypeShape {
+                type_id: 1,
+                name: Some("Flag"),
+                kind: TypeKind::Bool,
+                implicit_indices: false,
+                obfuscated: false,
+                value_range: None,
+                element_type: None,
+                index_values: &[],
+                member_types: &[],
+                member_names: &[],
+            },
+            StaticTypeShape {
+                type_id: 2,
+                name: Some("Envelope"),
+                kind: TypeKind::Struct,
+                implicit_indices: false,
+                obfuscated: true,
+                value_range: None,
+                element_type: None,
+                index_values: &[0, 1],
+                member_types: &[0, 1],
+                member_names: &[Some("count"), Some("flag")],
+            },
+        ];
+        static SCHEMA: StaticSchema = StaticSchema::new(3, TYPES);
+        static LAYOUT: &[WireField] = &[WireField::new(1, 3), WireField::new(0, 2)];
+        let mut codec = Codec::from_schema(Schema::Static(&SCHEMA));
+        codec
+            .register_struct_wire_layout("Envelope", StructWireLayout::new("test layout", LAYOUT))
+            .unwrap();
+        let value = named_struct(
+            codec.schema(),
+            2,
+            [
+                ("count", BsnValue::Integer(9)),
+                ("flag", BsnValue::Bool(true)),
+            ],
+        );
+
+        let encoded = codec.encode(2, &value).unwrap();
+        assert_eq!(encoded.bit_count, 10);
+        let decoded = codec
+            .decode(2, &encoded.data, Some(encoded.bit_count), 0)
+            .unwrap();
+        assert_eq!(decoded.value, value);
+        assert_eq!(decoded.bit_count, 10);
+
+        let mut reader = BitReader::new(&encoded.data, Some(encoded.bit_count)).unwrap();
+        let traced = codec.decode_traced_from(&mut reader, 2).unwrap();
+        assert_eq!(
+            traced
+                .fields
+                .iter()
+                .map(|field| (field.path.as_str(), field.start_bit, field.end_bit))
+                .collect::<Vec<_>>(),
+            [
+                ("value", 0, 10),
+                ("value.filler_before_flag", 0, 3),
+                ("value.flag", 3, 4),
+                ("value.filler_before_count", 4, 6),
+                ("value.count", 6, 10),
+            ]
         );
     }
 

@@ -8,6 +8,7 @@ impl JoinComponent {
         &self,
         tabs: &[ChannelState],
         chrome: &ChromeComponent,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
         let border = if self.join_focused {
@@ -20,11 +21,7 @@ impl JoinComponent {
         let confirm_target = rows.get(selected).map(|row| row.target.clone());
         let mut list = div()
             .id("join-results-scroll")
-            .absolute()
-            .left(px(28.0))
-            .top(px(140.0))
-            .w(px(584.0))
-            .h(px(356.0))
+            .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.join_scroll)
             .font_family(FONT_INTERNATIONAL)
@@ -116,6 +113,16 @@ impl JoinComponent {
             }
         }
 
+        let list = div()
+            .id("join-results-viewport")
+            .absolute()
+            .left(px(28.0))
+            .top(px(140.0))
+            .w(px(584.0))
+            .h(px(356.0))
+            .child(list)
+            .vertical_scrollbar_for(&self.join_scroll, window, cx);
+
         div()
             .id("join-modal")
             .relative()
@@ -189,9 +196,10 @@ impl JoinComponent {
         tabs: &[ChannelState],
         chrome: &ChromeComponent,
         overlays: &OverlayComponent,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> AnyElement {
-        let modal = self.modal(tabs, chrome, cx);
+        let modal = self.modal(tabs, chrome, window, cx);
         let overlay = div()
             .id("join-dismiss")
             .absolute()

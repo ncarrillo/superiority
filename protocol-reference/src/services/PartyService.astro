@@ -1,0 +1,69 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
+---
+
+<ServiceSection id="service-party">
+  <Fragment slot="title"><code>Prty</code> — party state</Fragment>
+  <p>Three metadata-backed Party notifications are decoded and reported as generic
+  activity records.</p>
+  <p class="endpoint-index">
+    <a href="#party-begin-ready"><code>Prty/12</code> BeginReadyProcess</a>
+    <a href="#party-ready-update"><code>Prty/14</code> ReadyProcessUpdate</a>
+    <a href="#party-map-options"><code>Prty/20</code> MapOptionsChange</a>
+  </p>
+
+  <Endpoint id="party-begin-ready" direction="server → client" phase="protected" structure="verified reflected order" status="decoded">
+    <Fragment slot="title"><code>Prty/12</code> Party::BeginReadyProcess</Fragment>
+    <p>Announces the start of one ready process.</p>
+    <RustSchema code={`struct BeginReadyProcess {
+    process: ReadyProcess, // selector: 2 wire bits
+}
+
+enum ReadyProcess {
+    JoinAmm {
+        mmq_handle: MatchMakerHandle,
+        cache_handle: [u8; 40],
+        profile_address: RecordAddress,
+        vetoes: Vec<S2MapHandle>,
+        is_ranked: bool,
+        coop_mode: Option<CoopMode>,
+    },
+    JoinCustomGame { map: S2MapShortLink, mode: AdvertPostMode },
+    JoinFunOrNot,
+    JoinReplay { file_data: ReplayFileData, lobby_context_data: LobbyContextData },
+}`} />
+  </Endpoint>
+
+  <Endpoint id="party-ready-update" direction="server → client" phase="protected" structure="verified reflected order" status="capture decoded">
+    <Fragment slot="title"><code>Prty/14</code> Party::ReadyProcessUpdate</Fragment>
+    <p>Reports the result of a party ready process, optionally for one member.</p>
+    <RustSchema code={`struct ReadyProcessUpdate {
+    member_handle: Option<u32>,
+    reason: u16,
+}`} />
+  </Endpoint>
+
+  <Endpoint id="party-map-options" direction="server → client" phase="protected" structure="verified reflected order" status="decoded">
+    <Fragment slot="title"><code>Prty/20</code> Party::MapOptionsChange</Fragment>
+    <p>Announces a member change to the party map options.</p>
+    <RustSchema code={`struct MapOptionsChange {
+    changer_handle: u32,
+    map_options: MapOptions, // selector: 4 wire bits
+}
+
+enum MapOptions {
+    Vetoes {
+        vetoed_map_ids: Array<u32> {
+            count_bits: 2,
+            count_range: 0..=3,
+        },
+    },
+    Selection(u32), // S2Map::Id
+}`} />
+  </Endpoint>
+
+  <p class="endpoint-note"><code>Prty/0</code> uses an observed fixed 18-byte skip
+  to preserve the next record boundary. Payload decoding remains pending.</p>
+</ServiceSection>

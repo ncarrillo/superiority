@@ -4,6 +4,16 @@ use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ConferenceCategoryDescription {
+    #[bsn(name = "m_id")]
+    pub id: u8,
+    #[bsn(name = "m_name")]
+    pub name: u16,
+    #[bsn(name = "m_sortOrder")]
+    pub sort_order: u16,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ConferenceClubName {
     #[bsn(name = "m_club")]
     pub club: u32,

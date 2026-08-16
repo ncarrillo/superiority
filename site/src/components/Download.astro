@@ -4,7 +4,9 @@
 const RELEASES =
   (process.env.SUPERIORITY_RELEASE_BASE_URL ??
     "https://pub-ce8dea40e15e49cb9e8e01475b1876c0.r2.dev") + "/releases/";
-const WINDOWS_DOWNLOAD = process.env.SUPERIORITY_WINDOWS_DOWNLOAD_URL;
+const WINDOWS_DOWNLOAD =
+  process.env.SUPERIORITY_WINDOWS_DOWNLOAD_URL ||
+  `${RELEASES}Superiority-Windows.zip`;
 ---
 
 <div class="download">
@@ -14,16 +16,12 @@ const WINDOWS_DOWNLOAD = process.env.SUPERIORITY_WINDOWS_DOWNLOAD_URL;
     >
     <p class="detail">Universal&ensp;·&ensp;macOS 14 or later</p>
   </div>
-  {
-    WINDOWS_DOWNLOAD && (
-      <div class="platform">
-        <a class="button" href={WINDOWS_DOWNLOAD} download>
-          Download for Windows
-        </a>
-        <p class="detail">64-bit&ensp;·&ensp;Windows 10 or later</p>
-      </div>
-    )
-  }
+  <div class="platform">
+    <a class="button" href={WINDOWS_DOWNLOAD} download>
+      Download for Windows
+    </a>
+    <p class="detail">64-bit&ensp;·&ensp;Windows 10 or later</p>
+  </div>
 </div>
 
 <style>

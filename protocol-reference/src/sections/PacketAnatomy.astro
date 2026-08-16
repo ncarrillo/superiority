@@ -1,0 +1,62 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BsnRecordWalkthrough from "../components/BsnRecordWalkthrough.astro";
+---
+
+<Chapter id="packets">
+  <div class="section-heading">
+    <h2>Message formats</h2>
+    <p>Read each diagram from left to right. Each size is a wire size. A dashed
+    edge identifies a conditional field or a schema-sized field.</p>
+  </div>
+
+  <div class="message-format-groups">
+    <details class="reference-group message-format-group" id="bgs-packet">
+      <summary><span><b>Front</b></span></summary>
+      <div class="reference-body message-format-body">
+        <article>
+          <figure class="packet-figure">
+            <div class="packet-diagram-scroll">
+              <div class="packet-strip bgs-strip" aria-label="Front RPC message: two-byte header length, protobuf header, and optional protobuf body">
+                <div class="packet-field field-length"><b>2 bytes</b><span>header length</span><code>uint16 BE</code></div>
+                <div class="packet-field field-header"><b>header_length bytes</b><span>RPC header</span><code>protobuf</code></div>
+                <div class="packet-field field-body"><b>remaining bytes</b><span>RPC body</span><code>protobuf · can be empty</code></div>
+              </div>
+            </div>
+            <figcaption>One WebSocket binary message.</figcaption>
+          </figure>
+
+          <ol class="packet-notes">
+            <li><b>The 2-byte prefix gives the RPC header size.</b> Its value equals the
+            number of protobuf-header bytes.</li>
+            <li><b>The WebSocket message sets the frame boundary.</b> The body ends with
+            the WebSocket binary message.</li>
+            <li><b>The header routes the call.</b> The service and method select the
+            operation. The token identifies the related request.</li>
+            <li><b><code>Header.size</code> is optional.</b> If this field is present, its
+            value must equal the body size.</li>
+          </ol>
+          <p class="packet-example"><b>Parser sketch</b><code>read_u16_be → decode Header → decode body from remaining WebSocket bytes</code></p>
+        </article>
+      </div>
+    </details>
+
+    <details class="reference-group message-format-group" id="bsn-packet">
+      <summary><span><b>Sunken</b></span></summary>
+      <div class="reference-body message-format-body">
+        <article>
+          <p>The route, payload, and padding share one continuous bit cursor. The
+          following verified record shows how those parts occupy actual bytes.</p>
+
+          <BsnRecordWalkthrough />
+
+          <h4>Command responses</h4>
+          <p>A record whose service flag is zero has a fixed two-byte form: six command
+          bits, the zero service flag, and a nine-bit result. It has no service slot or
+          typed payload.</p>
+          <p class="packet-example"><b>Command-response boundary</b><code>6 command + 1 service flag + 9 result = 16 bits</code></p>
+        </article>
+      </div>
+    </details>
+  </div>
+</Chapter>

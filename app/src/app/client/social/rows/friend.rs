@@ -62,27 +62,19 @@ impl SocialComponent {
                     .child(friend.name.clone()),
             )
             .child(
-                img(icon)
-                    .absolute()
-                    .left(px(64.0))
-                    .top(px(31.0))
-                    .size(px(12.0))
-                    .object_fit(ObjectFit::Contain),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(82.0))
-                    .right(px(8.0))
-                    .top(px(29.0))
-                    .h(px(18.0))
-                    .flex()
-                    .items_center()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_size(px(11.5))
-                    .text_color(rgb(0x7d8fa8))
-                    .child(presence.label()),
+                ui_roster::presence_line(
+                    icon,
+                    presence.label(),
+                    12.0,
+                    6.0,
+                    11.5,
+                    rgb(0x7d8fa8).into(),
+                )
+                .absolute()
+                .left(px(64.0))
+                .right(px(8.0))
+                .top(px(29.0))
+                .h(px(18.0)),
             );
         if dimmed {
             row = row.opacity(0.46);

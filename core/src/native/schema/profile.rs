@@ -98,6 +98,12 @@ pub struct ClientProfileResolveToonNameToHandleResponse {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientProfileSendStatsUIEvent {
+    #[bsn(name = "m_events")]
+    pub events: Bytes,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientProfileSettingsAvailable {
     #[bsn(name = "m_type")]
     pub type_: super::profile::ClientProfileSettingsTypeEnum,

@@ -65,7 +65,7 @@ fn dynamic_value(metadata: &Schema, name: &str) -> BsnValue {
 }
 
 #[test]
-fn toon_handle_projects_but_is_not_claimed_as_a_reflected_wire_layout() {
+fn toon_handle_uses_its_generated_wire_layout() {
     let protocol = Protocol::current().unwrap();
     let codec = protocol.codec();
     let type_id = codec
@@ -82,8 +82,15 @@ fn toon_handle_projects_but_is_not_claimed_as_a_reflected_wire_layout() {
             BsnField::named(3, "m_id", BsnValue::Integer(12_345)),
         ],
     ));
-    let error = codec.encode(type_id, &original).unwrap_err().to_string();
-    assert!(error.contains("Obfuscated"), "{error}");
+    let encoded = codec.encode(type_id, &original).unwrap();
+    assert_eq!(encoded.bit_count, 136);
+    assert_eq!(
+        codec
+            .decode(type_id, &encoded.data, Some(encoded.bit_count), 0)
+            .unwrap()
+            .value,
+        original
+    );
 
     let handle = schema::toon::ToonHandle::from_bsn(&original).unwrap();
     assert_eq!(handle.region, 1);

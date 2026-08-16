@@ -1,9 +1,9 @@
 use std::{collections::HashSet, ops::Range, time::Duration};
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, ElementId, Hsla, IntoElement, ObjectFit, Render,
-    RenderOnce, Stateful, StyledImage as _, Window, div, ease_in_out, img, prelude::*, px, rgb,
-    rgba,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, Hsla, ImageSource, IntoElement,
+    ObjectFit, Render, RenderOnce, SharedString, Stateful, StyledImage as _, Window, div,
+    ease_in_out, img, prelude::*, px, rgb, rgba,
 };
 
 use crate::{
@@ -184,8 +184,7 @@ pub fn placed_rows<S, T: Clone, C: AnimationClock>(
         };
     };
     let progress = animation.progress(now);
-    let full_reveal = animation.transition.is_full_reveal();
-    let rows = if full_reveal {
+    let rows = if animation.transition.is_full_reveal() {
         items
             .into_iter()
             .map(|item| (item, RowMotion::Stable, 1.0))
@@ -200,22 +199,13 @@ pub fn placed_rows<S, T: Clone, C: AnimationClock>(
     };
     PlacedRows {
         rows,
-        reveal_opacity: reveal_opacity(full_reveal, progress),
+        reveal_opacity: 1.0,
     }
 }
 
 #[must_use]
 fn transition_progress(elapsed: Duration, duration: Duration) -> f32 {
     ease_in_out((elapsed.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0))
-}
-
-#[must_use]
-fn reveal_opacity(full_reveal: bool, progress: f32) -> f32 {
-    if full_reveal {
-        0.78 + progress * 0.22
-    } else {
-        1.0
-    }
 }
 
 #[must_use]
@@ -528,22 +518,19 @@ impl Render for RosterTooltip {
                     .child(self.user.name.clone()),
             )
             .child(
-                img(self.user.presence_icon.clone())
-                    .absolute()
-                    .left(px(80.0))
-                    .top(px(53.0))
-                    .size(px(13.0))
-                    .object_fit(ObjectFit::Contain),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(98.0))
-                    .right(px(16.0))
-                    .top(px(54.0))
-                    .text_size(px(11.5))
-                    .text_color(rgb(MUTED))
-                    .child(self.user.presence_label.clone()),
+                presence_line(
+                    self.user.presence_icon.clone(),
+                    self.user.presence_label.clone(),
+                    13.0,
+                    5.0,
+                    11.5,
+                    rgb(MUTED).into(),
+                )
+                .absolute()
+                .left(px(80.0))
+                .right(px(16.0))
+                .top(px(51.0))
+                .h(px(18.0)),
             )
             .child(tooltip_detail("CHANNEL", &self.channel, 86.0))
             .child(tooltip_detail("PRESENCE", &presence, 114.0));
@@ -581,6 +568,7 @@ fn tooltip_detail(key: &'static str, value: &str, top: f32) -> Div {
 }
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type HoverHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RosterAvailability {
@@ -930,28 +918,52 @@ fn row_body(user: &RosterUser, assets: &UiAssets) -> Div {
                 .child(user.name.clone()),
         )
         .child(
-            img(user.presence_icon.clone())
-                .absolute()
-                .left(px(62.0))
-                .top(px(29.0))
-                .size(px(14.0))
+            presence_line(
+                user.presence_icon.clone(),
+                user.presence_label.clone(),
+                14.0,
+                4.0,
+                11.5,
+                rgb(MUTED).into(),
+            )
+            .absolute()
+            .left(px(62.0))
+            .right(px(10.0))
+            .top(px(29.0))
+            .h(px(18.0)),
+        )
+}
+
+#[must_use]
+pub fn presence_line(
+    icon: ImageSource,
+    label: impl Into<SharedString>,
+    icon_size: f32,
+    gap: f32,
+    text_size: f32,
+    text_color: Hsla,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(gap))
+        .overflow_hidden()
+        .font_family(FONT_INTERFACE)
+        .child(
+            img(icon)
+                .size(px(icon_size))
+                .flex_shrink_0()
                 .object_fit(ObjectFit::Contain),
         )
         .child(
             div()
-                .absolute()
-                .left(px(80.0))
-                .right(px(10.0))
-                .top(px(31.0))
-                .h(px(16.0))
-                .flex()
-                .items_center()
+                .flex_1()
+                .min_w_0()
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .font_family(FONT_INTERFACE)
-                .text_size(px(11.5))
-                .text_color(rgb(MUTED))
-                .child(user.presence_label.clone()),
+                .text_size(px(text_size))
+                .text_color(text_color)
+                .child(label.into()),
         )
 }
 
@@ -1119,6 +1131,7 @@ pub(crate) struct RosterPanel {
     width: Option<f32>,
     overlays: Vec<AnyElement>,
     focused: bool,
+    on_hover: Option<HoverHandler>,
 }
 
 impl RosterPanel {
@@ -1130,6 +1143,7 @@ impl RosterPanel {
             width: Some(ROSTER_WIDTH),
             overlays: Vec::new(),
             focused: false,
+            on_hover: None,
         }
     }
 
@@ -1150,11 +1164,21 @@ impl RosterPanel {
         self.focused = focused;
         self
     }
+
+    #[must_use]
+    pub(crate) fn on_hover(
+        mut self,
+        handler: impl Fn(&bool, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_hover = Some(Box::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for RosterPanel {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        panel_with_width(self.width)
+        let mut panel = panel_with_width(self.width)
+            .id("channel-roster")
             .child(self.header)
             .child(self.rows)
             .children(self.overlays)
@@ -1163,10 +1187,14 @@ impl RenderOnce for RosterPanel {
                     div()
                         .absolute()
                         .inset_0()
-                        .border_2()
-                        .border_color(rgb(0x238fd1)),
+                        .border_1()
+                        .border_color(rgba(0x39ba_ffb8)),
                 )
-            })
+            });
+        if let Some(on_hover) = self.on_hover {
+            panel = panel.on_hover(on_hover);
+        }
+        panel
     }
 }
 
@@ -1201,6 +1229,20 @@ mod tests {
         })
         .expect("roster changed");
         assert!(transition.is_full_reveal());
+    }
+
+    #[test]
+    fn full_reveal_does_not_dim_unchanged_rows() {
+        let next = vec![Item(20), Item(10)];
+        let transition = Transition::new(vec![Item(10), Item(20)], &next, |item| item.0)
+            .expect("roster changed");
+        let animation = TimedTransition {
+            scope: "general",
+            transition,
+            started: 0.0_f64,
+        };
+        let placement = placed_rows(next, Some(&animation), 90.0, |item| item.0);
+        assert!((placement.reveal_opacity - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

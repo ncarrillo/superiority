@@ -115,26 +115,19 @@ impl<S> RecordStream<S> {
         let padding = byte_count * 8 - reader.position();
         if padding != 0 {
             let padding_value = reader.read(padding)?;
-            if padding_value != 0 {
-                if std::env::var_os("SUPERIORITY_TRACE").is_some()
-                    || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
-                {
-                    eprintln!(
-                        "superiority: non-zero inbound padding slot={:?} command={} type={} logical_bits={} padding_bits={} padding_value={} buffer={}",
-                        header.service_slot,
-                        header.command_id,
-                        type_id,
-                        logical_bits,
-                        padding,
-                        padding_value,
-                        hex::encode(&self.buffer),
-                    );
-                }
-                return Err(native_error(format!(
-                    "native record {service_slot}/{command_id} has non-zero padding",
-                    service_slot = header.service_slot.unwrap_or_default(),
-                    command_id = header.command_id,
-                )));
+            if padding_value != 0
+                && (std::env::var_os("SUPERIORITY_TRACE").is_some()
+                    || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some())
+            {
+                eprintln!(
+                    "superiority: ignored non-zero inbound unused bits slot={:?} command={} type={} logical_bits={} unused_bits={} unused_value={}",
+                    header.service_slot,
+                    header.command_id,
+                    type_id,
+                    logical_bits,
+                    padding,
+                    padding_value,
+                );
             }
         }
         super::inspect::capture_incoming(
@@ -252,7 +245,8 @@ mod tests {
         native::{
             model::Payload,
             protocol::{
-                CHAT_JOIN_NOTIFY_COMMAND, CHAT_SLOT, PARTY_BEGIN_READY_PROCESS_COMMAND, PARTY_SLOT,
+                CHAT_JOIN_NOTIFY_COMMAND, CHAT_SLOT, PARTY_BEGIN_READY_PROCESS_COMMAND,
+                PARTY_READY_PROCESS_UPDATE_COMMAND, PARTY_SLOT,
             },
         },
     };
@@ -529,6 +523,31 @@ mod tests {
         assert_eq!(record.header.service_slot, Some(CHAT_SLOT));
         let Payload::ChatJoin(join) = record.value else {
             panic!("expected chat join after party ready process");
+        };
+        assert_eq!(join.channel_index, Some(6));
+        assert_eq!(records.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn party_ready_process_update_preserves_the_following_record_boundary() {
+        let mut chunk = hex::decode("ce0c000000010000").unwrap();
+        chunk.extend_from_slice(&named_join("Party", 6, 0x5060_7080, 0x5566_7788));
+        let protocol = Protocol::current().unwrap();
+        let stream = MemoryStream {
+            reads: VecDeque::from([chunk]),
+            writes: Vec::new(),
+        };
+        let mut records = RecordStream::new(stream, protocol);
+
+        let update = records.receive().unwrap();
+        assert_eq!(update.header.service_slot, Some(PARTY_SLOT));
+        assert_eq!(update.header.command_id, PARTY_READY_PROCESS_UPDATE_COMMAND);
+        assert_eq!(update.byte_count, 8);
+
+        let record = records.receive().unwrap();
+        assert_eq!(record.header.service_slot, Some(CHAT_SLOT));
+        let Payload::ChatJoin(join) = record.value else {
+            panic!("expected chat join after party ready-process update");
         };
         assert_eq!(join.channel_index, Some(6));
         assert_eq!(records.buffered_bytes(), 0);

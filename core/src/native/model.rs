@@ -15,6 +15,7 @@ pub enum Payload {
     ClubInfo(Vec<ClubSummary>),
     ClubSummaries(Vec<ClubSummary>),
     CacheStreamItems(CacheStreamItems),
+    CategoryDescriptions(ConferenceDescriptions),
     ConferenceDescriptions(ConferenceDescriptions),
     ChannelList(ChannelList),
     ChatJoin(ChatJoin),

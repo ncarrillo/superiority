@@ -34,9 +34,9 @@ impl SuperiorityView {
             .as_ref()
             .map(|events| events.try_iter().collect::<Vec<_>>())
             .unwrap_or_default();
-        let had_events = !events.is_empty();
+        let mut event_changed = false;
         for event in events {
-            self.handle_client_event(event);
+            event_changed |= self.handle_client_event(event);
         }
         let expired_joins = self.expire_awaited_joins();
         self.join
@@ -48,7 +48,8 @@ impl SuperiorityView {
             .stats
             .auth_failed
             .load(std::sync::atomic::Ordering::Relaxed);
-        if live_auth_failed && !self.runtime.live_auth_notified {
+        let new_live_auth_failure = live_auth_failed && !self.runtime.live_auth_notified;
+        if new_live_auth_failure {
             self.runtime.live_auth_notified = true;
             if !self.channels.tabs.is_empty() {
                 self.append_chat_line(
@@ -65,11 +66,11 @@ impl SuperiorityView {
             && self.settings.live_enabled;
         if menu_changed
             || update_changed
-            || had_events
+            || event_changed
             || expired_joins
             || flushed_roster
             || live_page_visible
-            || live_auth_failed
+            || new_live_auth_failure
         {
             cx.notify();
         }

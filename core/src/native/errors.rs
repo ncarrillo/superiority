@@ -1,3 +1,43 @@
+use std::{
+    collections::BTreeMap,
+    sync::{OnceLock, RwLock},
+};
+
+static LOCALIZED_MESSAGES: OnceLock<RwLock<BTreeMap<u16, String>>> = OnceLock::new();
+
+pub(crate) fn install_localized_messages(messages: BTreeMap<u16, String>) {
+    *LOCALIZED_MESSAGES
+        .get_or_init(|| RwLock::new(BTreeMap::new()))
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = messages;
+}
+
+#[must_use]
+pub fn localized_message(code: u16) -> Option<String> {
+    LOCALIZED_MESSAGES
+        .get()?
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&code)
+        .cloned()
+}
+
+#[must_use]
+pub fn message(code: u16) -> Option<String> {
+    localized_message(code).or_else(|| error_name(code).map(str::to_owned))
+}
+
+#[must_use]
+pub fn description(code: u16) -> String {
+    if let Some(message) = localized_message(code) {
+        format!("{message} (Battle.net error {code})")
+    } else if let Some(name) = error_name(code) {
+        format!("{name} (Battle.net error {code})")
+    } else {
+        format!("Battle.net error {code}")
+    }
+}
+
 #[must_use]
 #[expect(
     clippy::too_many_lines,

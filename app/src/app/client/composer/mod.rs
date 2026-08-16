@@ -53,6 +53,9 @@ impl ComposerComponent {
                     .text_size(px(13.5))
                     .text_color(text_color)
                     .cursor(gpui::CursorStyle::IBeam)
+                    .on_hover(cx.listener(|this, hovered, window, cx| {
+                        this.set_composer_pointer_focus(*hovered, window, cx);
+                    }))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, window, cx| {
@@ -70,42 +73,48 @@ impl ComposerComponent {
             )
             .child(
                 div()
-                    .id("friends")
                     .relative()
-                    .flex()
-                    .items_center()
-                    .justify_center()
                     .w(px(56.0))
+                    .h_full()
                     .flex_shrink_0()
-                    .bg(rgb(0x101a2a))
-                    .border_1()
-                    .border_color(rgb(0x2c425d))
-                    .rounded(px(2.0))
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(0x16273e)).border_color(rgb(0x3e6e9e)))
-                    .active(|style| style.bg(rgb(0x1d3a5c)).border_color(rgb(0x4e8fc8)))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.composer.composer_focused = false;
-                        this.roster.roster.focused = false;
-                        cx.stop_propagation();
-                        if this.overlays.active == Some(Overlay::Friends) && !this.overlays.closing
-                        {
-                            this.dismiss_overlay(window, cx);
-                        } else {
-                            this.social.social_detail_open = false;
-                            this.social.social_pane_transition = None;
-                            this.social.conversation_peer = None;
-                            this.social.conversation_input.clear();
-                            this.social.conversation_focused = false;
-                            this.overlays.active = Some(Overlay::Friends);
-                            this.overlays.closing = false;
-                            cx.notify();
-                        }
-                    }))
                     .child(
-                        img("images/icons/friends.png")
-                            .size(px(28.0))
-                            .object_fit(ObjectFit::Contain),
+                        div()
+                            .id("friends")
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(rgb(0x101a2a))
+                            .border_1()
+                            .border_color(rgb(0x2c425d))
+                            .rounded(px(2.0))
+                            .cursor_pointer()
+                            .hover(|style| style.bg(rgb(0x16273e)).border_color(rgb(0x3e6e9e)))
+                            .active(|style| style.bg(rgb(0x1d3a5c)).border_color(rgb(0x4e8fc8)))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.composer.composer_focused = false;
+                                this.roster.roster.focused = false;
+                                cx.stop_propagation();
+                                if this.overlays.active == Some(Overlay::Friends)
+                                    && !this.overlays.closing
+                                {
+                                    this.dismiss_overlay(window, cx);
+                                } else {
+                                    this.social.social_detail_open = false;
+                                    this.social.social_pane_transition = None;
+                                    this.social.conversation_peer = None;
+                                    this.social.conversation_input.clear();
+                                    this.social.conversation_focused = false;
+                                    this.overlays.active = Some(Overlay::Friends);
+                                    this.overlays.closing = false;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(
+                                img("images/icons/friends.png")
+                                    .size(px(28.0))
+                                    .object_fit(ObjectFit::Contain),
+                            ),
                     )
                     .child(
                         div()

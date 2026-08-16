@@ -3,14 +3,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "windows")]
+use gpui::WindowControlArea;
 use gpui::{
     AnyElement, App, Bounds, Context, FocusHandle, Focusable, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, Rgba, ScrollStrategy, Subscription, TitlebarOptions,
-    UniformListScrollHandle, Window, WindowBounds, WindowControlArea, WindowOptions, div,
-    prelude::*, px, rgb, size, uniform_list,
+    UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    uniform_list,
 };
 use superiority_ui::{
-    UiAssets,
+    UiAssets, WithScrollbar as _,
     components::{
         controls as ui_controls, inspector as ui_inspector, roster as ui_roster,
         text_input as ui_text_input, workspace as ui_workspace,
@@ -238,18 +240,6 @@ fn clear_icon() -> impl IntoElement {
         )
 }
 
-fn titlebar_drag_region(id: &'static str) -> impl IntoElement {
-    div()
-        .id(id)
-        .h_full()
-        .flex_1()
-        .window_control_area(WindowControlArea::Drag)
-        .on_mouse_down(MouseButton::Left, |_, window, cx| {
-            window.start_window_move();
-            cx.stop_propagation();
-        })
-}
-
 fn service_color(service: &str) -> Rgba {
     match service {
         "Authentication" => rgb(0xf0b35a),
@@ -323,7 +313,7 @@ pub(super) fn open(cx: &mut App) {
                 ..Default::default()
             }),
             is_movable: true,
-            app_owns_titlebar_drag: true,
+            app_owns_titlebar_drag: cfg!(target_os = "macos"),
             ..Default::default()
         },
         move |window, cx| {
@@ -921,8 +911,10 @@ impl ProtocolViewer {
         }))
     }
 
-    fn titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+    fn titlebar(&self, _window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let titlebar = div()
+            .id("protocol-titlebar")
+            .relative()
             .h(px(34.0))
             .w_full()
             .flex_shrink_0()
@@ -931,7 +923,7 @@ impl ProtocolViewer {
             .border_b_1()
             .border_color(rgb(0x102a3b))
             .bg(rgb(0x07111d))
-            .child(titlebar_drag_region("protocol-titlebar-left"))
+            .child(div().h_full().flex_1())
             .child(
                 div()
                     .h_full()
@@ -939,11 +931,23 @@ impl ProtocolViewer {
                     .flex()
                     .items_center()
                     .gap(px(6.0))
+                    .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(self.capture_toggle_button(cx))
                     .child(self.clear_capture_button(cx)),
             )
-            .child(titlebar_drag_region("protocol-titlebar-right"))
+            .child(div().h_full().flex_1());
+        #[cfg(target_os = "windows")]
+        let titlebar = titlebar
+            .window_control_area(WindowControlArea::Drag)
+            .pr(px(platform::WINDOW_CONTROLS_WIDTH))
+            .child(platform::window_controls_with_height(_window, 34.0));
+        #[cfg(target_os = "macos")]
+        let titlebar = titlebar.on_mouse_down(MouseButton::Left, |_, window, cx| {
+            cx.stop_propagation();
+            platform::begin_window_drag(window);
+        });
+        titlebar
     }
 
     fn capture_toggle_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -961,7 +965,7 @@ impl ProtocolViewer {
                 "Pause capture"
             },
             if self.paused {
-                "Continue collecting native protocol records."
+                "Continue collecting HTTP, BGS, and native protocol records."
             } else {
                 "Freeze this record list without disconnecting the client."
             },
@@ -1109,7 +1113,7 @@ impl ProtocolViewer {
             .into_any_element()
     }
 
-    fn records_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn records_pane(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let filtered = self.filtered_record_indices();
         let filtered_count = filtered.len();
         let now = Instant::now();
@@ -1128,6 +1132,7 @@ impl ProtocolViewer {
                 |index, _| self.record_row(*index, cx),
             )
         });
+        let record_scroll = self.record_scroll.0.borrow().base_handle.clone();
         let list = uniform_list(
             "protocol-record-scroll",
             filtered_count,
@@ -1169,8 +1174,14 @@ impl ProtocolViewer {
                             this.focus_filter(FilterTarget::Records, window, cx);
                         }),
                     )
-                    .when_some(rows, |layer, rows| layer.overflow_y_scroll().children(rows))
-                    .when(!animating, |layer| layer.child(list)),
+                    .when_some(rows, |layer, rows| {
+                        layer
+                            .overflow_y_scroll()
+                            .track_scroll(&record_scroll)
+                            .children(rows)
+                    })
+                    .when(!animating, |layer| layer.child(list))
+                    .vertical_scrollbar_for(&record_scroll, window, cx),
             )
             .when(
                 self.pointer_filter_target == Some(FilterTarget::Records),
@@ -1178,7 +1189,7 @@ impl ProtocolViewer {
             )
     }
 
-    fn stream_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn stream_pane(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let record = self.selected_record();
         let selected = self.selected_field();
         let selection_is_exact = selected.exact_range;
@@ -1187,6 +1198,7 @@ impl ProtocolViewer {
         let bitstream_height = self
             .bitstream_height
             .unwrap_or((bit_row_count as f32 * BIT_ROW_HEIGHT + 24.0).clamp(118.0, 460.0));
+        let bit_scroll = self.bit_scroll.0.borrow().base_handle.clone();
         let bit_rows = uniform_list(
             "protocol-bit-scroll",
             bit_row_count,
@@ -1199,6 +1211,7 @@ impl ProtocolViewer {
         .h_full()
         .p(px(12.0))
         .track_scroll(&self.bit_scroll);
+        let byte_scroll = self.byte_scroll.0.borrow().base_handle.clone();
         let byte_row_count = record.bytes.len().div_ceil(16);
         let byte_rows = uniform_list(
             "protocol-byte-scroll",
@@ -1245,9 +1258,11 @@ impl ProtocolViewer {
             .child(
                 div()
                     .id("protocol-bit-viewport")
+                    .relative()
                     .h(px(bitstream_height))
                     .min_h(px(0.0))
-                    .child(bit_rows),
+                    .child(bit_rows)
+                    .vertical_scrollbar_for(&bit_scroll, window, cx),
             )
             .child(
                 div()
@@ -1325,11 +1340,13 @@ impl ProtocolViewer {
                     )
                     .child(
                         div()
+                            .relative()
                             .flex_1()
                             .min_h(px(0.0))
                             .px(px(12.0))
                             .py(px(7.0))
-                            .child(byte_rows),
+                            .child(byte_rows)
+                            .vertical_scrollbar_for(&byte_scroll, window, cx),
                     ),
             )
     }
@@ -1739,7 +1756,7 @@ impl ProtocolViewer {
             .into_any_element()
     }
 
-    fn fields_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn fields_pane(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let record = self.selected_record();
         let visible = self.visible_field_indices();
         let visible_count = visible.len();
@@ -1759,6 +1776,7 @@ impl ProtocolViewer {
                 |index, _| self.field_row(*index, cx),
             )
         });
+        let field_scroll = self.field_scroll.0.borrow().base_handle.clone();
         let list = uniform_list(
             "protocol-field-scroll",
             visible_count,
@@ -1821,8 +1839,14 @@ impl ProtocolViewer {
                             this.focus_filter(FilterTarget::Fields, window, cx);
                         }),
                     )
-                    .when_some(rows, |layer, rows| layer.overflow_y_scroll().children(rows))
-                    .when(!animating, |layer| layer.child(list)),
+                    .when_some(rows, |layer, rows| {
+                        layer
+                            .overflow_y_scroll()
+                            .track_scroll(&field_scroll)
+                            .children(rows)
+                    })
+                    .when(!animating, |layer| layer.child(list))
+                    .vertical_scrollbar_for(&field_scroll, window, cx),
             )
             .when(
                 self.pointer_filter_target == Some(FilterTarget::Fields),
@@ -1947,14 +1971,14 @@ impl gpui::Render for ProtocolViewer {
             .flex()
             .flex_col()
             .font_family(FONT_INTERFACE)
-            .child(self.titlebar(cx))
+            .child(self.titlebar(window, cx))
             .child(div().h(px(6.0)).flex_shrink_0().bg(rgb(0x040a10)))
             .child(if self.capture.records.is_empty() {
                 div()
                     .flex_1()
                     .min_h(px(0.0))
                     .flex()
-                    .child(self.records_pane(cx))
+                    .child(self.records_pane(window, cx))
                     .child(self.horizontal_splitter(true, cx))
                     .child(
                         div()
@@ -1976,11 +2000,11 @@ impl gpui::Render for ProtocolViewer {
                     .flex_1()
                     .min_h(px(0.0))
                     .flex()
-                    .child(self.records_pane(cx))
+                    .child(self.records_pane(window, cx))
                     .child(self.horizontal_splitter(true, cx))
-                    .child(self.stream_pane(cx))
+                    .child(self.stream_pane(window, cx))
                     .child(self.horizontal_splitter(false, cx))
-                    .child(self.fields_pane(cx))
+                    .child(self.fields_pane(window, cx))
                     .into_any_element()
             })
     }

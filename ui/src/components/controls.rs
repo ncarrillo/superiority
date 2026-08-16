@@ -70,10 +70,8 @@ pub fn checkbox(id: impl Into<ElementId>, amount: f32, mark: ImageSource) -> Sta
     let mark_size = 14.0 + amount * 6.0;
     div()
         .id(id)
-        .absolute()
-        .left(px(18.0))
-        .top(px(10.0))
         .size(px(22.0))
+        .flex_shrink_0()
         .flex()
         .items_center()
         .justify_center()

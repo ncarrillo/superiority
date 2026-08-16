@@ -32,6 +32,7 @@ impl SettingsComponent {
         blocked_accounts: &[BlockedAccount],
         live_url: Option<String>,
         live_error: Option<String>,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
         let page = div()
@@ -45,7 +46,7 @@ impl SettingsComponent {
         match page_index {
             0 => self.appearance_settings_page(page, cx),
             1 => self.chat_settings_page(page, chrome, cx),
-            2 => self.privacy_settings_page(page, blocked_accounts),
+            2 => self.privacy_settings_page(page, blocked_accounts, window, cx),
             _ => self.live_settings_page(page, chrome, live_url, live_error, cx),
         }
     }

@@ -1,3 +1,5 @@
+mod cache_catalog;
+mod error_catalog;
 mod portrait_catalog;
 mod public_channels;
 mod session;

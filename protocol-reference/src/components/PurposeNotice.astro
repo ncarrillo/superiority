@@ -1,10 +1,13 @@
-<div class="notice">
-  <p><b>Purpose.</b> This is a standalone wire reference for the current StarCraft II
-  Battle.net path. It begins with the generic protobuf control connection, follows
-  the handoff into SC2's native service connection, and documents the bit-packed
-  records used there. Live observations and build constants target macOS Base97563.
-  Native type names and logical schemas are taken from a build-97364 metadata
-  snapshot; layouts marked live verified have also been reconstructed against
-  Base97563 traffic. Private account data, credentials, session secrets, endpoints,
-  and message contents are intentionally omitted.</p>
-</div>
+<details class="scope-note">
+  <summary>Scope</summary>
+  <p>This document describes the current SC2 Battle.net connection sequence. It
+  starts with account logon. It ends with native SC2 service traffic.</p>
+  <p>Live data and build constants apply to macOS Base97563. Native type names and
+  logical schemas come from build 97364. A <i>live verified</i> layout also matches
+  Base97563 network data.</p>
+  <p>The route tables and implementation notes match the documented client build.
+  The audit covers Front message framing, Sunken stream parsing, authentication, and service
+  dispatch.</p>
+  <p>This document omits private account data, credentials, session secrets,
+  endpoints, and message contents.</p>
+</details>

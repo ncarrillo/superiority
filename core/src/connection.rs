@@ -1,5 +1,6 @@
 use std::{
-    io::ErrorKind,
+    fs::OpenOptions,
+    io::{ErrorKind, Write as _},
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
     thread,
     time::{Duration, Instant},
@@ -355,10 +356,16 @@ fn emit(events: &Sender<ClientEvent>, event: ClientEvent) {
 }
 
 fn trace_connection(message: impl std::fmt::Display) {
+    let message = message.to_string();
     if std::env::var_os("SUPERIORITY_TRACE").is_some()
         || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
     {
         eprintln!("superiority: {message}");
+    }
+    if let Some(path) = std::env::var_os("SUPERIORITY_TRACE_FILE")
+        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(file, "superiority: {message}");
     }
 }
 

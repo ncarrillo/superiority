@@ -1,94 +1,131 @@
 ---
 import ServiceSection from "../components/ServiceSection.astro";
 import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
 ---
 
 <ServiceSection id="service-conn">
-  <Fragment slot="title">9.2 <code>Conn</code> — connection control</Fragment>
-<p>Connection endpoints report failures and bootstrap state, activate transport
-    protection, and carry routed application frames.</p>
+  <Fragment slot="title"><code>Conn</code> — connection control</Fragment>
+<p>Connection endpoints report failures and bootstrap state. They activate
+    transport protection. They also carry routed application frames.</p>
     <p class="endpoint-index">
       <a href="#conn-boom">Conn/1</a><a href="#conn-server-version">Conn/3</a>
       <a href="#conn-enable-encryption">Conn/5</a><a href="#conn-command-10">Conn/10</a>
-      <a href="#conn-regulator-update">Conn/11</a><a href="#conn-message-frame">Conn/13</a>
+      <a href="#conn-regulator-update">Conn/11</a><a href="#conn-pong">Conn/12</a><a href="#conn-message-frame">Conn/13</a>
       <a href="#conn-game-site-info">Conn/14</a>
     </p>
 
     <Endpoint id="conn-boom" direction="server → client" phase="failure path" structure="logical order" status="verified">
       <Fragment slot="title"><code>Conn/1</code> Connection::Boom</Fragment>
       <p>Terminates the native session with a numeric protocol error.</p>
-<pre is:raw><span class="syn-field">error</span>  <span class="syn-type">u16</span> <span class="syn-comment">Error::Code</span></pre>
+      <RustSchema code={`struct Boom {
+    error: u16, // Error::Code
+}`} />
     </Endpoint>
 
-    <Endpoint id="conn-server-version" direction="server → client" phase="protected bootstrap" structure="32-bit shape" status="strong inference">
+    <Endpoint id="conn-server-version" direction="server → client" phase="protected bootstrap" structure="verified reflected order" status="verified">
       <Fragment slot="title"><code>Conn/3</code> Connection::ServerVersion</Fragment>
-      <p>The 32-bit payload has the embedded <code>ServerVersion</code> shape. The
-      command-to-handler name remains provisional, but the payload boundary is
-      unambiguous.</p>
-<pre is:raw><span class="syn-field">version</span>  <span class="syn-type">u32</span></pre>
+      <p>The 32-bit payload uses the embedded <code>ServerVersion</code> type. This
+      marked type is verified as reflection-compatible.</p>
+      <RustSchema code={`struct ServerVersion {
+    version: u32,
+}`} />
     </Endpoint>
 
     <Endpoint id="conn-enable-encryption" direction="client → server" phase="last plaintext record" structure="empty payload" status="verified">
       <Fragment slot="title"><code>Conn/5</code> Connection::EnableEncryption</Fragment>
-      <p>Commits the connection to independent inbound and outbound RC4 streams.
-      Protection begins immediately after this empty record.</p>
-<pre is:raw><span class="syn-type">EnableEncryption</span> { }  <span class="syn-comment">zero payload bits</span></pre>
+      <p>Starts independent inbound and outbound RC4 streams. Protection starts
+      immediately after this empty record.</p>
+      <RustSchema code={`struct EnableEncryption; // zero payload bits`} />
     </Endpoint>
 
     <Endpoint id="conn-command-10" direction="client → server" phase="protected keepalive" structure="generated order" status="verified">
       <Fragment slot="title"><code>Conn/10</code> Connection::Ping</Fragment>
-      <p>The client sends this record roughly once per minute. Its optional
-      signed value is the current Unix epoch timestamp in microseconds. Omitting the
-      ping eventually makes the server close an otherwise healthy chat session.</p>
-<pre is:raw><span class="syn-field">timeData</span>  <span class="syn-keyword">optional</span> <span class="syn-type">s64</span>  <span class="syn-comment">Unix epoch microseconds</span></pre>
+      <p>The client sends this record approximately one time each minute. The
+      optional signed value is a Unix epoch timestamp in microseconds. The server
+      requires this keepalive and closes idle connections.</p>
+      <RustSchema code={`struct Ping {
+    time_data: Option<i64>, // Unix epoch microseconds
+}`} />
     </Endpoint>
 
     <Endpoint id="conn-regulator-update" direction="server → client" phase="plaintext or protected" structure="logical order" status="verified">
       <Fragment slot="title"><code>Conn/11</code> Connection::RegulatorUpdate</Fragment>
-      <p>Updates the connection rate regulator. It may appear immediately before
+      <p>Updates the connection rate regulator. This record can occur before
       ResumeResponse.</p>
-<pre is:raw><span class="syn-field">info</span>  <span class="syn-keyword">choice</span> {
-    <span class="syn-keyword">none</span>
-    <span class="syn-keyword">leakyBucket</span> {
-        <span class="syn-field">threshold</span>  <span class="syn-type">u32</span>
-        <span class="syn-field">rate</span>       <span class="syn-type">u32</span>
-    }
-}</pre>
+      <RustSchema code={`struct RegulatorUpdate {
+    info: RegulatorInfo,
+}
+
+enum RegulatorInfo {
+    None,
+    LeakyBucket { threshold: u32, rate: u32 },
+}`} />
+    </Endpoint>
+
+    <Endpoint id="conn-pong" direction="client → server" phase="protected keepalive" structure="verified reflected order" status="capture verified">
+      <Fragment slot="title"><code>Conn/12</code> Connection::Pong</Fragment>
+      <p>Replies to connection timing traffic. It carries the same optional
+      microsecond timestamp shape as Ping.</p>
+      <RustSchema code={`struct Pong {
+    time_data: Option<i64>, // Unix epoch microseconds
+}`} />
     </Endpoint>
 
     <Endpoint id="conn-message-frame" direction="bidirectional" phase="protected" structure="generated order" status="verified">
       <Fragment slot="title"><code>Conn/13</code> Connection::MessageFrame</Fragment>
-      <p>Carries a generic routed application envelope. A route header inside the
-      frame can name another service by stable FourCC and command, independently of
-      the outer runtime service slot.</p>
-<pre is:raw><span class="syn-field">payload</span>    <span class="syn-type">blob</span>[<span class="syn-number">0..14336</span>]
-<span class="syn-field">frameType</span>  <span class="syn-type">u8 enum</span> <span class="syn-comment">CS_ROUTED, SS_ROUTED, SS_BROADCAST, SS_ERROR, SC_ERROR, SC_ROUTED, SC_BROADCAST</span>
-<span class="syn-field">headers</span>    <span class="syn-type">Header</span>[<span class="syn-number">0..32</span>]
+      <p>Carries a generic application envelope. An inner route can select another
+      service by FourCC and command, independently of the outer service slot.</p>
+      <RustSchema code={`struct MessageFrame {
+    payload: Vec<u8>,          // 0..=14,336 bytes
+    frame_type: FrameType,     // u8 on the wire
+    headers: Vec<FrameHeader>, // count: 0..=32
+}
 
-<span class="syn-type">Header</span> = <span class="syn-keyword">choice</span> {
-    <span class="syn-keyword">content</span> | <span class="syn-keyword">route</span> | <span class="syn-keyword">target</span> | <span class="syn-keyword">correlation</span> | <span class="syn-keyword">client</span> | <span class="syn-keyword">service</span>
-    <span class="syn-keyword">error</span> | <span class="syn-keyword">replicate</span> | <span class="syn-keyword">timestamp</span> | <span class="syn-keyword">stream</span> | <span class="syn-keyword">traceRoute</span>
-}</pre>
+enum FrameHeader {
+    Content(ContentHeader),
+    Route(RouteHeader),
+    Target(TargetHeader),
+    Correlation(CorrelationHeader),
+    Client(ClientHeader),
+    Service(ServiceHeader),
+    Error(ErrorHeader),
+    Replicate(ReplicateHeader),
+    Timestamp(TimestampHeader),
+    Stream(StreamHeader),
+    TraceRoute(TraceRouteHeader),
+}`} />
       <p class="endpoint-note">Reflection lists frame type and headers before the
       payload. Using that order corrupts the following record.</p>
-      <p class="endpoint-note">Retail also emits two independent maintenance
-      requests to the <code>TrnC</code> route once per minute: command 3 carries
-      four zero bytes and command 2 carries the stable 11-byte payload
-      <code>030080057e4002020a0301</code>. Both are <code>CS_ROUTED</code> frames
-      with route, correlation, content, and stream headers. Their correlation
-      headers set <code>reply = false</code>, so these are periodic client requests,
-      not replies to a server challenge. A chat-only client must emit them in
-      addition to <code>Conn/10 Ping</code> to match retail idle-session behavior.</p>
+      <p class="endpoint-note">Retail sends two maintenance requests to
+      <code>TrnC</code> one time each minute. Command 3 contains four zero bytes.
+      Command 2 contains <code>030080057e4002020a0301</code>. Both requests are
+      <code>CS_ROUTED</code> frames. Their correlation headers set
+      <code>reply = false</code>. A retail-compatible client must send these
+      requests and <code>Conn/10 Ping</code>.</p>
     </Endpoint>
 
     <Endpoint id="conn-game-site-info" direction="server → client" phase="first protected bootstrap" structure="generated order" status="verified">
       <Fragment slot="title"><code>Conn/14</code> Connection::GameSiteInfo</Fragment>
       <p>Announces the client's public IPv4 endpoint as seen by the service, plus
       the available SC2 game sites.</p>
-<pre is:raw><span class="syn-field">externalIp4Addr</span>  <span class="syn-type">IP4::AddressPort</span> { <span class="syn-field">address</span>, <span class="syn-field">port</span> }
-<span class="syn-field">siteData</span>            <span class="syn-type">SiteDataForClient</span>[<span class="syn-number">0..64</span>] {
-    <span class="syn-field">name</span>         <span class="syn-type">bytes</span>[<span class="syn-number">0..32</span>]
-    <span class="syn-field">addressPort</span>  <span class="syn-keyword">optional</span> <span class="syn-type">IP4::AddressPort</span>
-}</pre>
+      <RustSchema code={`struct GameSiteInfo {
+    external_ipv4_addr: Ipv4AddressPort,
+    site_data: Vec<SiteDataForClient>, // 7-bit element count; metadata maximum 64
+}
+
+struct SiteDataForClient {
+    name: Vec<u8>, // 6-bit byte count; metadata maximum 32
+    address_port: Option<Ipv4AddressPort>,
+}
+
+struct Ipv4AddressPort {
+    address: u32,
+    port: u16,
+}`} />
+      <p class="endpoint-note"><b>Wire sequence:</b> external address and port,
+      then a 7-bit site count, then that many <code>SiteDataForClient</code>
+      values. The seven-bit count encodes the actual length; the embedded BSN
+      metadata supplies the validation maximum of 64.</p>
     </Endpoint>
 </ServiceSection>

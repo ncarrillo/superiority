@@ -7,7 +7,7 @@ interface Props {
   status: string;
 }
 
-const { id, direction, phase, structure } = Astro.props;
+const { id, direction, phase, structure, status } = Astro.props;
 ---
 
 <article id={id} class="endpoint">
@@ -16,6 +16,7 @@ const { id, direction, phase, structure } = Astro.props;
     <div><dt>Direction</dt><dd>{direction}</dd></div>
     <div><dt>Phase</dt><dd>{phase}</dd></div>
     <div><dt>Structure</dt><dd>{structure}</dd></div>
+    <div><dt>Evidence</dt><dd>{status}</dd></div>
   </dl>
   <slot />
 </article>

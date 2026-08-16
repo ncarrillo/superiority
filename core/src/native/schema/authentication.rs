@@ -24,6 +24,49 @@ pub struct ClientAuthenticationConfiguration {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientAuthenticationGenerateWebTokenRequest {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientAuthenticationGenerateWebTokenResponse {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_result")]
+    pub result: super::authentication::ClientAuthenticationGenerateWebTokenResponseResult,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClientAuthenticationGenerateWebTokenResponseResult {
+    Success(super::authentication::ClientAuthenticationGenerateWebTokenResponseResultSuccess),
+    Failure(u16),
+}
+impl sc2_core::bsn::FromBsn for ClientAuthenticationGenerateWebTokenResponseResult {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        let (index, inner) = match value {
+            sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
+            other => {
+                return Err(sc2_core::Error::BsnWire(format!(
+                    "expected a choice for ClientAuthenticationGenerateWebTokenResponseResult, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Success(<super::authentication::ClientAuthenticationGenerateWebTokenResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Failure(<u16 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ClientAuthenticationGenerateWebTokenResponseResult variant"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientAuthenticationGenerateWebTokenResponseResultSuccess {
+    #[bsn(name = "m_webToken")]
+    pub web_token: Bytes,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientAuthenticationLogon {}
 
 #[derive(Clone, Debug, FromBsn)]

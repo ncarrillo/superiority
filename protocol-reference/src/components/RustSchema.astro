@@ -1,0 +1,57 @@
+---
+import { Code } from "astro:components";
+import type { ShikiTransformer } from "@shikijs/types";
+import { typeLinks } from "../data/bsnRegistry";
+import { normalizeSunkenSchema } from "../data/schemaNotation";
+
+interface Props {
+  code: string;
+}
+
+const { code } = Astro.props;
+const notation = normalizeSunkenSchema(code);
+
+const linkBsnTypes: ShikiTransformer = {
+  name: "link-bsn-types",
+  span(hast, _line, _column, _lineElement, token) {
+    if (token.content.trim() === "record") {
+      hast.properties = {
+        ...hast.properties,
+        className: ["sunken-keyword"],
+        style: "color:#D73A49",
+      };
+      return;
+    }
+
+    const link = typeLinks.get(token.content.trim());
+    if (!link) return;
+
+    const leadingWhitespace = token.content.match(/^\s*/)?.[0] ?? "";
+    const trailingWhitespace = token.content.match(/\s*$/)?.[0] ?? "";
+    const label = token.content.slice(
+      leadingWhitespace.length,
+      token.content.length - trailingWhitespace.length,
+    );
+
+    hast.tagName = "a";
+    hast.properties = {
+      ...hast.properties,
+      className: ["schema-type-link"],
+      href: `#${link.anchor}`,
+      "data-type-tooltip": link.tooltip,
+    };
+    hast.children = [
+      ...(leadingWhitespace ? [{ type: "text" as const, value: leadingWhitespace }] : []),
+      {
+        type: "element" as const,
+        tagName: "span",
+        properties: { className: ["schema-type-link-label"] },
+        children: [{ type: "text" as const, value: label }],
+      },
+      ...(trailingWhitespace ? [{ type: "text" as const, value: trailingWhitespace }] : []),
+    ];
+  },
+};
+---
+
+<Code code={notation} lang="rust" theme="github-light" class="sunken-schema" wrap={true} transformers={[linkBsnTypes]} />

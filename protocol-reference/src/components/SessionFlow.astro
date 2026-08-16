@@ -3,36 +3,37 @@
     <li class="session-stage front-stage">
       <div class="stage-marker" aria-hidden="true">01</div>
       <div class="stage-copy">
-        <h3>Open the Battle.net control connection</h3>
+        <h3>Front connection</h3>
         <p>The client connects to the regional Front endpoint. TLS protects the
-        socket, WebSocket supplies message boundaries, and BGS protobuf RPC carries
-        connection and account operations.</p>
-        <p class="stage-wire">TCP/1119 → TLS → WebSocket → BGS</p>
+        connection. WebSocket sets the message boundaries. Front carries connection
+        and account operations.</p>
+        <p class="stage-wire">TCP/1119 → TLS → WebSocket → Front RPC</p>
       </div>
     </li>
 
     <li class="session-stage front-stage">
       <div class="stage-marker" aria-hidden="true">02</div>
       <div class="stage-copy">
-        <h3>Authenticate the Battle.net account</h3>
-        <p>BGS accepts a cached credential or asks the client to complete an HTTPS
-        account challenge. Successful logon returns the available SC2 game accounts
-        and a BGS session key.</p>
-        <p class="stage-wire">BGS Logon → optional web challenge → LogonResult</p>
+        <h3>Account login</h3>
+        <p>Front can accept a cached credential. Otherwise, the server sends an HTTPS
+        account challenge. A successful logon returns the SC2 game accounts and a
+        Front session key.</p>
+        <p class="stage-wire">Front logon → optional web challenge → LogonResult</p>
       </div>
     </li>
 
     <li class="session-stage handoff-stage">
       <div class="stage-marker" aria-hidden="true">03</div>
       <div class="stage-copy">
-        <h3>Authorize SC2 and obtain the native handoff</h3>
-        <p>The client selects an SC2 game account and calls
-        <code>GameUtilities.ProcessClientRequest</code>. Its response supplies the
-        private material needed to continue on SC2's native service plane.</p>
+        <h3>Sunken session data</h3>
+        <p>Battle.net can report a selected SC2 game account. The first game-account
+        entity from <code>LogonResult</code> is used to call
+        <code>GameUtilities.ProcessClientRequest</code>.</p>
+        <p>The response contains the private data for Sunken.</p>
         <div class="handoff-material" aria-label="Three essential values returned by the GameUtilities handoff">
-          <div><strong>Native endpoint</strong><span>where Sunken accepts the second connection</span></div>
-          <div><strong>64-byte session seed</strong><span>input to the Resume proof and transport keys</span></div>
-          <div><strong><code>LogonResponse3</code></strong><span>identity, region, and native bootstrap values</span></div>
+          <div><strong>Native endpoint</strong><span>The address for the Sunken connection.</span></div>
+          <div><strong>64-byte session seed</strong><span>The input for the Resume proof and transport keys.</span></div>
+          <div><strong><code>LogonResponse3</code></strong><span>The identity, region, and bootstrap values.</span></div>
         </div>
       </div>
     </li>
@@ -40,26 +41,25 @@
     <li class="session-stage sunken-stage">
       <div class="stage-marker" aria-hidden="true">04</div>
       <div class="stage-copy">
-        <h3>Open a new connection and resume the authorized context</h3>
-        <p>The client opens a separate TCP connection to Sunken and sends
-        <code>Auth/1 ResumeRequest</code>. The Auth proof exchange demonstrates
-        possession of the handoff seed and binds the new socket to the account and
-        game account authorized on Front.</p>
-        <p class="connection-switch"><b>The TCP connection changes here.</b>
-        Authorization continues; the Front socket itself does not.</p>
-        <p class="stage-wire">new TCP/1119 → plaintext BSN Auth → Resume proof</p>
+        <h3>Sunken connection</h3>
+        <p>The client opens a new TCP connection to Sunken. The client sends
+        <code>Auth/1 ResumeRequest</code>. The proof confirms possession of the
+        handoff seed. The proof binds the new connection to the authorized account.</p>
+        <p class="connection-switch"><b>This step changes the TCP connection.</b>
+        Authorization transfers to Sunken, and Front closes.</p>
+        <p class="stage-wire">new TCP/1119 → plaintext Sunken Auth → Resume proof</p>
       </div>
     </li>
 
     <li class="session-stage sunken-stage">
       <div class="stage-marker" aria-hidden="true">05</div>
       <div class="stage-copy">
-        <h3>Enable stream protection and run SC2 services</h3>
-        <p>After the server proof succeeds, <code>Conn/5 EnableEncryption</code>
-        switches both directions to independent RC4 states. The same BSN stream then
-        carries connection bootstrap, identity, presence, friends, channels, chat,
-        parties, and game services.</p>
-        <p class="stage-wire">RC4-protected BSN → service registry → routed records</p>
+        <h3>Protected stream</h3>
+        <p>The client must first validate the server proof. The client then sends
+        <code>Conn/5 EnableEncryption</code>. This command enables a separate RC4
+        state for each direction. The protected Sunken stream carries all native
+        services.</p>
+        <p class="stage-wire">RC4-protected Sunken → static route table → decoded records</p>
       </div>
     </li>
   </ol>

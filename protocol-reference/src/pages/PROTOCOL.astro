@@ -1,17 +1,21 @@
 ---
 import ProtocolLayout from "../layouts/ProtocolLayout.astro";
 import DocumentHeader from "../components/DocumentHeader.astro";
-import PurposeNotice from "../components/PurposeNotice.astro";
 import TableOfContents from "../components/TableOfContents.astro";
 import DocumentFooter from "../components/DocumentFooter.astro";
-import Terminology from "../sections/Terminology.astro";
+import ProtocolPrimer from "../sections/ProtocolPrimer.astro";
+import PacketAnatomy from "../sections/PacketAnatomy.astro";
 import ArchitectureOverview from "../sections/ArchitectureOverview.astro";
 import BgsProtocol from "../sections/BgsProtocol.astro";
+import BgsSchemas from "../sections/BgsSchemas.astro";
 import FrontSunkenHandoff from "../sections/FrontSunkenHandoff.astro";
 import BsnRecordStream from "../sections/BsnRecordStream.astro";
 import BsnMetadata from "../sections/BsnMetadata.astro";
+import BsnTypeRegistry from "../sections/BsnTypeRegistry.astro";
+import ObfuscationLayouts from "../sections/ObfuscationLayouts.astro";
 import RuntimeServiceRegistry from "../sections/RuntimeServiceRegistry.astro";
 import ResumeAuthentication from "../sections/ResumeAuthentication.astro";
+import IdentityModel from "../sections/IdentityModel.astro";
 import NativeServiceReference from "../sections/NativeServiceReference.astro";
 import UnresolvedPortions from "../sections/UnresolvedPortions.astro";
 import Glossary from "../sections/Glossary.astro";
@@ -19,24 +23,74 @@ import Sources from "../sections/Sources.astro";
 import Changelog from "../sections/Changelog.astro";
 ---
 
-<ProtocolLayout title="StarCraft II Battle.net Wire Protocol Reference">
+<ProtocolLayout title="SC2Docs">
   <DocumentHeader />
-  <PurposeNotice />
   <TableOfContents />
-  <main>
-    <Terminology />
+  <main id="main">
+    <ProtocolPrimer />
+    <PacketAnatomy />
     <ArchitectureOverview />
-    <BgsProtocol />
-    <FrontSunkenHandoff />
-    <BsnRecordStream />
-    <RuntimeServiceRegistry />
-    <BsnMetadata />
-    <ResumeAuthentication />
-    <NativeServiceReference />
-    <UnresolvedPortions />
-    <Glossary />
-    <Sources />
-    <Changelog />
+
+    <section id="reference" class="reference-shell">
+      <div class="section-heading">
+        <h2>Protocol reference</h2>
+      </div>
+
+      <div class="reference-groups">
+        <section id="bgs-reference" class="protocol-family">
+          <div class="protocol-family-heading">
+            <h3>Front</h3>
+          </div>
+          <div class="protocol-subsections">
+            <details class="reference-group">
+              <summary><span><b>Connection</b></span></summary>
+              <div class="reference-body"><BgsProtocol /></div>
+            </details>
+            <details class="reference-group">
+              <summary><span><b>Messages</b></span></summary>
+              <div class="reference-body"><BgsSchemas /></div>
+            </details>
+            <details class="reference-group">
+              <summary><span><b>Sunken session</b></span></summary>
+              <div class="reference-body"><FrontSunkenHandoff /></div>
+            </details>
+          </div>
+        </section>
+
+        <section id="bsn-reference" class="protocol-family">
+          <div class="protocol-family-heading">
+            <h3>Sunken</h3>
+          </div>
+          <div class="protocol-subsections">
+            <details class="reference-group">
+              <summary><span><b>Record format</b></span></summary>
+              <div class="reference-body"><BsnRecordStream /></div>
+            </details>
+            <details id="type-registry-reference" class="reference-group">
+              <summary><span><b>BSN metadata</b></span></summary>
+              <div class="reference-body"><BsnMetadata /><ObfuscationLayouts /><BsnTypeRegistry /></div>
+            </details>
+            <details id="auth-reference" class="reference-group">
+              <summary><span><b>Resume</b></span></summary>
+              <div class="reference-body"><ResumeAuthentication /></div>
+            </details>
+            <details id="identity-reference" class="reference-group">
+              <summary><span><b>Identity</b></span></summary>
+              <div class="reference-body"><IdentityModel /></div>
+            </details>
+            <details id="endpoint-reference" class="reference-group">
+              <summary><span><b>Services</b></span></summary>
+              <div class="reference-body"><RuntimeServiceRegistry /><NativeServiceReference /></div>
+            </details>
+          </div>
+        </section>
+
+        <details id="appendix" class="reference-group">
+          <summary><span><b>Appendix</b></span></summary>
+          <div class="reference-body"><UnresolvedPortions /><Glossary /><Sources /><Changelog /></div>
+        </details>
+      </div>
+    </section>
   </main>
   <DocumentFooter />
 </ProtocolLayout>

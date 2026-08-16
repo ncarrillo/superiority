@@ -1,0 +1,230 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BackToContents from "../components/BackToContents.astro";
+import RustSchema from "../components/RustSchema.astro";
+import {
+  bsnNamedTypes,
+  typeAnchor,
+  typeTooltip,
+  type BsnType,
+} from "../data/bsnRegistry";
+
+interface RecoveredLayout {
+  name: string;
+  fields: Array<[logicalField: number, fillerBefore: number]>;
+}
+
+const changedLayouts: RecoveredLayout[] = [
+  { name: "Battlenet::Achievement::PersistentRecord", fields: [[2, 0], [0, 0], [1, 0]] },
+  { name: "Battlenet::Achievement::CriteriaUpdateRecord", fields: [[1, 0], [3, 0], [0, 0], [4, 0], [2, 0]] },
+  { name: "Battlenet::Club::InviteAction", fields: [[2, 0], [1, 0], [0, 0], [3, 11]] },
+  { name: "Battlenet::Client::Chat::ModifyChannelListRequest", fields: [[0, 0], [3, 0], [2, 4], [1, 0]] },
+  { name: "Battlenet::Client::Chat::CategoryDescriptions", fields: [[1, 0], [0, 0]] },
+  { name: "Battlenet::Conference::ClubName", fields: [[0, 16]] },
+  { name: "Battlenet::Toon::Handle", fields: [[1, 0], [0, 0], [2, 0], [3, 0]] },
+  { name: "Battlenet::Session::BillingInfo", fields: [[2, 0], [1, 19], [0, 28], [3, 0]] },
+];
+
+const metadataOrderNames = [
+  "Battlenet::Client::S2Map::S2ListMapFavorites",
+  "Battlenet::Client::Club::InviteAction",
+  "Battlenet::Client::Achievement::Data",
+  "Battlenet::Achievement::QuestUpdateRecord",
+  "Battlenet::Client::Chat::ModifyChannelListRequest2",
+  "Battlenet::Client::Chat::ModifyChannelListResponse2",
+  "Battlenet::Client::S2Map::S2ListMapFavoritesRequest",
+  "Battlenet::Client::S2Map::S2ListMapFavoritesResponse",
+  "Battlenet::Conference::PublicPartialName",
+  "Battlenet::Client::Toon::BillingUpdateNotify",
+  "Battlenet::Client::Toon::ToonCreateInit",
+  "Battlenet::Client::Toon::ToonCreateSetup",
+  "Battlenet::Client::Toon::ToonCreateFinal",
+  "Battlenet::Toon::ToonCreationData",
+  "Battlenet::Client::Toon::ToonCreateCancel",
+  "Battlenet::Client::Toon::ToonCreated",
+  "Battlenet::Client::Toon::Failure",
+  "Battlenet::Client::Achievement::ListenRequest",
+  "Battlenet::Client::Chat::StatusChangeRequest",
+  "Battlenet::Client::Chat::DatagramConnectionUpdate",
+  "Battlenet::Client::Chat::WhisperRecv",
+  "Battlenet::Client::Chat::WhisperEchoRecv",
+  "Battlenet::Client::Connection::ServerVersion",
+  "Battlenet::Client::Connection::RegulatorUpdate",
+  "Battlenet::Client::Party::BeginReadyProcess",
+  "Battlenet::Client::Party::MapOptionsChange",
+  "Battlenet::Client::Party::ReadyProcessUpdate",
+  "Battlenet::Client::Presence::StatisticsUpdate",
+  "Battlenet::Client::Presence::TemporaryPresenceResponse",
+  "Battlenet::Client::Profile::SendStatsUIEvent",
+  "Battlenet::Client::S2Master::MMQGetInfoRequest",
+  "Battlenet::Client::S2Master::MMQGetListResponse",
+  "Battlenet::Client::Toon::InitialNotifiesComplete",
+];
+
+const customLayoutName = "Battlenet::Conference::CategoryDescription";
+const namedTypeByName = new Map(bsnNamedTypes.map((type) => [type.name, type]));
+
+function requiredType(name: string): BsnType & { name: string } {
+  const type = namedTypeByName.get(name);
+  if (!type) throw new Error(`wire-layout catalog references missing type ${name}`);
+  return type;
+}
+
+function fieldName(type: BsnType, logicalField: number): string {
+  return type.memberNames[logicalField] ?? `field_${type.indexValues[logicalField] ?? logicalField}`;
+}
+
+function wireSequence(layout: RecoveredLayout): string {
+  const type = requiredType(layout.name);
+  return layout.fields.flatMap(([logicalField, fillerBefore]) => [
+    ...(fillerBefore === 0 ? [] : [`filler(${fillerBefore})`]),
+    fieldName(type, logicalField),
+  ]).join(" → ");
+}
+
+const markedTypes = bsnNamedTypes.filter((type) => type.obfuscated);
+const recoveredNames = new Set([
+  ...changedLayouts.map((layout) => layout.name),
+  ...metadataOrderNames,
+  customLayoutName,
+]);
+for (const name of recoveredNames) requiredType(name);
+const awaitingLayouts = markedTypes.filter((type) => !recoveredNames.has(type.name));
+---
+
+<Chapter id="wire-layouts">
+  <h2>Generated wire layouts</h2>
+  <p>Sunken metadata provides logical field names, types, and constraints. SC2's
+  generated codecs can transmit a structure in a different field order and insert
+  filler bits between fields.</p>
+
+  <h3 id="wire-layout-storage">Layout storage</h3>
+  <p>The SC2 5.0.16.97563 client contains two forms of layout data:</p>
+  <ul>
+    <li><b>A generic runtime table.</b> <code>Obfuscator::GetStruct(type_id)</code>
+    returns a pointer to a field count followed by packed <code>u32</code> entries.</li>
+    <li><b>Generated per-type code.</b> Many readers, writers, and size functions
+    have the field sequence and filler calls compiled directly into their instructions.</li>
+  </ul>
+  <p>The complete mapping is distributed across that runtime table and the generated
+  functions. The embedded metadata supplies the authoritative list of marked types.
+  Generated reader, writer, and size behavior supplies the authoritative layout for
+  each marked type.</p>
+
+  <h3 id="obfuscation-marker">The <code>0x40</code> marker</h3>
+  <p>Bit 6 of a metadata type tag is stored as the <code>Obfuscated</code> flag. Its
+  effect is mechanical:</p>
+  <ol>
+    <li>The metadata parser keeps the flag alongside the low six-bit type kind.</li>
+    <li>A generic encoder created without an <code>Obfuscator</code> checks the flag.
+    A marked type triggers a safety assertion unless reflection fallback was enabled.</li>
+    <li>With an <code>Obfuscator</code>, a non-null entry supplies field order and filler widths.</li>
+    <li>The decoder follows a supplied entry. A null entry uses metadata field order.</li>
+  </ol>
+  <p>The bit carries no field indices or filler widths. A decoder needs the separate
+  per-type entry, the generated reader, or verified metadata-order behavior.</p>
+
+  <h3 id="wire-layout-model">Table format</h3>
+  <p>A structure entry begins with its reflected field count. One packed
+  <code>u32</code> follows for each field, in transmitted order. Bits 0 through 25
+  select the logical field. Bits 26 through 31 give the filler width immediately
+  before that field.</p>
+
+  <RustSchema code={`struct WireField {
+    logical_field: u32, // entry & 0x03ff_ffff
+    filler_before: u6,  // entry >> 26
+}
+
+struct StructWireLayout {
+    field_count: u64,
+    fields: Array<WireField> { count: field_count },
+}`} />
+
+  <RustSchema code={`for entry in layout.fields {
+    reader.skip(entry.filler_before);
+    values[entry.logical_field] = decode(logical_fields[entry.logical_field]);
+}`} />
+
+  <h3 id="wire-layout-filler">Filler bits</h3>
+  <p>SC2 derives filler from a rolling <code>u32</code> state seeded with the structure's
+  field count. Before each filler run, the writer mixes the current bit position and
+  preceding output bytes into that state, rotates it left by eight, and writes the
+  requested low bits. Reproducing SC2's output requires this algorithm.</p>
+  <p>The client decoder advances over each run without reading its value. Server-side
+  validation of filler values has not been observed.</p>
+
+  <h3 id="wire-layout-example">Example: Club::InviteAction</h3>
+  <p>Metadata lists <code>club_id</code>, <code>member</code>, <code>code</code>, and
+  <code>result</code>. The generated client codec sends this sequence:</p>
+
+  <RustSchema code={`struct InviteActionWire {
+    code: InviteCode,
+    member: ToonHandle,
+    club_id: ClubId,
+    filler: u11,
+    result: ErrorCode,
+}`} />
+
+  <p>The corresponding packed entries are:</p>
+  <RustSchema code={`const INVITE_ACTION_LAYOUT: Array<WireField> = [
+    WireField { logical_field: 2, filler_before: 0 },
+    WireField { logical_field: 1, filler_before: 0 },
+    WireField { logical_field: 0, filler_before: 0 },
+    WireField { logical_field: 3, filler_before: 11 },
+];`} />
+
+  <h3 id="wire-layout-catalog">Layout catalog</h3>
+  <p>The Sunken registry published here contains {markedTypes.length} named types with
+  the <code>0x40</code> marker. The current catalog accounts for all of them: eight
+  recovered table transformations, one generated custom codec, {metadataOrderNames.length}
+  verified metadata-order types, and {awaitingLayouts.length} awaiting layout recovery.</p>
+
+  <table class="wire-layout-catalog">
+    <thead><tr><th>Type</th><th>Transmitted sequence</th></tr></thead>
+    <tbody>
+      {changedLayouts.map((layout) => {
+        const type = requiredType(layout.name);
+        return (
+          <tr>
+            <td><a class="type-reference" href={`#${typeAnchor(type)}`}
+              data-type-tooltip={typeTooltip(type)}><code>{type.name}</code></a></td>
+            <td><code>{wireSequence(layout)}</code></td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+
+  <p><a class="type-reference" href={`#${typeAnchor(requiredType(customLayoutName))}`}
+    data-type-tooltip={typeTooltip(requiredType(customLayoutName))}>
+    <code>{customLayoutName}</code></a> uses a generated state block and tagged variant
+    described by a dedicated codec.</p>
+
+  <details class="layout-status-list">
+    <summary>Verified metadata order ({metadataOrderNames.length})</summary>
+    <ul>
+      {metadataOrderNames.map((name) => {
+        const type = requiredType(name);
+        return <li><a class="type-reference" href={`#${typeAnchor(type)}`}
+          data-type-tooltip={typeTooltip(type)}><code>{name}</code></a></li>;
+      })}
+    </ul>
+  </details>
+
+  <details class="layout-status-list">
+    <summary>Marked types awaiting layout recovery ({awaitingLayouts.length})</summary>
+    <ul>
+      {awaitingLayouts.map((type) => (
+        <li><a class="type-reference" href={`#${typeAnchor(type)}`}
+          data-type-tooltip={typeTooltip(type)}><code>{type.name}</code></a></li>
+      ))}
+    </ul>
+  </details>
+
+  <h3 id="wire-layout-scope">Scope</h3>
+  <p>Every layout and status above applies to the macOS x86_64 SC2 5.0.16.97563
+  client. Marker counts come directly from that client's metadata. Table entries and
+  custom layouts come from its generated reader, writer, and size behavior. Captures
+  confirm selected record boundaries and decoded values.</p>
+  <BackToContents />
+</Chapter>

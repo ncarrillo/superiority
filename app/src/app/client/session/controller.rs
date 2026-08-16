@@ -166,6 +166,7 @@ impl SuperiorityView {
                 update_events,
                 update_model,
                 update_notes_selection: ui_release_notes::ReleaseNotesSelection::default(),
+                update_notes_scroll: ScrollHandle::new(),
                 update_dialog_visible: preview_update,
                 update_dialog_closing: false,
                 update_hide_due: None,
@@ -249,6 +250,7 @@ impl SuperiorityView {
                 settings_page_transition: None,
                 settings_tooltip: None,
                 checkbox_animations: [None; 3],
+                privacy_scroll: ScrollHandle::new(),
             },
             social: SocialComponent {
                 social_collapsed: [false, false],

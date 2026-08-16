@@ -48,7 +48,7 @@ impl Default for UpdateModel {
         Self {
             stage: UpdateStage::Idle,
             headline: "Checking for updates…".to_owned(),
-            summary: format!("Installed {}", env!("CARGO_PKG_VERSION")),
+            summary: format!("Installed {}", env!("SUPERIORITY_EFFECTIVE_VERSION")),
             notes: ReleaseNotesDocument::plain(
                 "Release notes will appear here when an update is found.",
             ),
@@ -60,7 +60,7 @@ impl UpdateModel {
     pub(crate) fn begin_check(&mut self) {
         self.stage = UpdateStage::Checking;
         self.headline = "Checking for updates…".to_owned();
-        self.summary = format!("Installed {}", env!("CARGO_PKG_VERSION"));
+        self.summary = format!("Installed {}", env!("SUPERIORITY_EFFECTIVE_VERSION"));
         self.notes = ReleaseNotesDocument::plain("Contacting the update service…");
     }
 
@@ -122,7 +122,10 @@ impl UpdateModel {
             "installed" => self.stage = UpdateStage::Current,
             "not_found" => {
                 self.headline = "Superiority is up to date".to_owned();
-                self.summary = format!("Version {} is installed.", env!("CARGO_PKG_VERSION"));
+                self.summary = format!(
+                    "Version {} is installed.",
+                    env!("SUPERIORITY_EFFECTIVE_VERSION")
+                );
                 self.notes = ReleaseNotesDocument::plain(message(&event));
                 self.stage = UpdateStage::Current;
             }
@@ -246,7 +249,7 @@ impl UpdateService {
         let config = superiority_updater::Config::for_current_process(
             &feed_url,
             UPDATE_PUBLIC_KEY,
-            env!("CARGO_PKG_VERSION"),
+            env!("SUPERIORITY_EFFECTIVE_VERSION"),
             "Superiority",
             "com.superiority.sc2-chat",
         )

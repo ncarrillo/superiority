@@ -1,82 +1,172 @@
 ---
 import ServiceSection from "../components/ServiceSection.astro";
 import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
 ---
 
 <ServiceSection id="service-toon">
-  <Fragment slot="title">9.3 <code>Toon</code> — identity and bootstrap</Fragment>
+  <Fragment slot="title"><code>Toon</code> — identity and bootstrap</Fragment>
 <p>Toon endpoints provide the account's playable identities and global SC2
     bootstrap configuration.</p>
-    <p class="endpoint-index"><a href="#toon-list">Toon/0 ToonList</a><a href="#toon-select">Toon/5 ToonSelect</a><a href="#toon-selected">Toon/6 ToonSelected</a><a href="#toon-welcome">Toon/10 Welcome</a><a href="#toon-initial-complete">Toon/14 InitialNotifiesComplete</a></p>
+    <p class="endpoint-index">
+      <a href="#toon-list">Toon/0 ToonList</a><a href="#toon-create">Toon/1–4 creation</a>
+      <a href="#toon-select">Toon/5 ToonSelect</a><a href="#toon-selected">Toon/6 ToonSelected</a>
+      <a href="#toon-created">Toon/7 and Toon/8 creation result</a><a href="#toon-welcome">Toon/10 Welcome</a>
+      <a href="#toon-billing">Toon/13 BillingUpdate</a><a href="#toon-initial-complete">Toon/14 InitialNotifiesComplete</a>
+      <a href="#toon-cais-time">Toon/23 CaisTimeUpdate</a>
+    </p>
 
     <Endpoint id="toon-list" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
       <Fragment slot="title"><code>Toon/0</code> Toon::ToonList</Fragment>
       <p>Lists up to fifty toon display records owned by the authenticated account.</p>
-<pre is:raw><span class="syn-field">toonDisplayCount</span>  <span class="syn-type">u6</span>  <span class="syn-comment">valid values 0..50</span>
-<span class="syn-keyword">repeat</span> toonDisplayCount:
-    <span class="syn-type">Display</span> {
-        <span class="syn-field">nameByteCountMinus2</span>  <span class="syn-type">u7</span>
-        <span class="syn-keyword">alignToByte</span>
-        <span class="syn-field">name</span>        <span class="syn-type">UTF-8 bytes</span>[nameByteCountMinus2 + <span class="syn-number">2</span>]
-                    <span class="syn-comment">2..100 bytes; 2..25 characters</span>
-        <span class="syn-field">lastOnline</span>  <span class="syn-type">s32</span>
-        <span class="syn-keyword">reserved</span>    <span class="syn-type">bits</span>[<span class="syn-number">3</span>]
-        <span class="syn-field">flags</span>       <span class="syn-type">u32</span>
-        <span class="syn-field">profile</span>     <span class="syn-type">Profile::RecordAddress</span>
-        <span class="syn-field">realm</span>       <span class="syn-type">u32</span>
-    }</pre>
+      <RustSchema code={`struct ToonList {
+    displays: Vec<ToonDisplay>, // count: 6 wire bits, 0..=50
+}
+
+struct ToonDisplay {
+    name: String, // byte count: 7 bits, stored as len - 2; 2..=100 bytes
+    last_online: i32,
+    _reserved: Reserved<3>,
+    flags: u32,
+    profile: RecordAddress,
+    realm: u32,
+}`} />
+    </Endpoint>
+
+    <Endpoint id="toon-create" direction="bidirectional" phase="protected" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>Toon/1–4</code> toon creation exchange</Fragment>
+      <p>The creation exchange begins with an empty Init request and empty Setup
+      response. Final submits the desired display name. Cancel abandons the setup
+      with an empty name.</p>
+      <RustSchema code={`// client → server, Toon/1
+struct ToonCreateInit;
+
+// server → client, Toon/2
+struct ToonCreateSetup;
+
+// client → server, Toon/3
+struct ToonCreateFinal {
+    data: ToonCreationData,
+}
+
+struct ToonCreationData {
+    display_name: String,
+}
+
+// client → server, Toon/4
+struct ToonCreateCancel;`} />
     </Endpoint>
 
     <Endpoint id="toon-select" direction="client → server" phase="protected bootstrap" structure="generated order" status="live verified">
       <Fragment slot="title"><code>Toon/5</code> Toon::ToonSelect</Fragment>
       <p>Selects one display returned by Toon/0 before channel discovery and join.
       A successful selection is followed by Toon/6.</p>
-<pre is:raw><span class="syn-field">nameByteCountMinus2</span>  <span class="syn-type">u7</span>
-<span class="syn-keyword">alignToByte</span>
-<span class="syn-field">toonName</span>             <span class="syn-type">UTF-8 bytes</span> <span class="syn-comment">2..100 bytes; 2..25 characters</span>
-<span class="syn-field">generatedCheck</span>       <span class="syn-type">u10</span> <span class="syn-comment">rolling check seeded with 2</span>
-<span class="syn-field">realm</span>                <span class="syn-type">u32</span></pre>
-      <p class="endpoint-note">Reflection lists name then realm, but omits the
+      <RustSchema code={`struct ToonSelect {
+    toon_name: String,          // byte count: 7 bits, stored as len - 2
+    generated_check: Bits<10>, // rolling check seeded with 2
+    realm: u32,
+}`} />
+      <p class="endpoint-note">Reflection lists name then realm and omits the
       generated rolling check between them.</p>
+    </Endpoint>
+
+    <Endpoint id="toon-created" direction="server → client" phase="protected" structure="verified generated order" status="capture decoded">
+      <Fragment slot="title"><code>Toon/7</code> ToonCreated and <code>Toon/8</code> Failure</Fragment>
+      <p>A successful creation returns the selected name, realm, and profile record
+      address. Failure returns a catalog-backed error code.</p>
+      <RustSchema code={`struct ToonCreated {
+    toon_name: String,
+    realm: u32,
+    record_address: RecordAddress,
+}
+
+struct ToonCreationFailure {
+    error: u16,
+}`} />
     </Endpoint>
 
     <Endpoint id="toon-selected" direction="server → client" phase="protected bootstrap" structure="generated order" status="live verified">
       <Fragment slot="title"><code>Toon/6</code> Toon::ToonSelected</Fragment>
       <p>Confirms the active SC2 identity and returns its stable handle and profile
       address.</p>
-<pre is:raw><span class="syn-field">recordAddress</span>  { <span class="syn-field">label</span> <span class="syn-type">u32</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }
-<span class="syn-field">toonHandle</span>     { <span class="syn-field">program</span> <span class="syn-type">FourCC</span>, <span class="syn-field">region</span> <span class="syn-type">u8</span>, <span class="syn-field">realm</span> <span class="syn-type">u32</span>, <span class="syn-field">id</span> <span class="syn-type">u64</span> }
-<span class="syn-field">realm</span>          <span class="syn-type">u32</span>
-<span class="syn-field">lastLogon</span>      <span class="syn-type">s32</span>
-<span class="syn-field">nameByteCountMinus2</span>  <span class="syn-type">u7</span>
-<span class="syn-keyword">alignToByte</span>
-<span class="syn-field">toonName</span>       <span class="syn-type">UTF-8 bytes</span></pre>
+      <RustSchema code={`struct ToonSelected {
+    record_address: RecordAddress,
+    toon_handle: ToonHandle,
+    realm: u32,
+    last_logon: i32,
+    toon_name: String, // byte count: 7 bits, stored as len - 2
+}
+
+struct RecordAddress {
+    label: u32,
+    id: u64,
+}
+
+struct ToonHandle {
+    program: FourCC,
+    region: u8,
+    realm: u32,
+    id: u64,
+}`} />
+    </Endpoint>
+
+    <Endpoint id="toon-billing" direction="bidirectional" phase="protected bootstrap" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>Toon/13</code> Toon::BillingUpdateNotify</Fragment>
+      <p>Reports game-account billing state. Captures show the official client
+      emitting this route and the server-side type table also maps it inbound.</p>
+      <RustSchema code={`struct BillingUpdateNotify {
+    info: BillingInfo,
+}
+
+struct BillingInfo {
+    units_remaining: Option<u32>,
+    subscription_expires: Option<i32>,
+    flags: u32,
+    box_level: u8,
+}`} />
+      <p class="endpoint-note">The generated <code>BillingInfo</code> order is
+      <code>flags</code>, 19 filler bits, <code>subscription_expires</code>, 28
+      filler bits, <code>units_remaining</code>, then <code>box_level</code>.</p>
     </Endpoint>
 
     <Endpoint id="toon-welcome" direction="server → client" phase="protected bootstrap" structure="generated order" status="verified">
       <Fragment slot="title"><code>Toon/10</code> Toon::Welcome</Fragment>
-      <p>Supplies global client configuration. This is a heavily obfuscated schema:
-      generated code reorders reflected members and consumes reserved runs.</p>
-<pre is:raw><span class="syn-field">depotRegion</span>                    <span class="syn-type">FourCC</span>
-<span class="syn-field">achievementHandles</span>              <span class="syn-type">AchievementHandle</span>[<span class="syn-number">0..15</span>]
-<span class="syn-field">isPlayingFromIGR</span>                 <span class="syn-type">bool</span>
-<span class="syn-field">defaultPortrait</span>                  <span class="syn-type">u32</span>
-<span class="syn-keyword">reserved</span>                         <span class="syn-type">bits</span>[<span class="syn-number">31</span>]
-<span class="syn-field">maxGameServerConnectTimeoutMS</span>    <span class="syn-type">u32</span>
-<span class="syn-field">programName</span>                     <span class="syn-type">bytes</span>[<span class="syn-number">0..32</span>]
-<span class="syn-field">programFlags</span>                    <span class="syn-type">bits</span>[<span class="syn-number">128</span>]
-<span class="syn-field">realmMapList</span>                    <span class="syn-type">RealmMap</span>[<span class="syn-number">0..4</span>]
-<span class="syn-field">unlockablesFiles</span>                <span class="syn-type">UnlockableDefinition</span>[<span class="syn-number">0..128</span>]
-<span class="syn-keyword">reserved</span>                         <span class="syn-type">bits</span>[<span class="syn-number">3</span>]
-<span class="syn-field">maxMapFavorites</span>                 <span class="syn-type">u16</span>
-<span class="syn-field">intermediateNameRestriction</span>     <span class="syn-type">UTF-8</span>[<span class="syn-number">0..1024</span>]
-<span class="syn-field">finalNameRestriction</span>            <span class="syn-type">UTF-8</span>[<span class="syn-number">0..1024</span>]
-<span class="syn-field">currentTime</span>                     <span class="syn-type">s32</span></pre>
+      <p>Supplies global client configuration. Its generated layout reorders
+      reflected members and consumes filler runs.</p>
+      <RustSchema code={`struct Welcome {
+    depot_region: FourCC,
+    achievement_handles: Vec<AchievementHandle>, // count: 0..=15
+    is_playing_from_igr: bool,
+    default_portrait: u32,
+    _reserved_0: Reserved<31>,
+    max_game_server_connect_timeout_ms: u32,
+    program_name: Vec<u8>,                         // 0..=32 bytes
+    program_flags: Bits<128>,
+    realm_map_list: Vec<RealmMap>,                 // count: 0..=4
+    unlockables_files: Vec<UnlockableDefinition>, // count: 0..=128
+    _reserved_1: Reserved<3>,
+    max_map_favorites: u16,
+    intermediate_name_restriction: String,         // 0..=1024 bytes
+    final_name_restriction: String,                // 0..=1024 bytes
+    current_time: i32,
+}`} />
     </Endpoint>
 
     <Endpoint id="toon-initial-complete" direction="server → client" phase="protected bootstrap" structure="empty payload" status="verified">
       <Fragment slot="title"><code>Toon/14</code> Toon::InitialNotifiesComplete</Fragment>
       <p>Marks completion of the initial Toon notification set.</p>
-<pre is:raw><span class="syn-type">InitialNotifiesComplete</span> { }  <span class="syn-comment">zero payload bits</span></pre>
+      <RustSchema code={`struct InitialNotifiesComplete; // zero payload bits`} />
+    </Endpoint>
+
+    <Endpoint id="toon-cais-time" direction="client → server" phase="protected" structure="candidate reflected order" status="capture decoded, layout unverified">
+      <Fragment slot="title"><code>Toon/23</code> Toon::CaisTimeUpdate</Fragment>
+      <p>Reports rested and played counters.</p>
+      <RustSchema code={`struct CaisTimeUpdate {
+    rested: u32,
+    played: u32,
+}`} />
+      <p class="endpoint-note">Reflection order fits the current capture. This
+      marked type currently has one source of evidence. Inspection output must
+      continue to label it as a candidate layout pending independent verification.</p>
     </Endpoint>
 </ServiceSection>

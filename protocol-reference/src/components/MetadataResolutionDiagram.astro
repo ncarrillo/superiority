@@ -1,35 +1,35 @@
 <figure class="diagram metadata-resolution">
-  <p class="metadata-question"><b>The problem:</b> a BSN record says
-  <code>Auth/2</code>, but those route bits do not describe the payload fields.
-  The route and the embedded type library have to be connected.</p>
+  <p class="metadata-question"><b>Input:</b> A Sunken record identifies
+  <code>Auth/2</code>. Service dispatch maps that route to a top-level type in the
+  embedded BSN metadata.</p>
 
-  <div class="metadata-flow" aria-label="Five stages from a BSN route to a named payload schema">
-    <button class="metadata-step metadata-route" type="button"
-      aria-label="Step one: read the direction, service, and command from the native record">
-      <span>1</span><strong>Wire route</strong><small><code>S→C Auth/2</code></small>
-    </button>
+  <div class="metadata-flow" aria-label="Five stages from a Sunken route to a named payload schema">
+    <div class="metadata-step metadata-route"
+      aria-label="Step one: read direction, slot zero, and command two">
+      <span>1</span><strong>Wire route</strong><small><code>S→C slot 0 / command 2</code></small>
+    </div>
     <i aria-hidden="true">→</i>
-    <button class="metadata-step metadata-dispatch" type="button"
-      aria-label="Step two: service dispatch selects the generated payload decoder">
-      <span>2</span><strong>Service dispatch</strong><small>selects the handler</small>
-    </button>
+    <div class="metadata-step metadata-dispatch"
+      aria-label="Step two: static service dispatch labels the route Auth slash two and selects the generated payload decoder">
+      <span>2</span><strong>Static dispatch</strong><small><code>Auth/2</code> + handler</small>
+    </div>
     <i aria-hidden="true">→</i>
-    <button class="metadata-step metadata-type-id" type="button"
+    <div class="metadata-step metadata-type-id"
       aria-label="Step three: the handler is associated with a numeric top-level type identifier">
       <span>3</span><strong>Top-level type ID</strong><small>symbolically: <code>T</code></small>
-    </button>
+    </div>
     <i aria-hidden="true">→</i>
-    <button class="metadata-step metadata-records" type="button"
+    <div class="metadata-step metadata-records"
       aria-label="Step four: type T selects a structural record and an optional naming record">
       <span>4</span><strong>Metadata entry <code>T</code></strong>
       <small>shape + optional names</small>
-    </button>
+    </div>
     <i aria-hidden="true">→</i>
-    <button class="metadata-step metadata-schema" type="button"
+    <div class="metadata-step metadata-schema"
       aria-label="Step five: recursively resolving child type identifiers produces a readable schema">
       <span>5</span><strong>Readable schema</strong>
       <small><code>Authentication::ProofRequest</code></small>
-    </button>
+    </div>
   </div>
 
   <div class="metadata-entry-pair" aria-label="The two records associated with a BSN type identifier">
@@ -45,24 +45,8 @@
   </div>
 
   <div class="metadata-explainer">
-    <p class="metadata-default"><b>Route numbers are not type IDs.</b> Dispatch
-    connects a direction/service/command tuple to generated code and its top-level
-    payload type. The metadata then explains that type recursively.</p>
-    <p class="metadata-detail detail-route"><b>The record supplies only an address.</b>
-    Direction, resolved service, and command identify which operation this is.
-    They contain neither field definitions nor a metadata type number.</p>
-    <p class="metadata-detail detail-dispatch"><b>Generated service dispatch is the bridge.</b>
-    It maps the route to the handler and payload decoder produced for that build.
-    That binding identifies the top-level payload type associated with the route.</p>
-    <p class="metadata-detail detail-type-id"><b>A type ID is an array index.</b>
-    ID <code>T</code> selects entry <code>T</code> from both metadata offset tables.
-    The number is build-specific and has no meaning outside that metadata block.</p>
-    <p class="metadata-detail detail-records"><b>The two records answer different questions.</b>
-    The structural record says how to decode the value; the optional naming record
-    supplies the readable type, member, enum, and choice names.</p>
-    <p class="metadata-detail detail-schema"><b>Resolution is recursive.</b> A struct
-    points to member type IDs, an array points to its element type, and an optional
-    points to its contained type. Expansion stops at primitives such as Boolean,
-    integer, FourCC, or blob.</p>
+    <p class="metadata-default"><b>Route numbers and type IDs occupy separate
+    namespaces.</b> Dispatch maps the route to generated code and a top-level
+    payload type. Metadata defines that type and its child types.</p>
   </div>
 </figure>

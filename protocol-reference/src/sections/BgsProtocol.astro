@@ -5,27 +5,26 @@ import BgsDispatchDiagram from "../components/BgsDispatchDiagram.astro";
 ---
 
 <Chapter id="bgs">
-<h2>3. BGS protobuf RPC</h2>
-  <p>BGS is the generic Battle.net Game Service control plane used before SC2 enters
-  its native service stream. SC2 embeds a standard protobuf descriptor set for connection,
-  authentication, challenge, session, GameUtilities, account, channel, presence,
-  and related services.</p>
+<h2>Front RPC</h2>
+  <p>Front carries Battle.net protobuf RPC before SC2 starts the Sunken service
+  stream. The client contains protobuf descriptors for the services used here.</p>
 
-  <h3 id="bgs-frame">3.1 WebSocket transport and RPC frame</h3>
-  <p>The Base97563 client first establishes TLS to the regional Front endpoint, then
-  performs an RFC 6455 upgrade with subprotocol
-  <code>v1.rpc.battle.net</code>. Each binary WebSocket message contains exactly one
-  BGS RPC frame. WebSocket therefore supplies the outer message and body boundary;
-  the two-byte BGS prefix below measures only the protobuf header.</p>
+  <h3 id="bgs-frame">RPC framing</h3>
+  <p>The Base97563 client first opens TLS to the regional Front endpoint. The client
+  then performs an RFC 6455 upgrade. The WebSocket subprotocol is
+  <code>v1.rpc.battle.net</code>. One binary WebSocket message contains one Front
+  RPC message.</p>
+  <p>The server must select the same WebSocket subprotocol. A different or missing
+  selection is rejected.</p>
   <figure class="diagram">
-    <div class="wire-strip" aria-label="BGS frame containing a two-byte header length, a protobuf header, and an optional protobuf body">
+    <div class="wire-strip" aria-label="Front RPC message containing a two-byte header length, a protobuf header, and an optional protobuf body">
       <div class="segment tiny prefix"><b>2 bytes</b><br>header length<br><code>uint16_be</code></div>
       <div class="segment medium control"><b><code>header_length</code> bytes</b><br><code>bgs.protocol.Header</code></div>
-      <div class="segment large payload"><b>remaining message bytes</b><br>protobuf body; may be empty</div>
+      <div class="segment large payload"><b>remaining message bytes</b><br>protobuf body; can be empty</div>
     </div>
-    <p class="chart-note">The length prefix covers only the protobuf header.
-    When <code>Header.size</code> is present it must agree with the remaining
-    WebSocket-message length; Base97563 requests can omit it.</p>
+    <p class="chart-note">The length prefix gives only the protobuf header size.
+    If <code>Header.size</code> is present, it must equal the body size. Base97563
+    requests can omit this field.</p>
   </figure>
 <pre is:raw><span class="syn-comment">offset  size                 description</span>
 <span class="syn-comment">------  -------------------  ----------------------------------------------</span>
@@ -37,18 +36,17 @@ import BgsDispatchDiagram from "../components/BgsDispatchDiagram.astro";
 <span class="syn-type">bytes</span>     <span class="syn-field">header</span>[header_length]
 <span class="syn-type">bytes</span>     <span class="syn-field">body</span>[websocket_message_end - current_offset]
 </pre>
-  <p><code>Header.size</code> is a body-length assertion when present, not the outer
-  message delimiter on this path. The two-byte prefix measures only the encoded
-  protobuf header, not the complete RPC frame or WebSocket message.</p>
-  <p>Client-to-server WebSocket messages set the RFC 6455 mask bit. The current
-  macOS client uses an all-zero four-byte mask, so the payload bytes remain visibly
-  unchanged even though the frame is formally masked. Server messages are
-  unmasked.</p>
+  <p>The WebSocket message sets the frame boundary. <code>Header.size</code>
+  validates the body byte count when present.</p>
+  <p>The WebSocket library applies RFC 6455 client masking. The Front decoder receives
+  the unmasked binary-message payload. Server messages arrive unmasked.</p>
+  <p>An empty or truncated Front header is rejected. WebSocket messages are limited
+  to 16 MiB.</p>
 
   <table>
     <thead><tr><th>Header field</th><th>Protobuf wire type</th><th>Meaning</th></tr></thead>
     <tbody>
-      <tr><td>1 <code>service_id</code></td><td>varint</td><td>Numeric dispatch value. The first Connect uses 0; responses use <code>0xfe</code>.</td></tr>
+      <tr><td>1 <code>service_id</code></td><td>varint</td><td>Numeric dispatch value. The first Connect uses 0. Responses use <code>0xfe</code>.</td></tr>
       <tr><td>2 <code>method_id</code></td><td>varint</td><td>Method number within the selected service.</td></tr>
       <tr><td>3 <code>token</code></td><td>varint</td><td>Request/callback correlation token.</td></tr>
       <tr><td>4 <code>object_id</code></td><td>varint</td><td>Optional addressed service object.</td></tr>
@@ -57,18 +55,21 @@ import BgsDispatchDiagram from "../components/BgsDispatchDiagram.astro";
       <tr><td>7 <code>error</code></td><td>length-delimited, repeated</td><td>Structured error details.</td></tr>
       <tr><td>8 <code>timeout</code></td><td>varint</td><td>Optional request timeout.</td></tr>
       <tr><td>9 <code>is_response</code></td><td>varint boolean</td><td>Explicit response marker when present.</td></tr>
+      <tr><td>10 <code>forward_targets</code></td><td>length-delimited, repeated</td><td>Optional process forwarding targets.</td></tr>
       <tr><td>11 <code>service_hash</code></td><td>fixed32</td><td>FNV-1a hash of the full protobuf service name. Protobuf fixed32 is little-endian on the wire.</td></tr>
       <tr><td>13 <code>client_id</code></td><td>length-delimited UTF-8</td><td>Optional client identifier.</td></tr>
+      <tr><td>14 <code>fanout_target</code></td><td>length-delimited, repeated</td><td>Optional structured fanout targets.</td></tr>
+      <tr><td>15 <code>client_id_fanout_target</code></td><td>length-delimited UTF-8, repeated</td><td>Optional client-ID fanout targets.</td></tr>
+      <tr><td>16 <code>client_record</code></td><td>length-delimited bytes</td><td>Optional opaque client record.</td></tr>
     </tbody>
   </table>
 
-  <h3 id="bgs-dispatch">3.2 Dispatch and callbacks</h3>
-  <p>A BGS header answers two separate questions: <i>which operation should receive
-  this body?</i> and <i>which earlier call does this reply belong to?</i> Service and
-  method fields perform dispatch; the token performs correlation.</p>
+  <h3 id="bgs-dispatch">Dispatch and callbacks</h3>
+  <p>The service and method fields select the operation. The token identifies the
+  related call. These functions are independent.</p>
   <BgsDispatchDiagram />
-  <p>After the special first Connect, client requests identify a service with the
-  32-bit FNV-1a hash of its full protobuf name:</p>
+  <p>Each request sets <code>service_id=0</code> and uses the 32-bit FNV-1a hash of
+  the full protobuf service name. This rule includes the first Connect request.</p>
 <pre is:raw><span class="syn-field">h</span> = <span class="syn-number">0x811c9dc5</span>
 <span class="syn-keyword">for each</span> <span class="syn-type">UTF-8 byte</span> b <span class="syn-keyword">in</span> full_service_name:
     <span class="syn-field">h</span> = h <span class="syn-keyword">XOR</span> b
@@ -84,52 +85,55 @@ import BgsDispatchDiagram from "../components/BgsDispatchDiagram.astro";
     <li><code>bnet.protocol.account.AccountService</code></li>
     <li><code>bnet.protocol.session.SessionService</code> and <code>SessionListener</code></li>
   </ul>
-  <p>Server-to-client calls use listener services. If the descriptor declares an
-  ordinary response, answer with a header whose <code>service_id</code> is
-  <code>0xfe</code>, whose token is the callback token, and whose status is zero.
-  If the declared return type is <code>NO_RESPONSE</code>, send nothing. An empty
-  response is not equivalent to no response.</p>
-  <p>Connection-control calls and listener callbacks can arrive while another token
-  remains pending. Decode and dispatch each message by its own header, acknowledge
-  it when its declared result requires one, and continue waiting for unrelated
-  tokens.</p>
+  <p>A server-to-client call uses a listener service. If the descriptor declares a
+  response, the client must send a response. Set <code>service_id</code> to
+  <code>0xfe</code>. Copy the callback token. Set the status to zero.</p>
+  <p>If the return type is <code>NO_RESPONSE</code>, the client omits the response
+  frame. An empty declared response still requires a response frame.</p>
+  <p>The authentication loop dispatches callbacks while its request tokens are
+  pending. Outside that loop, only <code>ConnectionService.Echo</code> is handled
+  automatically. Any other unexpected callback is rejected.</p>
 
-  <h3 id="bgs-logon">3.3 Logon sequence</h3>
+  <h3 id="bgs-logon">Logon sequence</h3>
   <table>
     <thead><tr><th>Step</th><th>Direction</th><th>Service / method</th><th>Notes</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td>C&rarr;S</td><td>ConnectionService / 1</td><td>Special <code>service_id=0</code>, <code>token=0</code>; advertises bindless RPC.</td></tr>
-      <tr><td>2</td><td>C&rarr;S</td><td>AuthenticationServer / 1</td><td>Logon: program <code>S2</code>, platform <code>Mc64</code>, locale <code>enUS</code>, embedded BGS SDK identity, <code>application_version=0</code>, and optionally cached web credentials.</td></tr>
-      <tr><td>3</td><td>S&rarr;C</td><td>ChallengeNotify / 3</td><td>Conditional external challenge with payload type <code>web_auth_url</code>. Declared <code>NO_RESPONSE</code>; omitted when cached credentials are accepted.</td></tr>
+      <tr><td>1</td><td>C&rarr;S</td><td>ConnectionService / 1</td><td>Use <code>service_id=0</code>, <code>token=0</code>, and the ConnectionService hash. Advertise bindless RPC.</td></tr>
+      <tr><td>2</td><td>C&rarr;S</td><td>AuthenticationServer / 1</td><td>Send program <code>S2</code>, platform <code>Mc64</code>, locale <code>enUS</code>, the embedded SDK identity, and <code>application_version=0</code>. A cached credential is optional.</td></tr>
+      <tr><td>3</td><td>S&rarr;C</td><td>ChallengeNotify / 3</td><td>Send an external <code>web_auth_url</code> challenge when necessary. The method is <code>NO_RESPONSE</code>.</td></tr>
       <tr><td>4</td><td>local HTTPS</td><td>Battle.net account flow</td><td>When challenged, cookies, MFA, CAPTCHA, and account state stay in the web view.</td></tr>
-      <tr><td>5</td><td>C&rarr;S</td><td>AuthenticationServer / 7</td><td>When challenged, submits the short-lived credential returned by the web flow.</td></tr>
+      <tr><td>5</td><td>C&rarr;S</td><td>AuthenticationServer / 7</td><td>Submit the short-lived credential from the web flow.</td></tr>
       <tr><td>6</td><td>S&rarr;C</td><td>AuthenticationClient / 5</td><td><code>LogonResult</code>: account, game accounts, region, and 64-byte session key.</td></tr>
-      <tr><td>7</td><td>C&rarr;S</td><td>AuthenticationServer / 8</td><td>After successful authentication, generates a successor cached credential for a later Logon; this also rotates a credential that was just accepted.</td></tr>
-      <tr><td>8</td><td>C&rarr;S</td><td>GameUtilities / 1</td><td>SC2 Front bootstrap. On this path it follows logon directly, without an intervening SessionService call.</td></tr>
+      <tr><td>7</td><td>C&rarr;S</td><td>AuthenticationServer / 8</td><td>Generate a new cached credential. Replace the accepted cached credential.</td></tr>
+      <tr><td>8</td><td>C&rarr;S</td><td>GameUtilities / 1</td><td>Start the SC2 Front bootstrap directly after authentication.</td></tr>
     </tbody>
   </table>
-  <p>For Base97563, <code>LogonRequest.version</code> is the embedded SDK identity
-  <code>Battle.net Game Service SDK v1.48.2 "cf68e241e0"/104</code>, while protobuf
-  field 6 <code>application_version</code> is zero. These fields must not be inferred
-  from the installation build number.</p>
-  <p>Authentication listener traffic can be interleaved with the ordinary RPC
-  responses: method 10 reports a logon update, method 14 reports game-account
-  selection, and methods 11–13 are declared <code>NO_RESPONSE</code>. Dispatch them
-  as callbacks rather than mistaking them for whichever request token is pending.</p>
-  <p>The browser or embedded web view handles only the account challenge. The BGS
-  connection remains the protocol client: after the web flow returns its short-lived
-  credential, the client submits that value with AuthenticationServer method 7.</p>
-  <p>The cached credential is distinct from the one-time credential returned by the
-  web challenge. It is opaque, can suppress the next browser challenge, and should
-  be replaced after a successful use. Rejection simply returns the flow to the
-  ordinary web challenge.</p>
+  <p>For Base97563, <code>LogonRequest.version</code> contains this exact embedded SDK
+  identity:</p>
+<pre is:raw><span class="syn-string">Battle.net Game Service SDK v1.48.2 "cf68e241e0"/104 (Jul 14 2026 19:45:54)</span></pre>
+  <p>Protobuf field 6, <code>application_version</code>, is zero. Use the embedded
+  SDK identity and this fixed field value independently of the installation build
+  number.</p>
+  <p>Authentication callbacks can occur between RPC responses. Method 10 reports a
+  logon update. Method 14 reports game-account selection. Methods 11 through 13 are
+  <code>NO_RESPONSE</code>. The client must dispatch these methods as callbacks.</p>
+  <p>The web view handles only the account challenge. The Front connection remains
+  the protocol client. The client submits the short-lived credential with
+  AuthenticationServer method 7.</p>
+  <p>The cached credential from method 8 and the short-lived challenge credential
+  are separate values. A cached credential can prevent the next web challenge.
+  Replace it after successful use. If the server rejects it, start the web
+  challenge.</p>
 
-  <h3 id="game-utilities">3.4 GameUtilities Front request</h3>
-  <p>Front sends <code>GameUtilities.ProcessClientRequest</code>
-  method 1 with a deliberately sparse <code>ClientRequest</code>. Top-level field 1
-  repeats typed attributes; top-level field 4 is the selected SC2 game-account
-  entity. Fields for host process, Battle.net account, program, and client info are
-  absent on this path.</p>
+  <h3 id="game-utilities">Sunken session request</h3>
+  <p>The client sends <code>GameUtilities.ProcessClientRequest</code> method 1. The
+  <code>ClientRequest</code> contains only the required fields. Top-level field 1
+  contains typed attributes. Top-level field 4 contains the first SC2 game-account
+  entity from <code>LogonResult</code>.</p>
+  <p>The later game-account selection callback is validated. The request continues
+  to use the first entity from <code>LogonResult</code>.</p>
+  <p>The request omits the host-process, Battle.net-account, program, and client-info
+  fields.</p>
   <table>
     <thead><tr><th>Attribute name</th><th>Variant type</th><th>Current value shape</th></tr></thead>
     <tbody>
@@ -139,11 +143,22 @@ import BgsDispatchDiagram from "../components/BgsDispatchDiagram.astro";
       <tr><td><code>locale</code></td><td>string</td><td><code>"enUS"</code></td></tr>
     </tbody>
   </table>
-  <p>An Attribute is protobuf field 1 <code>name</code> plus field 2
-  <code>Variant</code>. Known Variant arms are field 2 bool, 3 signed integer, 4
-  double, 5 string, 6 blob, 7 embedded message, 8 FourCC string, 9 unsigned
-  integer, and 10 entity ID.</p>
-  <p>A successful response is another attribute bag. The handoff requires:</p>
+  <p>An Attribute contains protobuf field 1, <code>name</code>. It also contains
+  protobuf field 2, <code>Variant</code>. The following field numbers select the
+  Variant type:</p>
+  <ul>
+    <li>2: Boolean</li>
+    <li>3: signed integer</li>
+    <li>4: double</li>
+    <li>5: string</li>
+    <li>6: blob</li>
+    <li>7: embedded message</li>
+    <li>8: FourCC string</li>
+    <li>9: unsigned integer</li>
+    <li>10: entity ID</li>
+  </ul>
+  <p>A successful response contains another attribute set. The handoff requires
+  these attributes:</p>
   <ul>
     <li><code>address</code>: native endpoint string;</li>
     <li><code>session_key</code>: exactly 64 private bytes;</li>
@@ -151,8 +166,7 @@ import BgsDispatchDiagram from "../components/BgsDispatchDiagram.astro";
     <li><code>game_account_name</code> and <code>account_mail</code>: private identity strings;</li>
     <li><code>logon_response</code>: a bit-packed native <code>LogonResponse3</code>.</li>
   </ul>
-  <p>These response attributes are the boundary between the generic BGS control
-  plane and SC2's native protocol. The next chapter explains how they are used to
-  open the Sunken connection.</p>
+  <p>These attributes transfer the session from Front to Sunken. The
+  handoff section defines their use.</p>
   <BackToContents />
 </Chapter>

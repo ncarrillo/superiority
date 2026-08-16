@@ -78,8 +78,13 @@ impl ChannelComponent {
                     }))
             })
             .collect();
+        let tab_leading = if cfg!(target_os = "windows") {
+            TAB_BAR_HEIGHT
+        } else {
+            TAB_LEADING_SPACE
+        };
         let tabs = ui_navigation::ChannelTabs::new(tabs, chrome.ui_assets.clone())
-            .leading(TAB_LEADING_SPACE)
+            .leading(tab_leading)
             .on_add(cx.listener(|this, _, window, cx| {
                 this.composer.composer_focused = false;
                 this.roster.roster.focused = false;
@@ -94,70 +99,83 @@ impl ChannelComponent {
                 this.overlays.closing = false;
                 cx.notify();
             }));
-        let control_end = TAB_LEADING_SPACE + tabs.tail() + 47.0;
+        let control_end = tab_leading + tabs.tail() + 47.0;
 
         let background = chrome
             .top_nav_background
             .as_ref()
             .map(|background| gpui::ImageSource::from(background.clone()));
 
-        ui_navigation::bar(background)
+        #[cfg(target_os = "windows")]
+        let drag_right = platform::WINDOW_CONTROLS_WIDTH;
+        #[cfg(target_os = "macos")]
+        let drag_right = TAB_BAR_HEIGHT;
+
+        let drag_region = div()
+            .id("window-drag-region")
+            .absolute()
+            .top_0()
+            .left(px(control_end))
+            .right(px(drag_right))
+            .h(px(TAB_BAR_HEIGHT));
+        #[cfg(target_os = "windows")]
+        let drag_region = drag_region.window_control_area(WindowControlArea::Drag);
+        #[cfg(target_os = "macos")]
+        let drag_region = drag_region.on_mouse_down(MouseButton::Left, |_, window, cx| {
+            cx.stop_propagation();
+            platform::begin_window_drag(window);
+        });
+
+        let account = div()
+            .id("account")
+            .absolute()
+            .top_0()
+            .size(px(TAB_BAR_HEIGHT * 69.0 / 72.0))
+            .bg(rgb(0x0b121a))
+            .border_1()
+            .border_color(rgb(0x1d649c))
+            .cursor_pointer()
+            .hover(|style| style.bg(rgb(0x16273e)).shadow_lg())
+            .active(|style| style.bg(rgb(0x1d3a5c)).opacity(0.84))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.composer.composer_focused = false;
+                this.roster.roster.focused = false;
+                if this.overlays.active == Some(Overlay::Account) {
+                    this.dismiss_overlay(window, cx);
+                } else {
+                    this.overlays.active = Some(Overlay::Account);
+                    this.overlays.closing = false;
+                    cx.notify();
+                }
+            }))
+            .child(
+                account_portrait
+                    .map_or_else(|| img("images/icons/account-placeholder.png"), img)
+                    .absolute()
+                    .top(px(3.0))
+                    .left(px(3.0))
+                    .size(px(35.0))
+                    .object_fit(ObjectFit::Contain),
+            )
+            .child(
+                img("images/nine-patch/portraits/frame.png")
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Fill),
+            );
+        #[cfg(target_os = "windows")]
+        let account = account.left_0().rounded_tl(px(11.0));
+        #[cfg(target_os = "macos")]
+        let account = account.right_0().rounded_tr(px(11.0));
+
+        let navigation = ui_navigation::bar(background)
             .child(tabs)
-            .child(
-                div()
-                    .id("window-drag-region")
-                    .absolute()
-                    .top_0()
-                    .left(px(control_end))
-                    .right(px(TAB_BAR_HEIGHT))
-                    .h(px(TAB_BAR_HEIGHT))
-                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                        cx.stop_propagation();
-                        platform::begin_window_drag(window);
-                    }),
-            )
-            .child(
-                div()
-                    .id("account")
-                    .absolute()
-                    .right_0()
-                    .top_0()
-                    .size(px(TAB_BAR_HEIGHT * 69.0 / 72.0))
-                    .bg(rgb(0x0b121a))
-                    .border_1()
-                    .border_color(rgb(0x1d649c))
-                    .rounded_tr(px(11.0))
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(0x16273e)).shadow_lg())
-                    .active(|style| style.bg(rgb(0x1d3a5c)).opacity(0.84))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.composer.composer_focused = false;
-                        this.roster.roster.focused = false;
-                        if this.overlays.active == Some(Overlay::Account) {
-                            this.dismiss_overlay(window, cx);
-                        } else {
-                            this.overlays.active = Some(Overlay::Account);
-                            this.overlays.closing = false;
-                            cx.notify();
-                        }
-                    }))
-                    .child(
-                        account_portrait
-                            .map_or_else(|| img("images/icons/account-placeholder.png"), img)
-                            .absolute()
-                            .top(px(3.0))
-                            .left(px(3.0))
-                            .size(px(35.0))
-                            .object_fit(ObjectFit::Contain),
-                    )
-                    .child(
-                        img("images/nine-patch/portraits/frame.png")
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .size_full()
-                            .object_fit(ObjectFit::Fill),
-                    ),
-            )
+            .child(drag_region)
+            .child(account);
+        #[cfg(target_os = "windows")]
+        let navigation = navigation.child(platform::window_controls(_window));
+        navigation
     }
 }

@@ -21,16 +21,19 @@ pub(crate) struct DecodedIncoming {
 
 pub const AUTHENTICATION_SLOT: u8 = 0;
 pub const CONNECTION_SLOT: u8 = 1;
+pub const ACHIEVEMENT_SLOT: u8 = 8;
 pub const AUTH_LOGON_COMMAND: u8 = 0;
 pub const AUTH_RESUME_COMMAND: u8 = 1;
 pub const AUTH_PROOF_COMMAND: u8 = 2;
 pub const AUTH_CONFIGURATION_COMMAND: u8 = 18;
+pub const AUTH_GENERATE_WEB_TOKEN_COMMAND: u8 = 16;
 pub const AUTH_SINGLE_SIGN_ON_COMMAND: u8 = 17;
 pub const CONNECTION_BOOM_COMMAND: u8 = 1;
 pub const CONNECTION_SERVER_VERSION_COMMAND: u8 = 3;
 pub const CONNECTION_ENABLE_ENCRYPTION_COMMAND: u8 = 5;
 pub const CONNECTION_PING_COMMAND: u8 = 10;
 pub const CONNECTION_REGULATOR_COMMAND: u8 = 11;
+pub const CONNECTION_PONG_COMMAND: u8 = 12;
 pub const CONNECTION_MESSAGE_FRAME_COMMAND: u8 = 13;
 pub const CONNECTION_GAME_SITE_INFO_COMMAND: u8 = 14;
 pub const FRIENDS_SLOT: u8 = 3;
@@ -56,8 +59,12 @@ pub const CHAT_WHISPER_SEND_COMMAND: u8 = 19;
 pub const CHAT_WHISPER_RECV_COMMAND: u8 = 19;
 pub const CHAT_WHISPER_UNDELIVERABLE_COMMAND: u8 = 20;
 pub const CHAT_WHISPER_ECHO_COMMAND: u8 = 30;
+pub const CHAT_MODIFY_CHANNEL_LIST_COMMAND: u8 = 32;
+pub const CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND: u8 = 33;
 pub const CHAT_CHANNEL_LIST_REQUEST_COMMAND: u8 = 21;
 pub const CHAT_ENUM_CONFERENCES_COMMAND: u8 = 25;
+pub const CHAT_ENUM_CATEGORIES_COMMAND: u8 = 23;
+pub const CHAT_CATEGORY_DESCRIPTIONS_COMMAND: u8 = 24;
 pub const CACHE_GET_STREAM_ITEMS_COMMAND: u8 = 9;
 pub const TOON_SELECT_COMMAND: u8 = 5;
 pub const FRIENDS_LIST_COMMAND: u8 = 30;
@@ -75,9 +82,18 @@ pub const CHAT_CONFERENCES_RESPONSE_COMMAND: u8 = 26;
 pub const CHAT_JOIN_NOTIFY_COMMAND: u8 = 27;
 pub const PARTY_NON_LOBBY_ATTRIBUTE_CHANGE_COMMAND: u8 = 0;
 pub const PARTY_BEGIN_READY_PROCESS_COMMAND: u8 = 12;
+pub const PARTY_READY_PROCESS_UPDATE_COMMAND: u8 = 14;
 pub const PARTY_MAP_OPTIONS_CHANGE_COMMAND: u8 = 20;
 pub const S2_MASTER_CURRENT_SEASON_COMMAND: u8 = 27;
+pub const S2_MASTER_MMQ_GET_INFO_COMMAND: u8 = 17;
+pub const S2_MASTER_MMQ_GET_LIST_COMMAND: u8 = 28;
+pub const S2_MASTER_SITE_LATENCY_INFO_COMMAND: u8 = 35;
 pub const S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND: u8 = 57;
+pub const S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND: u8 = 11;
+pub const S2_MAP_GAME_GROUP_UPDATE_COMMAND: u8 = 12;
+pub const S2_MAP_LIST_FAVORITES_COMMAND: u8 = 13;
+pub const ACHIEVEMENT_LISTEN_COMMAND: u8 = 0;
+pub const ACHIEVEMENT_DATA_COMMAND: u8 = 2;
 pub const S2_MULTIPLAYER_MEMBER_CLAN_TAGS_RESPONSE_COMMAND: u8 = 53;
 pub const S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND: u8 = 46;
 pub const S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND: u8 = 51;
@@ -85,14 +101,24 @@ pub const S2_MULTIPLAYER_INVITE_ACTION_COMMAND: u8 = 54;
 pub const S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND: u8 = 55;
 pub const INVITE_RECORD_BYTES: usize = 26;
 pub const PROFILE_SETTINGS_AVAILABLE_COMMAND: u8 = 4;
+pub const PROFILE_CHANGE_SETTINGS_COMMAND: u8 = 5;
 pub const PROFILE_READ_COMMAND: u8 = 0;
 pub const PROFILE_ADDRESS_QUERY_COMMAND: u8 = 1;
 pub const PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND: u8 = 3;
 pub const PROFILE_RESOLVE_TOON_NAME_RESPONSE_COMMAND: u8 = 3;
+pub const PROFILE_SEND_STATS_UI_EVENTS_COMMAND: u8 = 8;
 pub const TOON_LIST_COMMAND: u8 = 0;
+pub const TOON_CREATE_INIT_COMMAND: u8 = 1;
+pub const TOON_CREATE_SETUP_COMMAND: u8 = 2;
+pub const TOON_CREATE_FINAL_COMMAND: u8 = 3;
+pub const TOON_CREATE_CANCEL_COMMAND: u8 = 4;
 pub const TOON_SELECTED_COMMAND: u8 = 6;
+pub const TOON_CREATED_COMMAND: u8 = 7;
+pub const TOON_FAILURE_COMMAND: u8 = 8;
 pub const TOON_WELCOME_COMMAND: u8 = 10;
+pub const TOON_BILLING_UPDATE_COMMAND: u8 = 13;
 pub const TOON_INITIAL_NOTIFIES_COMPLETE_COMMAND: u8 = 14;
+pub const TOON_CAIS_TIME_UPDATE_COMMAND: u8 = 23;
 
 pub const SC2_NATIVE_VERSION: u64 = 0x000a_16a7;
 pub const SC2_MACOS_NATIVE_VERSIONS: [(&str, &str, u64); 5] = [
@@ -121,6 +147,10 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
         "Battlenet::Client::Authentication::ResumeResponse",
     ),
     (
+        (AUTHENTICATION_SLOT, AUTH_GENERATE_WEB_TOKEN_COMMAND),
+        "Battlenet::Client::Authentication::GenerateWebTokenResponse",
+    ),
+    (
         (CONNECTION_SLOT, CONNECTION_BOOM_COMMAND),
         "Battlenet::Client::Connection::Boom",
     ),
@@ -139,6 +169,10 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
     (
         (CONNECTION_SLOT, CONNECTION_GAME_SITE_INFO_COMMAND),
         "Battlenet::Client::Connection::GameSiteInfo",
+    ),
+    (
+        (ACHIEVEMENT_SLOT, ACHIEVEMENT_DATA_COMMAND),
+        "Battlenet::Client::Achievement::Data",
     ),
     (
         (FRIENDS_SLOT, FRIENDS_TOONS_COMMAND),
@@ -197,12 +231,20 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
         "Battlenet::Client::Chat::ChannelListResponse",
     ),
     (
+        (CHAT_SLOT, CHAT_CATEGORY_DESCRIPTIONS_COMMAND),
+        "Battlenet::Client::Chat::CategoryDescriptions",
+    ),
+    (
         (CHAT_SLOT, CHAT_CONFERENCES_RESPONSE_COMMAND),
         "Battlenet::Client::Chat::ConferenceDescriptions",
     ),
     (
         (CHAT_SLOT, CHAT_JOIN_NOTIFY_COMMAND),
         "Battlenet::Client::Chat::JoinNotify2",
+    ),
+    (
+        (CHAT_SLOT, CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND),
+        "Battlenet::Client::Chat::ModifyChannelListResponse2",
     ),
     (
         (CHAT_SLOT, CHAT_INVITE_NOTIFY_COMMAND),
@@ -217,12 +259,24 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
         "Battlenet::Client::Party::BeginReadyProcess",
     ),
     (
+        (PARTY_SLOT, PARTY_READY_PROCESS_UPDATE_COMMAND),
+        "Battlenet::Client::Party::ReadyProcessUpdate",
+    ),
+    (
         (PARTY_SLOT, PARTY_MAP_OPTIONS_CHANGE_COMMAND),
         "Battlenet::Client::Party::MapOptionsChange",
     ),
     (
         (S2_MASTER_SLOT, S2_MASTER_CURRENT_SEASON_COMMAND),
         "Battlenet::Client::S2Master::CurrentSeasonResponse",
+    ),
+    (
+        (S2_MASTER_SLOT, S2_MASTER_MMQ_GET_LIST_COMMAND),
+        "Battlenet::Client::S2Master::MMQGetListResponse",
+    ),
+    (
+        (S2_MULTIPLAYER_SLOT, S2_MAP_LIST_FAVORITES_COMMAND),
+        "Battlenet::Client::S2Map::S2ListMapFavoritesResponse",
     ),
     (
         (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND),
@@ -272,12 +326,28 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
         "Battlenet::Client::Toon::ToonList",
     ),
     (
+        (TOON_SLOT, TOON_CREATE_SETUP_COMMAND),
+        "Battlenet::Client::Toon::ToonCreateSetup",
+    ),
+    (
+        (TOON_SLOT, TOON_CREATED_COMMAND),
+        "Battlenet::Client::Toon::ToonCreated",
+    ),
+    (
         (TOON_SLOT, TOON_SELECTED_COMMAND),
         "Battlenet::Client::Toon::ToonSelected",
     ),
     (
+        (TOON_SLOT, TOON_FAILURE_COMMAND),
+        "Battlenet::Client::Toon::Failure",
+    ),
+    (
         (TOON_SLOT, TOON_WELCOME_COMMAND),
         "Battlenet::Client::Toon::Welcome",
+    ),
+    (
+        (TOON_SLOT, TOON_BILLING_UPDATE_COMMAND),
+        "Battlenet::Client::Toon::BillingUpdateNotify",
     ),
     (
         (TOON_SLOT, TOON_INITIAL_NOTIFIES_COMPLETE_COMMAND),
@@ -1897,7 +1967,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             protocol.codec.wire_layout_support(invite).unwrap(),
-            WireLayoutSupport::Custom("generated Club::InviteAction")
+            WireLayoutSupport::Custom("identity Client::Club::InviteAction")
         ));
 
         let clubs = protocol
@@ -2275,7 +2345,7 @@ mod tests {
             ("value.m_action.m_member.m_realm", 53..85),
             ("value.m_action.m_member.m_id", 85..149),
             ("value.m_action.m_clubId", 149..181),
-            ("value.m_action.reserved", 181..192),
+            ("value.m_action.filler_before_m_result", 181..192),
             ("value.m_action.m_result", 192..208),
         ] {
             let field = decoded
@@ -2747,6 +2817,54 @@ mod tests {
         assert_eq!(
             hex::encode(&maintenance[1]),
             "4d010501030080057e4002020a030181044151c9b9030000000002c3136e8d0c000000000b00000001090001"
+        );
+    }
+
+    #[test]
+    fn toon_creation_responses_use_the_embedded_schema() {
+        let protocol = protocol();
+        let setup_type = protocol
+            .incoming_type(TOON_SLOT, TOON_CREATE_SETUP_COMMAND)
+            .unwrap();
+        let setup = protocol
+            .encode_record(
+                TOON_CREATE_SETUP_COMMAND,
+                TOON_SLOT,
+                setup_type,
+                &protocol.struct_value(setup_type, Vec::new()).unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            decode_incoming(&protocol, &setup),
+            Payload::Reflected(BsnValue::Struct(_))
+        ));
+
+        assert!(
+            protocol
+                .incoming_type(TOON_SLOT, TOON_CREATED_COMMAND)
+                .is_ok()
+        );
+
+        let failure_type = protocol
+            .incoming_type(TOON_SLOT, TOON_FAILURE_COMMAND)
+            .unwrap();
+        let failure = protocol
+            .encode_record(
+                TOON_FAILURE_COMMAND,
+                TOON_SLOT,
+                failure_type,
+                &protocol
+                    .struct_value(failure_type, vec![("m_error", BsnValue::Integer(42))])
+                    .unwrap(),
+            )
+            .unwrap();
+        let Payload::Reflected(BsnValue::Struct(failure)) = decode_incoming(&protocol, &failure)
+        else {
+            panic!("expected reflected Toon::Failure");
+        };
+        assert_eq!(
+            failure.get("m_error").and_then(BsnValue::as_integer),
+            Some(42)
         );
     }
 

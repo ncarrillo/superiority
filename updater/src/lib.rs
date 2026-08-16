@@ -20,4 +20,7 @@ pub use platform::{
     wait_for_process,
 };
 pub use protocol::Event;
-pub use publishing::{add_platform_artifact, preserve_platform_artifacts, publish_macos_release};
+pub use publishing::{
+    add_platform_artifact, preserve_platform_artifacts, publish_macos_release,
+    publish_platform_release,
+};

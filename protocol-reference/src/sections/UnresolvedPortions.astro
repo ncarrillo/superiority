@@ -4,22 +4,25 @@ import BackToContents from "../components/BackToContents.astro";
 ---
 
 <Chapter id="unknowns">
-<h2>10. Unresolved portions</h2>
+<h2>Open questions</h2>
   <ol>
-    <li><code>Frnd/33</code> is defined for an empty page; the generated order of a
-    non-empty toon-block entry remains unknown.</li>
-    <li>Server echo of an outbound <code>Chat/11</code> message still needs explicit
-    verification. Automated validation remains passive and never sends chat.</li>
-    <li>Numeric public-channel identifiers still need a reliable source of localized
-    display names.</li>
-    <li>The whisper family (<code>Chat/19</code>, <code>Chat/30</code>), the group
-    subsystem (<code>S2Mp/46</code>, <code>51</code>, <code>53</code>, <code>54</code>,
-    <code>55</code>), presence targeting (<code>Pres/2</code>, <code>3</code>,
-    <code>4</code>), and the toon-resolution routes (<code>Prfl/1</code>,
-    <code>3</code>, <code>Frnd/6</code>) now have established command mappings and
-    generated wire orders; they are documented in the service reference above.
-    <code>Chat/20</code> WhisperUndeliverable is mapped but not yet decoded, and
-    services still absent from any capture remain metadata-only.</li>
+    <li><code>Frnd/33</code> is defined for an empty page. The generated order for a
+    non-empty toon-block entry is unknown.</li>
+    <li>The server echo of client <code>Chat/11</code> requires verification.
+    Automated validation treats chat as read-only.</li>
+    <li><code>Chat/20</code> WhisperUndeliverable has a declared command constant.
+    Its inbound type mapping, payload, and boundary remain unresolved.</li>
+    <li><code>Prty/0</code> and slot 13 command 50 use observed fixed-size skips.
+    Their payload structures remain unresolved.</li>
+    <li><code>Toon/23</code> decodes in reflection order for the current capture.
+    Its marked layout remains a candidate pending independent confirmation.</li>
+    <li><code>Auth/16</code> has the captured GenerateWebToken shape. Related
+    generated interfaces also call the same shape GenerateAppToken, so the route's
+    preferred semantic name remains ambiguous.</li>
+    <li><code>Conference::CategoryDescription</code> contains generated state and a
+    generated locator variant outside the simple field-permutation layout model.
+    The logical ID, name ID, and sort order are decoded; the generated internals are
+    intentionally reported as ignored.</li>
   </ol>
   <BackToContents />
 </Chapter>

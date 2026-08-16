@@ -6,11 +6,24 @@ fn window_bounds(cx: &App) -> Bounds<gpui::Pixels> {
 
 pub fn run() {
     let resources = platform::resource_directory();
+    #[cfg(target_os = "windows")]
+    let dock_action = std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|arguments| arguments[0] == "--dock-action")
+        .and_then(|arguments| arguments[1].parse::<usize>().ok());
+    #[cfg(target_os = "windows")]
+    if platform::forward_dock_action(dock_action) {
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    let dock_action_events = platform::listen_for_dock_actions();
     platform::application()
         .with_assets(Assets {
             base: resources.clone(),
         })
         .run(move |cx: &mut App| {
+            cx.set_app_identity("com.superiority.sc2-chat", "Superiority");
             chrome::load_fonts(&resources, cx);
             ui_text_input::init(cx);
             let (app_menu_commands, app_menu_events) = std::sync::mpsc::channel();
@@ -47,7 +60,7 @@ pub fn run() {
                             appears_transparent: true,
                             ..Default::default()
                         }),
-                        is_movable: false,
+                        is_movable: cfg!(target_os = "windows"),
                         ..Default::default()
                     },
                     move |window, cx| {
@@ -93,6 +106,36 @@ pub fn run() {
                     disabled: false,
                 },
             ]);
+            #[cfg(target_os = "windows")]
+            {
+                cx.update_jump_list(
+                    vec![
+                        MenuItem::action("About Superiority", About),
+                        MenuItem::action("Check for Updates…", CheckForUpdates),
+                        MenuItem::action("Settings…", OpenSettings),
+                        MenuItem::action("Protocol Viewer…", OpenProtocolViewer),
+                    ],
+                    Vec::new(),
+                )
+                .detach();
+                if let Some(index) = dock_action {
+                    cx.perform_dock_menu_action(index);
+                }
+                cx.spawn(async move |cx| {
+                    loop {
+                        while let Ok(index) = dock_action_events.try_recv() {
+                            cx.update(|cx| {
+                                cx.perform_dock_menu_action(index);
+                                cx.activate(true);
+                            });
+                        }
+                        cx.background_executor()
+                            .timer(Duration::from_millis(50))
+                            .await;
+                    }
+                })
+                .detach();
+            }
             platform::install_app_menu_targets(&app_menu_target);
             cx.activate(true);
         });

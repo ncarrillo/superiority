@@ -7,8 +7,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Div, ImageSource, IntoElement, RenderOnce, ScrollHandle,
-    UniformListScrollHandle, Window, div, ease_in_out, prelude::*, px,
+    AnyElement, App, Div, ImageSource, IntoElement, ObjectFit, RenderOnce, ScrollHandle,
+    StyledImage as _, UniformListScrollHandle, Window, div, ease_in_out, img, prelude::*, px, rgba,
 };
 
 use crate::{
@@ -23,6 +23,7 @@ use crate::{
 };
 
 const CHANNEL_CROSSFADE_DURATION: Duration = Duration::from_millis(320);
+type HoverHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, Debug)]
 struct ChannelCrossfade<C> {
@@ -354,6 +355,7 @@ pub struct ChannelWorkspace {
     chat: AnyElement,
     roster: AnyElement,
     footer: Option<AnyElement>,
+    background: Option<ImageSource>,
     layout: ChannelChromeLayout,
 }
 
@@ -369,6 +371,7 @@ impl ChannelWorkspace {
             chat: chat.into_any_element(),
             roster: roster.into_any_element(),
             footer: None,
+            background: None,
             layout: ChannelChromeLayout::default(),
         }
     }
@@ -376,6 +379,12 @@ impl ChannelWorkspace {
     #[must_use]
     pub fn footer(mut self, footer: impl IntoElement) -> Self {
         self.footer = Some(footer.into_any_element());
+        self
+    }
+
+    #[must_use]
+    pub fn background(mut self, background: impl Into<ImageSource>) -> Self {
+        self.background = Some(background.into());
         self
     }
 
@@ -393,6 +402,7 @@ impl RenderOnce for ChannelWorkspace {
             self.chat,
             self.roster,
             self.footer,
+            self.background,
             self.layout,
         )
     }
@@ -408,6 +418,7 @@ pub struct ChannelRoster {
     width: Option<f32>,
     overlays: Vec<AnyElement>,
     focused: bool,
+    on_hover: Option<HoverHandler>,
 }
 
 impl ChannelRoster {
@@ -422,6 +433,7 @@ impl ChannelRoster {
             width: Some(crate::theme::ROSTER_WIDTH),
             overlays: Vec::new(),
             focused: false,
+            on_hover: None,
         }
     }
 
@@ -455,6 +467,12 @@ impl ChannelRoster {
         self.focused = focused;
         self
     }
+
+    #[must_use]
+    pub fn on_hover(mut self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
+        self.on_hover = Some(Box::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for ChannelRoster {
@@ -472,6 +490,9 @@ impl RenderOnce for ChannelRoster {
         let mut panel = roster::RosterPanel::new(header, rows)
             .width(self.width)
             .focused(self.focused);
+        if let Some(on_hover) = self.on_hover {
+            panel = panel.on_hover(on_hover);
+        }
         for overlay in self.overlays {
             panel = panel.overlay(overlay);
         }
@@ -481,7 +502,6 @@ impl RenderOnce for ChannelRoster {
 
 #[derive(IntoElement)]
 pub struct ChannelChat {
-    background: ImageSource,
     current: AnyElement,
     outgoing: Option<AnyElement>,
     progress: Option<f32>,
@@ -490,9 +510,8 @@ pub struct ChannelChat {
 
 impl ChannelChat {
     #[must_use]
-    pub fn new(background: impl Into<ImageSource>, current: impl IntoElement) -> Self {
+    pub fn new(current: impl IntoElement) -> Self {
         Self {
-            background: background.into(),
             current: current.into_any_element(),
             outgoing: None,
             progress: None,
@@ -516,7 +535,7 @@ impl ChannelChat {
 
 impl RenderOnce for ChannelChat {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let mut panel = chat::ChatPanel::new(self.background).child(transition_layers(
+        let mut panel = chat::ChatPanel::new().child(transition_layers(
             self.current,
             self.outgoing,
             self.progress,
@@ -582,6 +601,7 @@ fn channel_chrome_with_layout(
     chat: impl IntoElement,
     roster: impl IntoElement,
     footer: Option<AnyElement>,
+    background: Option<ImageSource>,
     layout: ChannelChromeLayout,
 ) -> Div {
     let mut panels = div()
@@ -603,26 +623,36 @@ fn channel_chrome_with_layout(
         panels = panels.child(chat).child(roster);
     }
 
+    let mut content = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .gap(px(layout.gap))
+        .pt(px(layout.top_padding))
+        .px(px(layout.margin))
+        .pb(px(layout.margin));
+    if let Some(background) = background {
+        content = content.child(
+            div()
+                .absolute()
+                .inset_0()
+                .overflow_hidden()
+                .child(img(background).size_full().object_fit(ObjectFit::Fill))
+                .child(div().absolute().inset_0().bg(rgba(0x0407_0bc7))),
+        );
+    }
+    content = content.child(panels).children(footer);
+
     div()
         .absolute()
         .inset_0()
         .flex()
         .flex_col()
         .child(navigation)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .gap(px(layout.gap))
-                .pt(px(layout.top_padding))
-                .px(px(layout.margin))
-                .pb(px(layout.margin))
-                .child(panels)
-                .children(footer),
-        )
+        .child(content)
 }
 
 #[cfg(test)]

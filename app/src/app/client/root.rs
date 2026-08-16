@@ -1,7 +1,11 @@
 use super::*;
 
 impl SuperiorityView {
-    pub(super) fn overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn overlay(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         match self.overlays.active? {
             Overlay::Account => Some(self.overlays.account(
                 self.local_account(),
@@ -9,13 +13,17 @@ impl SuperiorityView {
                 &self.chrome,
                 cx,
             )),
-            Overlay::Friends => Some(self.social.overlay(&self.chrome, &self.overlays, cx)),
-            Overlay::Join => {
-                Some(
-                    self.join
-                        .overlay(&self.channels.tabs, &self.chrome, &self.overlays, cx),
-                )
-            }
+            Overlay::Friends => Some(
+                self.social
+                    .overlay(&self.chrome, &self.overlays, window, cx),
+            ),
+            Overlay::Join => Some(self.join.overlay(
+                &self.channels.tabs,
+                &self.chrome,
+                &self.overlays,
+                window,
+                cx,
+            )),
             Overlay::Settings => {
                 let live_url = self.runtime.uplink.stats.feed_url();
                 let live_error = self
@@ -37,6 +45,7 @@ impl SuperiorityView {
                     &self.social.blocked_accounts,
                     live_url,
                     live_error,
+                    window,
                     cx,
                 ))
             }
@@ -95,15 +104,17 @@ impl Render for SuperiorityView {
             &self.channels,
             self.selected_user(),
             &self.chrome.ui_assets,
+            window,
             cx,
         );
         let composer =
             self.composer
                 .view(window, self.channels.active().is_some(), online_friends, cx);
-        let chat_chrome =
-            div().id("chat-chrome").absolute().inset_0().child(
-                ui_workspace::ChannelWorkspace::new(navigation, chat, roster).footer(composer),
-            );
+        let chat_chrome = div().id("chat-chrome").absolute().inset_0().child(
+            ui_workspace::ChannelWorkspace::new(navigation, chat, roster)
+                .footer(composer)
+                .background(self.settings.background),
+        );
         let conceal_chat = self.connection.dialog_visible
             || self.updates.startup_connection_pending
             || matches!(
@@ -121,7 +132,7 @@ impl Render for SuperiorityView {
         } else {
             root = root.child(chat_chrome);
         }
-        if let Some(overlay) = self.overlay(cx) {
+        if let Some(overlay) = self.overlay(window, cx) {
             root = root.child(overlay);
         }
         if self.runtime.live_mode && self.connection.dialog_visible {
@@ -131,7 +142,7 @@ impl Render for SuperiorityView {
             root = root.child(self.warnings.overlay(&self.chrome, cx));
         }
         if self.updates.update_dialog_visible {
-            root = root.child(self.updates.overlay(&self.chrome, cx));
+            root = root.child(self.updates.overlay(&self.chrome, window, cx));
         }
         root
     }

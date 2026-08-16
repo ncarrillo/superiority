@@ -5,6 +5,7 @@ pub mod modal;
 pub mod navigation;
 pub mod release_notes;
 pub mod roster;
+pub mod scrollbar;
 mod shell;
 pub mod text_input;
 pub mod workspace;

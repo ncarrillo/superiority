@@ -84,11 +84,17 @@ impl WarningComponent {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_center()
-                .text_size(px(19.5))
-                .line_height(px(24.0))
-                .text_color(rgb(0xedc78c))
-                .child(detail),
+                .child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .whitespace_normal()
+                        .text_center()
+                        .text_size(px(19.5))
+                        .line_height(px(24.0))
+                        .text_color(rgb(0xedc78c))
+                        .child(detail),
+                ),
         );
         if disconnected {
             card = card
