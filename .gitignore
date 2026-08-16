@@ -45,3 +45,4 @@ sc2-*.pcapng
 .wrangler/
 .claude
 assets
+AGENTS.md

@@ -2,19 +2,17 @@ use std::{cell::RefCell, ops::Range, rc::Rc};
 
 use gpui::{
     AnyElement, App, Bounds, DispatchPhase, Div, Element, ElementId, GlobalElementId,
-    HighlightStyle, Hitbox, HitboxBehavior, ImageSource, InspectorElementId, IntoElement, LayoutId,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels, RenderOnce,
-    ScrollHandle, Stateful, StyledImage as _, StyledText, Window, div, img, prelude::*, px, rgb,
-    rgba,
+    HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, RenderOnce, ScrollHandle, Stateful,
+    StyledText, Window, div, prelude::*, px, rgb, rgba,
 };
 
 use crate::{
     TranscriptLine,
-    theme::{
-        ACCENT, FONT_INTERFACE, FONT_INTERNATIONAL, MUTED, NOTICE, ONLINE, PANEL_BACKGROUND,
-        PANEL_BORDER, TEXT,
-    },
+    components::scrollbar::{ScrollbarAxes, Scrollbars, WithScrollbar as _},
+    theme::{ACCENT, FONT_INTERFACE, FONT_INTERNATIONAL, MUTED, NOTICE, ONLINE, TEXT},
 };
+use url::Url;
 
 const SELECTION_BACKGROUND: u32 = 0x1769_9dcc;
 
@@ -29,6 +27,14 @@ struct SelectionState {
     anchor: Option<TextPosition>,
     focus: Option<TextPosition>,
     dragging: bool,
+    pressed_link: Option<PressedLink>,
+}
+
+#[derive(Clone)]
+struct PressedLink {
+    row: usize,
+    range: Range<usize>,
+    destination: String,
 }
 
 #[derive(Clone, Default)]
@@ -112,6 +118,22 @@ impl TranscriptSelection {
         }
         state.focus = Some(position);
         state.dragging = true;
+        state.pressed_link = None;
+    }
+
+    fn press_link(&self, row: usize, range: Range<usize>, destination: String) {
+        let mut state = self.0.borrow_mut();
+        state.dragging = false;
+        state.pressed_link = Some(PressedLink {
+            row,
+            range,
+            destination,
+        });
+    }
+
+    fn release_link(&self, row: usize, offset: usize) -> Option<String> {
+        let pressed = self.0.borrow_mut().pressed_link.take()?;
+        (pressed.row == row && pressed.range.contains(&offset)).then_some(pressed.destination)
     }
 
     pub fn end(&self) {
@@ -123,6 +145,7 @@ struct SelectableText {
     id: ElementId,
     row: usize,
     text: StyledText,
+    links: Vec<(Range<usize>, String)>,
     selection: TranscriptSelection,
 }
 
@@ -131,12 +154,14 @@ impl SelectableText {
         id: impl Into<ElementId>,
         row: usize,
         text: StyledText,
+        links: Vec<(Range<usize>, String)>,
         selection: TranscriptSelection,
     ) -> Self {
         Self {
             id: id.into(),
             row,
             text,
+            links,
             selection,
         }
     }
@@ -197,11 +222,18 @@ impl Element for SelectableText {
         cx: &mut App,
     ) {
         let layout = self.text.layout().clone();
-        if hitbox.is_hovered(window) {
+        let hovered_offset = hitbox
+            .is_hovered(window)
+            .then(|| layout.index_for_position(window.mouse_position()).ok())
+            .flatten();
+        if hovered_offset.is_some_and(|offset| link_at(&self.links, offset).is_some()) {
+            window.set_cursor_style(gpui::CursorStyle::PointingHand, hitbox);
+        } else if hitbox.is_hovered(window) {
             window.set_cursor_style(gpui::CursorStyle::IBeam, hitbox);
         }
 
         let row = self.row;
+        let links = self.links.clone();
         let selection = self.selection.clone();
         let down_hitbox = hitbox.clone();
         let down_layout = layout.clone();
@@ -213,7 +245,11 @@ impl Element for SelectableText {
                 let offset = down_layout
                     .index_for_position(event.position)
                     .unwrap_or_else(|offset| offset);
-                selection.begin(row, offset, event.modifiers.shift);
+                if let Some((range, destination)) = link_at(&links, offset) {
+                    selection.press_link(row, range.clone(), destination.clone());
+                } else {
+                    selection.begin(row, offset, event.modifiers.shift);
+                }
                 window.refresh();
             }
         });
@@ -233,9 +269,20 @@ impl Element for SelectableText {
             }
         });
 
+        let row = self.row;
         let selection = self.selection.clone();
-        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, _| {
+        let up_hitbox = hitbox.clone();
+        let up_layout = layout.clone();
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble && event.button == MouseButton::Left {
+                if up_hitbox.is_hovered(window) {
+                    let offset = up_layout.index_for_position(event.position).ok();
+                    if let Some(destination) =
+                        offset.and_then(|offset| selection.release_link(row, offset))
+                    {
+                        cx.open_url(&destination);
+                    }
+                }
                 selection.end();
                 window.refresh();
             }
@@ -244,6 +291,10 @@ impl Element for SelectableText {
         self.text
             .paint(None, inspector_id, bounds, &mut (), &mut (), window, cx);
     }
+}
+
+fn link_at(links: &[(Range<usize>, String)], offset: usize) -> Option<&(Range<usize>, String)> {
+    links.iter().find(|(range, _)| range.contains(&offset))
 }
 
 fn ordered_selection(state: &SelectionState) -> Option<(TextPosition, TextPosition)> {
@@ -261,44 +312,138 @@ struct ContentStyle {
     color: u32,
     emphasis: Option<Range<usize>>,
     accents: Vec<Range<usize>>,
+    links: Vec<(Range<usize>, String)>,
 }
 
 fn content_style(line: &TranscriptLine) -> ContentStyle {
     match line {
-        TranscriptLine::Notice { text, .. } => ContentStyle {
-            text: text.clone(),
-            color: NOTICE,
-            emphasis: None,
-            accents: Vec::new(),
-        },
-        TranscriptLine::Membership { text, .. } => ContentStyle {
-            text: format!("• {text}"),
-            color: MUTED,
-            emphasis: None,
-            accents: vec![0.."•".len()],
-        },
+        TranscriptLine::Notice { text, .. } => {
+            linked_content(text.clone(), NOTICE, None, Vec::new())
+        }
+        TranscriptLine::Membership { text, .. } => {
+            linked_content(format!("• {text}"), MUTED, None, vec![0.."•".len()])
+        }
         TranscriptLine::Message { sender, text, .. } => {
             let prefix = format!("{sender}:");
             let emphasis = 0..prefix.len();
-            let (body, links) = display_message_body(text);
+            let (body, lobby_links) = display_message_body(text);
             let body_start = prefix.len() + 1;
-            ContentStyle {
-                text: format!("{prefix} {body}"),
-                color: TEXT,
-                emphasis: Some(emphasis),
-                accents: links
+            linked_content(
+                format!("{prefix} {body}"),
+                TEXT,
+                Some(emphasis),
+                lobby_links
                     .into_iter()
                     .map(|range| body_start + range.start..body_start + range.end)
                     .collect(),
-            }
+            )
         }
-        TranscriptLine::Error { text, .. } => ContentStyle {
-            text: format!("!  {text}"),
-            color: 0xff6b63,
-            emphasis: Some(0..1),
-            accents: Vec::new(),
-        },
+        TranscriptLine::Error { text, .. } => {
+            linked_content(format!("!  {text}"), 0xff6b63, Some(0..1), Vec::new())
+        }
     }
+}
+
+fn linked_content(
+    text: String,
+    color: u32,
+    emphasis: Option<Range<usize>>,
+    mut accents: Vec<Range<usize>>,
+) -> ContentStyle {
+    let links = recognized_urls(&text);
+    accents.extend(links.iter().map(|(range, _)| range.clone()));
+    ContentStyle {
+        text,
+        color,
+        emphasis,
+        accents,
+        links,
+    }
+}
+
+fn recognized_urls(text: &str) -> Vec<(Range<usize>, String)> {
+    const PREFIXES: [&str; 3] = ["https://", "http://", "www."];
+    let lowercase = text.to_ascii_lowercase();
+    let mut links = Vec::new();
+    let mut cursor = 0;
+
+    while cursor < text.len() {
+        let Some((offset, prefix)) = PREFIXES
+            .iter()
+            .filter_map(|prefix| {
+                lowercase[cursor..]
+                    .find(prefix)
+                    .map(|offset| (offset, *prefix))
+            })
+            .min_by_key(|(offset, _)| *offset)
+        else {
+            break;
+        };
+        let start = cursor + offset;
+        if text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            cursor = start + prefix.len();
+            continue;
+        }
+
+        let raw_end = text[start..]
+            .char_indices()
+            .skip(1)
+            .find_map(|(offset, character)| {
+                (character.is_whitespace() || matches!(character, '<' | '>' | '"' | '\''))
+                    .then_some(start + offset)
+            })
+            .unwrap_or(text.len());
+        let end = trim_url_end(text, start, raw_end);
+        let displayed = &text[start..end];
+        let destination = if prefix == "www." {
+            format!("https://{displayed}")
+        } else {
+            displayed.to_owned()
+        };
+        if Url::parse(&destination)
+            .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+        {
+            links.push((start..end, destination));
+        }
+        cursor = raw_end.max(start + prefix.len());
+    }
+    links
+}
+
+fn trim_url_end(text: &str, start: usize, mut end: usize) -> usize {
+    loop {
+        let Some(character) = text[start..end].chars().next_back() else {
+            return end;
+        };
+        let trim = matches!(character, '.' | ',' | '!' | '?' | ';' | ':')
+            || matches!(character, ')' | ']' | '}')
+                && unmatched_closer(&text[start..end], character);
+        if !trim {
+            return end;
+        }
+        end -= character.len_utf8();
+    }
+}
+
+fn unmatched_closer(value: &str, closer: char) -> bool {
+    let opener = match closer {
+        ')' => '(',
+        ']' => '[',
+        '}' => '{',
+        _ => return false,
+    };
+    value
+        .chars()
+        .filter(|character| *character == closer)
+        .count()
+        > value
+            .chars()
+            .filter(|character| *character == opener)
+            .count()
 }
 
 #[must_use]
@@ -425,37 +570,24 @@ pub fn transcript_text(line: &TranscriptLine) -> String {
 }
 
 #[must_use]
-fn panel(background: ImageSource) -> Div {
+fn panel() -> Div {
     div()
         .relative()
         .flex_1()
         .h_full()
         .min_w_0()
-        .bg(rgb(PANEL_BACKGROUND))
-        .border_1()
-        .border_color(rgb(PANEL_BORDER))
         .overflow_hidden()
-        .child(
-            div()
-                .absolute()
-                .inset(px(4.0))
-                .overflow_hidden()
-                .child(img(background).size_full().object_fit(ObjectFit::Fill))
-                .child(div().absolute().inset_0().bg(rgba(0x0407_0bc7))),
-        )
 }
 
 #[derive(IntoElement)]
 pub(crate) struct ChatPanel {
-    background: ImageSource,
     content: Vec<AnyElement>,
 }
 
 impl ChatPanel {
     #[must_use]
-    pub(crate) fn new(background: impl Into<ImageSource>) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            background: background.into(),
             content: Vec::new(),
         }
     }
@@ -469,7 +601,7 @@ impl ChatPanel {
 
 impl RenderOnce for ChatPanel {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        panel(self.background).children(self.content)
+        panel().children(self.content)
     }
 }
 
@@ -536,13 +668,32 @@ impl TranscriptViewport {
 }
 
 impl RenderOnce for TranscriptViewport {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let selection = self.selection;
-        transcript_viewport(self.id, self.scroll.as_ref())
+        let scroll = self.scroll;
+        let scrollbar_id = self.id.clone();
+        let viewport = transcript_viewport(self.id, scroll.as_ref())
             .font_family(FONT_INTERNATIONAL)
             .text_size(px(13.0))
             .on_mouse_up(MouseButton::Left, move |_, _, _| selection.end())
-            .children(self.content)
+            .children(self.content);
+        if let Some(scroll) = &scroll {
+            div()
+                .id((scrollbar_id.clone(), "viewport"))
+                .absolute()
+                .inset_0()
+                .overflow_hidden()
+                .child(viewport)
+                .custom_scrollbars(
+                    Scrollbars::new(ScrollbarAxes::Vertical)
+                        .id((scrollbar_id, "scrollbar"))
+                        .tracked_scroll_handle(scroll),
+                    window,
+                    cx,
+                )
+        } else {
+            viewport
+        }
     }
 }
 
@@ -584,6 +735,7 @@ pub fn selectable_transcript_row(
         format!("transcript-text-{scope}-{row}"),
         row,
         styled_content(&content, selected_range.as_ref()),
+        content.links,
         selection.clone(),
     );
 
@@ -704,5 +856,36 @@ mod tests {
         let (text, links) = split_media("look https://example.com/cat.gif now");
         assert_eq!(text, "look now");
         assert_eq!(links, vec!["https://example.com/cat.gif"]);
+    }
+
+    #[test]
+    fn transcript_urls_exclude_sentence_punctuation() {
+        let text = "see (https://example.com/a?q=1), then www.example.org/docs.";
+        let links = recognized_urls(text);
+        assert_eq!(
+            links
+                .iter()
+                .map(|(range, destination)| (&text[range.clone()], destination.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("https://example.com/a?q=1", "https://example.com/a?q=1"),
+                ("www.example.org/docs", "https://www.example.org/docs"),
+            ]
+        );
+    }
+
+    #[test]
+    fn transcript_url_ranges_include_the_sender_prefix_offset() {
+        let line = TranscriptLine::Message {
+            time: "7:31 PM".into(),
+            sender: "Nova".into(),
+            text: "open https://example.com".into(),
+        };
+        let content = content_style(&line);
+        assert_eq!(content.links.len(), 1);
+        assert_eq!(
+            &content.text[content.links[0].0.clone()],
+            "https://example.com"
+        );
     }
 }

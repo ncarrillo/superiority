@@ -28,6 +28,7 @@ pub(super) struct SettingsComponent {
     pub(super) settings_page_transition: Option<SettingsPageTransition>,
     pub(super) settings_tooltip: Option<usize>,
     pub(super) checkbox_animations: [Option<CheckboxAnimation>; 3],
+    pub(super) privacy_scroll: ScrollHandle,
 }
 
 impl SettingsComponent {

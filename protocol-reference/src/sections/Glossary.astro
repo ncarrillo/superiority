@@ -4,127 +4,131 @@ import BackToContents from "../components/BackToContents.astro";
 ---
 
 <Chapter id="glossary">
-<h2>11. Glossary</h2>
+<h2>Glossary</h2>
   <dl>
     <dt>Battle.net platform</dt>
-    <dd>The complete modern account and game-service system. It includes BGS, web
-    authentication, GameUtilities, and game-native services.</dd>
+    <dd>The complete modern account and game-service system. It includes web
+    authentication, Front, GameUtilities, Sunken, and game-native services.</dd>
 
-    <dt>BGS (Battle.net Game Services)</dt>
-    <dd>The protobuf RPC layer carried here as one RPC per WebSocket binary message
-    inside TLS. BGS handles generic connection, authentication, challenge, account,
-    and GameUtilities calls.</dd>
-
-    <dt>BGS WebSocket</dt>
-    <dd>The RFC 6455 transport selected with subprotocol
-    <code>v1.rpc.battle.net</code>. Its binary-message boundary delimits the complete
-    BGS RPC body when the protobuf header omits <code>size</code>.</dd>
+    <dt>Front WebSocket</dt>
+    <dd>The RFC 6455 transport with subprotocol <code>v1.rpc.battle.net</code>. One
+    binary message contains one complete Front RPC message.</dd>
 
     <dt>Cached web credential</dt>
-    <dd>An opaque value returned by AuthenticationServer method 8 after successful
-    authentication and offered in a later LogonRequest. It is distinct from the
-    short-lived credential returned by the interactive web challenge.</dd>
-
-    <dt>BSN</dt>
-    <dd>This document's short name for SC2's native, bit-packed service protocol.
-    It is schema-delimited and routed by service slot and command.</dd>
+    <dd>An opaque value from AuthenticationServer method 8. A later LogonRequest can
+    use this value. The web challenge returns a separate short-lived credential.</dd>
 
     <dt>Front</dt>
-    <dd>The regional SC2 BGS connection used before the native handoff.</dd>
+    <dd>The regional SC2 account and session connection. It carries protobuf RPC
+    over WebSocket and supplies the native handoff.</dd>
 
     <dt>Sunken</dt>
     <dd>The SC2-native endpoint that accepts Resume authentication and then carries
-    protected BSN service traffic.</dd>
+    protected, bit-packed service records.</dd>
 
     <dt>GameUtilities</dt>
-    <dd>A generic BGS service. Its <code>ProcessClientRequest</code> method performs
+    <dd>A protobuf service available through Front. Its <code>ProcessClientRequest</code> method performs
     the SC2-specific Front-to-Sunken handoff on this path.</dd>
 
     <dt>Protobuf descriptor</dt>
-    <dd>Schema metadata for a BGS message or service. BGS service names and methods
+    <dd>Schema metadata for a Front message or service. Service names and methods
     are recoverable from standard protobuf descriptors embedded in the client.</dd>
 
     <dt>BSN metadata</dt>
-    <dd>SC2's separate version-7 native type library, embedded in the executable
-    rather than sent in BSN records. A numeric type ID selects a structural record
-    and an optional naming record; recursively resolving child IDs produces the
-    logical payload schema. It is not a protobuf descriptor set.</dd>
+    <dd>Version-7 schema metadata embedded in the SC2 executable. A numeric type ID
+    selects a structural record and an optional naming record. Front uses separate
+    protobuf descriptors.</dd>
 
     <dt>Frame</dt>
-    <dd>A BGS header/body unit, or the explicitly named native
-    <code>Connection/13 MessageFrame</code>. The term is not used as a synonym for
-    every native BSN record.</dd>
+    <dd>The explicitly named Sunken <code>Connection/13 MessageFrame</code> type.
+    Front RPC messages and Sunken stream records use their own boundary terms.</dd>
 
     <dt>Packet</dt>
-    <dd>A convenient but ambiguous informal term. This document prefers <i>BGS
-    frame</i>, <i>BSN record</i>, and <i>TCP segment</i> because each has a different
-    boundary.</dd>
+    <dd>An informal term that may refer to a <i>Front RPC message</i>, <i>Sunken record</i>, or
+    <i>TCP segment</i>. Each term identifies a different boundary.</dd>
 
     <dt>Record</dt>
-    <dd>One native BSN route header plus its schema-delimited payload and final
-    byte-boundary padding.</dd>
+    <dd>One Sunken stream unit. A service record contains an 11-bit route, a
+    schema-delimited payload, and final padding. A command response contains a
+    seven-bit prefix and a nine-bit result.</dd>
 
     <dt>Schema-delimited</dt>
-    <dd>A record boundary determined by executing the route-selected payload schema,
-    rather than by reading an outer record-length field. Local counts, selectors,
-    and presence bits determine nested extents; completion of the top-level value
-    determines the logical record end.</dd>
+    <dd>A service-record boundary that the payload schema sets. Local counts,
+    selectors, and presence bits set nested sizes. The end of the top-level value
+    is the logical record end.</dd>
 
     <dt>Route</dt>
-    <dd>The native tuple <code>(direction, service FourCC, command)</code>. Direction
-    matters because the same command number may name different request and notify
-    types.</dd>
+    <dd>The native wire tuple <code>(direction, slot, command)</code>. Direction
+    matters because one command number can name different request and notify
+    types. A static build table supplies the readable service label.</dd>
 
     <dt>Service hash</dt>
-    <dd>A 32-bit FNV-1a hash of a full protobuf service name, used for BGS dispatch
-    after the initial Connect.</dd>
+    <dd>A 32-bit FNV-1a hash of a full protobuf service name. It is included in
+    every Front request, including the initial Connect.</dd>
 
-    <dt>BGS token</dt>
-    <dd>A protobuf-header correlation value joining an RPC response or callback
-    acknowledgement to the corresponding call. It is unrelated to a Chat request's
-    application-level <code>m_token</code>.</dd>
+    <dt>Front RPC token</dt>
+    <dd>A protobuf-header value that identifies a related RPC call. Chat requests
+    use a separate application-level <code>m_token</code>.</dd>
 
     <dt>Authentication module ID</dt>
-    <dd>The 40-byte identifier in an Auth/2 <code>ModuleInput</code>: an eight-byte
-    usage prefix followed by a 32-byte opaque module identity. It selects how that
-    module's data is processed. A module may produce no response element: in Resume,
-    the locally checked thumbprint produces none and the session-proof module
-    produces the sole output. See the
-    <a href="#auth-module-id">exact layout and known IDs</a>.</dd>
+    <dd>The 40-byte ID in an Auth/2 <code>ModuleInput</code>. It contains an
+    eight-byte usage prefix and a 32-byte module identity. The ID selects the module
+    operation. Output cardinality depends on the selected modules. See the
+    <a href="#auth-module-id">layout and known IDs</a>.</dd>
 
     <dt>Service slot</dt>
-    <dd>A session-local four-bit number selecting a native BSN service. It is not a
-    chat channel.</dd>
+    <dd>A four-bit number selecting a Sunken service. Slot constants are
+    build-specific. FourCC values and chat-channel indexes occupy separate fields.</dd>
 
     <dt>Client channel index</dt>
-    <dd>A three-bit Chat payload field addressing a locally tracked chat channel;
-    its wire range is 0&ndash;6. The addressable range is one wider than the
-    service actually grants: retail hands out at most six concurrent channels, so
-    a join of a seventh is refused even though an index exists for it. A client
-    should cap itself at six rather than trust the wider index range. It is
-    independent of the native service slot.</dd>
+    <dd>A three-bit Chat field that selects a local chat channel. Its wire range is
+    0 through 6. The service grants a maximum of six concurrent channels. A client
+    must use a maximum of six channels. The routing header carries the service slot
+    separately.</dd>
+
+    <dt>Front account entity ID</dt>
+    <dd>A 128-bit protobuf entity identifying the Battle.net platform account. It
+    maps to a separate 32-bit account ID in native social services.</dd>
+
+    <dt>Front game-account entity ID</dt>
+    <dd>A 128-bit protobuf entity identifying one game account or license under a
+    Battle.net account. The selected SC2 game account is passed to Game Utilities.</dd>
+
+    <dt>Toon handle</dt>
+    <dd>A stable native SC2 character identifier containing region, program, realm,
+    and a 64-bit toon ID. Profile storage uses a separate record address.</dd>
+
+    <dt>Presence ID</dt>
+    <dd>A connection-local native identifier for an online presence record. Local
+    and master IDs can be aliases. Durable identity comes from the native account
+    ID or toon handle.</dd>
+
+    <dt>Member handle</dt>
+    <dd>A channel-local Chat roster key. The same person can have a different member
+    handle in every joined channel.</dd>
 
     <dt>LocatorKey</dt>
     <dd>A native Chat choice identifying a private, public, or club conference.
     Public channels use a locale FourCC and a channel-name string ID.</dd>
 
     <dt>Generated order</dt>
-    <dd>The actual field order emitted by SC2's generated native serializer. For an
-    obfuscated type it may differ from reflection-member order and may include
-    otherwise unnamed reserved bits.</dd>
+    <dd>The field order from the generated native serializer. It can differ from
+    metadata order and contain filler bits. A separate declarative layout can
+    describe field permutation and filler runs.</dd>
+
+    <dt>Obfuscation marker</dt>
+    <dd>Bit 6 in a metadata structural record. It indicates that generated handling
+    may apply. A separate layout supplies field order and filler widths. Some marked
+    types use ordinary reflection order.</dd>
 
     <dt>Resume</dt>
-    <dd>Blizzard’s name for the native Auth exchange that continues Front-authorized
-    account, game-account, and key context on a new Sunken connection. The exact
-    names <code>Authentication::ResumeRequest</code> and
-    <code>Authentication::ResumeResponse</code> occur in SC2’s embedded BSN
-    metadata. It does not mean resuming the previous TCP socket or restoring an
-    earlier chat or game session. See <a href="#resume-name">the nomenclature
-    explanation</a>.</dd>
+    <dd>The native Auth exchange that continues Front authorization on Sunken. It
+    uses <code>Authentication::ResumeRequest</code> and
+    <code>Authentication::ResumeResponse</code>. Sunken uses a new TCP connection
+    and fresh native chat and game state.</dd>
 
     <dt>NO_RESPONSE</dt>
-    <dd>A protobuf RPC declaration stating that a BGS callback has no reply frame.
-    It is semantically different from a response whose protobuf body is empty.</dd>
+    <dd>A protobuf RPC declaration requiring omission of the reply frame.</dd>
 
     <dt>FourCC</dt>
     <dd>A four-byte symbolic identifier such as <code>Chat</code>, <code>Auth</code>,

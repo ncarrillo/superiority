@@ -9,7 +9,7 @@ use gpui::{
     Stateful, UniformListScrollHandle, Window, div, ease_in_out, prelude::*, px, rgb, uniform_list,
 };
 use superiority_ui::{
-    Portrait, PresenceKind, RosterUser, UiAssets,
+    Portrait, PresenceKind, RosterUser, UiAssets, WithScrollbar as _,
     components::{chat, navigation, roster, workspace},
     theme::{FONT_INTERFACE, FONT_NAVIGATION, MARGIN, MUTED, ONLINE, ROSTER_ROW_GAP},
 };
@@ -104,9 +104,10 @@ impl Render for LiveView {
                 workspace::ChannelWorkspace::new(
                     self.top_navigation(window, layout.stacked, cx),
                     self.chat_panel(),
-                    self.roster_panel(layout.roster_width, cx),
+                    self.roster_panel(layout.roster_width, window, cx),
                 )
-                .layout(layout),
+                .layout(layout)
+                .background(self.asset("ui/deep-nebula.png")),
             )
     }
 }

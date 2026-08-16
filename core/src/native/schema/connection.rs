@@ -37,6 +37,12 @@ pub struct ClientConnectionPing {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientConnectionPong {
+    #[bsn(name = "m_timeData")]
+    pub time_data: Option<i64>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientConnectionRegulatorUpdate {
     #[bsn(name = "m_info")]
     pub info: super::regulator::RegulatorInfo,

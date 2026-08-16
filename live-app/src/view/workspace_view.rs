@@ -163,10 +163,8 @@ impl LiveView {
     }
 
     pub(super) fn chat_panel(&self) -> workspace::ChannelChat {
-        let mut panel = workspace::ChannelChat::new(
-            self.asset("ui/deep-nebula.png"),
-            self.transcript_view(self.selected.as_deref(), true),
-        );
+        let mut panel =
+            workspace::ChannelChat::new(self.transcript_view(self.selected.as_deref(), true));
         if let Some(transition) = &self.channel_transition {
             panel = panel.outgoing(
                 self.transcript_view(

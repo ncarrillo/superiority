@@ -18,6 +18,7 @@ impl RosterComponent {
         selected_user: Option<u32>,
         interactive: bool,
         assets: &UiAssets,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
         let now = Instant::now();
@@ -37,7 +38,7 @@ impl RosterComponent {
         } else {
             "roster-scroll-snapshot"
         });
-        if interactive {
+        let layer = if interactive {
             layer = layer
                 .on_mouse_down(
                     MouseButton::Left,
@@ -128,6 +129,12 @@ impl RosterComponent {
                     .flex_shrink_0()
                     .children(rows),
             )
+        };
+        if interactive {
+            let scroll = self.roster.scroll.0.borrow().base_handle.clone();
+            layer.vertical_scrollbar_for(&scroll, window, cx)
+        } else {
+            layer
         }
     }
 
@@ -210,12 +217,21 @@ impl RosterComponent {
         channels: &ChannelComponent,
         selected_user: Option<u32>,
         assets: &UiAssets,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> ui_workspace::ChannelRoster {
         let now = Instant::now();
         let mut panel = ui_workspace::ChannelRoster::new(
             self.header(channels.active(), assets, cx),
-            self.scroll_layer(channels, channels.active(), selected_user, true, assets, cx),
+            self.scroll_layer(
+                channels,
+                channels.active(),
+                selected_user,
+                true,
+                assets,
+                window,
+                cx,
+            ),
         );
         if let Some(transition) = &channels.channel_transition {
             panel = panel.outgoing(
@@ -226,6 +242,7 @@ impl RosterComponent {
                     transition.outgoing_selected_user,
                     false,
                     assets,
+                    window,
                     cx,
                 ),
                 channels.transition_progress(now),
@@ -242,5 +259,8 @@ impl RosterComponent {
                     .child(self.roster_input.element()),
             )
             .focused(self.roster.focused)
+            .on_hover(cx.listener(|this, hovered, window, cx| {
+                this.set_roster_pointer_focus(*hovered, window, cx);
+            }))
     }
 }

@@ -1,0 +1,162 @@
+---
+import {
+  displayTypeReference,
+  namedTypeForReference,
+  shortTypeName,
+  typeAnchor,
+  typeTooltip,
+  type BsnType,
+} from "../data/bsnRegistry";
+
+interface Props {
+  type: BsnType & { name: string };
+}
+
+interface Segment {
+  text: string;
+  className?: string;
+  href?: string;
+  tooltip?: string;
+}
+
+type Line = Segment[];
+
+const { type } = Astro.props;
+const name = shortTypeName(type.name);
+const text = (value: string, className?: string): Segment => ({ text: value, className });
+const typeName = (value: string): Segment => text(value, "syn-type");
+const fieldName = (value: string): Segment => text(value, "syn-field");
+const number = (value: string | number): Segment => text(String(value), "syn-number");
+const keyword = (value: string): Segment => text(value, "syn-keyword");
+
+function reference(typeId: number): Segment[] {
+  const target = namedTypeForReference(typeId);
+  const label = displayTypeReference(typeId);
+  if (!target) return [typeName(label)];
+  return [{
+    text: label,
+    className: "syn-type",
+    href: `#${typeAnchor(target)}`,
+    tooltip: typeTooltip(target),
+  }];
+}
+
+function rangeLines(prefix: string, indent = "    "): Line[] {
+  if (!type.range) return [];
+  const lines: Line[] = [];
+  if (type.range.bitWidth !== undefined) {
+    lines.push([text(indent), fieldName(`${prefix}_bits`), text(": "), number(type.range.bitWidth), text(",")]);
+  }
+  lines.push([
+    text(indent),
+    fieldName(`${prefix}_range`),
+    text(": "),
+    number(type.range.minimum),
+    text("..="),
+    number(type.range.maximum),
+    text(","),
+  ]);
+  return lines;
+}
+
+function memberName(index: number): string {
+  return type.memberNames[index] ?? `field_${type.indexValues[index] ?? index}`;
+}
+
+function definition(): Line[] {
+  const openType = (container: string, elementType?: number): Line => [
+    keyword("type"), text(" "), typeName(name), text(" = "), typeName(container),
+    ...(elementType === undefined ? [] : [text("<"), ...reference(elementType), text(">")]),
+    text(" {")
+  ];
+
+  switch (type.kind) {
+    case "Alias":
+      return [[keyword("type"), text(" "), typeName(name), text(" = "), ...reference(type.elementType ?? -1)]];
+    case "Array":
+      return [openType("Array", type.elementType), ...rangeLines("count"), [text("}")]];
+    case "Blob":
+    case "ByteString":
+      return [
+        openType(type.kind === "Blob" ? "Blob" : "Bytes"),
+        ...rangeLines("byte_count"),
+        [text("    "), fieldName("alignment"), text(": "), keyword("byte"), text(",")],
+        [text("}")],
+      ];
+    case "String":
+      return [
+        openType("Utf8"),
+        ...rangeLines("byte_count"),
+        [text("    "), fieldName("alignment"), text(": "), keyword("byte"), text(",")],
+        [text("}")],
+      ];
+    case "BitArray":
+      return [openType("BitArray"), ...rangeLines("bit_count"), [text("}")]];
+    case "Optional":
+      return [
+        openType("Optional", type.elementType),
+        [text("    "), fieldName("presence_bits"), text(": "), number(1), text(",")],
+        [text("}")],
+      ];
+    case "Integer":
+    case "Float":
+      return [openType(type.kind), ...rangeLines("value"), [text("}")]];
+    case "Bool":
+      return [openType("Bool"), [text("    "), fieldName("bits"), text(": "), number(1), text(",")], [text("}")]];
+    case "FourCc":
+      return [openType("FourCC"), [text("    "), fieldName("bits"), text(": "), number(32), text(",")], [text("}")]];
+    case "Void":
+      return [[keyword("type"), text(" "), typeName(name), text(" = "), typeName("Void")]];
+    case "Struct": {
+      const lines: Line[] = [[keyword("struct"), text(" "), typeName(name), text(" {")]];
+      type.memberTypes.forEach((memberType, index) => {
+        lines.push([text("    "), fieldName(memberName(index)), text(": "), ...reference(memberType), text(",")]);
+      });
+      lines.push([text("}")]);
+      return lines;
+    }
+    case "Choice": {
+      const lines: Line[] = [openType("Choice"), ...rangeLines("selector")];
+      type.memberTypes.forEach((memberType, index) => {
+        lines.push([
+          text("    "),
+          number(type.indexValues[index] ?? index),
+          text(" => "),
+          fieldName(memberName(index)),
+          text("("),
+          ...reference(memberType),
+          text("),"),
+        ]);
+      });
+      lines.push([text("}")]);
+      return lines;
+    }
+    case "Enum": {
+      const lines: Line[] = [openType("Enum"), ...rangeLines("value")];
+      type.memberNames.forEach((member, index) => {
+        lines.push([
+          text("    "),
+          fieldName(member ?? `value_${type.indexValues[index] ?? index}`),
+          text(" = "),
+          number(type.indexValues[index] ?? index),
+          text(","),
+        ]);
+      });
+      lines.push([text("}")]);
+      return lines;
+    }
+    default:
+      return [[keyword("type"), text(" "), typeName(name), text(" = "), typeName(type.kind)]];
+  }
+}
+
+const lines = definition();
+---
+
+<pre class="type-registry-schema"><code>{lines.map((line, lineIndex) => (
+  <>{line.map((segment) => segment.href ? (
+    <a class="schema-type-link" href={segment.href} data-type-tooltip={segment.tooltip}><span class="schema-type-link-label">{segment.text}</span></a>
+  ) : (
+    <span class={segment.className}>{segment.text}</span>
+  ))}{lineIndex < lines.length - 1 && "\n"}</>
+))}</code></pre>

@@ -104,7 +104,11 @@ impl SuperiorityView {
                     let detail = match reason {
                         Some(CHAT_LEAVE_BANNED) => format!("You were banned from {label}."),
                         Some(code) if code != 0 => {
-                            format!("You were removed from {label} (Battle.net reason {code}).")
+                            let reason = crate::native::errors::description(code);
+                            format!(
+                                "You were removed from {label}: {}.",
+                                reason.trim_end_matches('.')
+                            )
                         }
                         _ => format!("You were removed from {label}."),
                     };

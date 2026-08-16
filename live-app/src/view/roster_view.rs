@@ -175,6 +175,7 @@ impl LiveView {
         &self,
         key: Option<&str>,
         interactive: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let mut rows = roster::list_layer(if interactive {
@@ -214,7 +215,8 @@ impl LiveView {
                     return rows
                         .overflow_y_scroll()
                         .track_scroll(&scroll)
-                        .children(self.roster_row_slots(channel, cx));
+                        .children(self.roster_row_slots(channel, cx))
+                        .vertical_scrollbar_for(&scroll, window, cx);
                 }
                 let snapshot_members = (!interactive)
                     .then_some(self.channel_transition.as_ref())
@@ -308,24 +310,30 @@ impl LiveView {
                 .text_color(rgb(MUTED))
                 .child("NO ROSTER SNAPSHOT");
         }
-        rows
+        if interactive {
+            let scroll = self.workspace.roster.scroll.0.borrow().base_handle.clone();
+            rows.vertical_scrollbar_for(&scroll, window, cx)
+        } else {
+            rows
+        }
     }
 
     pub(super) fn roster_panel(
         &self,
         width: Option<f32>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> workspace::ChannelRoster {
         let outgoing_interactive = self.transition_progress().is_none();
         let mut panel = workspace::ChannelRoster::new(
             self.roster_header(self.selected.as_deref(), true, cx),
-            self.roster_rows(self.selected.as_deref(), true, cx),
+            self.roster_rows(self.selected.as_deref(), true, window, cx),
         )
         .width(width);
         if let Some(transition) = &self.channel_transition {
             panel = panel.outgoing(
                 self.roster_header(Some(&transition.outgoing), outgoing_interactive, cx),
-                self.roster_rows(Some(&transition.outgoing), outgoing_interactive, cx),
+                self.roster_rows(Some(&transition.outgoing), outgoing_interactive, window, cx),
                 self.transition_progress(),
             );
         }

@@ -2,46 +2,108 @@
 import Chapter from "../components/Chapter.astro";
 import BackToContents from "../components/BackToContents.astro";
 import MetadataResolutionDiagram from "../components/MetadataResolutionDiagram.astro";
+import RustSchema from "../components/RustSchema.astro";
 ---
 
 <Chapter id="metadata">
-<h2>7. Embedded BSN schema metadata</h2>
-  <p><a href="#record-boundary">The previous chapter</a> established that a BSN
-  route selects the schema which determines where its payload ends. That raises the
-  next question: <b>where does that schema come from?</b></p>
-  <p>SC2 ships a compact, version-7 type library produced by Blizzard's
-  <code>bsnc</code> toolchain. It is embedded in the client executable alongside the
-  generated encoders and decoders. It is <b>not transmitted in each record</b>, and
-  it is separate from the protobuf descriptors used by BGS.</p>
+<h2>Embedded BSN schema metadata</h2>
+  <p>A Sunken service route selects the payload schema. The payload schema sets the
+  service-record boundary. A service-less command response uses its fixed 16-bit
+  layout.</p>
+  <p>SC2 embeds compact version-7 BSN metadata in the client executable. Source-path
+  strings in the documented client identify the producer as <code>bsnc</code>
+  version <code>2.2.13</code>.</p>
+  <p><code>bsnc</code> is Blizzard's schema compiler and serialization runtime for
+  Sunken's bit-packed protocol. It turns protocol definitions into native encoders,
+  decoders, size calculators, and compact metadata tables. Those tables describe
+  type kinds, member references, names, integer and count widths, accepted ranges,
+  and control flags. Generated readers, writers, and layout sidecars supply field
+  permutations and filler runs for selected types.</p>
+  <p>A normal client can use a generated static schema. Inspection tools can load a
+  metadata file or extract the largest metadata block from an executable.</p>
 
-  <h3 id="metadata-resolution">7.1 From a route to a schema</h3>
+  <h3 id="metadata-resolution">Schema lookup</h3>
   <MetadataResolutionDiagram />
 
-  <p>Each metadata type has a build-specific numeric ID. Looking up that ID yields
-  a structural record and, when reflection names were retained, a naming record.
-  Structural records refer to other type IDs, so resolving one top-level payload
-  produces a graph rather than a flat field list.</p>
+  <p>Each metadata type has a build-specific numeric ID. The ID selects a structural
+  record. It can also select a naming record. A structural record can refer to
+  other type IDs. Thus, one payload type produces a type graph.</p>
 
-  <p>The payload structures in this document are a human-readable rendering of that
-  decoded type graph. They are <b>documentation notation, not a language carried on the
-  wire</b>. For example:</p>
-<pre is:raw><span class="syn-comment">illustrative rendering of decoded metadata</span>
-<span class="syn-type">Authentication::ProofRequest</span> {
-    <span class="syn-field">request</span>  <span class="syn-type">ModuleInput</span>[<span class="syn-number">0..4</span>]
+  <p>The definitions in this document summarize the decoded type graph. They show
+  values and relationships. Separate wire-layout data supplies generated field
+  order and filler runs.</p>
+  <p>The metadata block contains a dump-offset table and a name-offset table. A
+  type ID is the zero-based position used to read both tables. For the documented
+  client build, type ID <code>351</code> selects the structural record and name
+  record for <code>Battlenet::Authentication::ModuleRequest</code>.</p>
+  <p>The decoded definition of that record is an array whose count occupies three
+  bits, whose accepted range is <code>0..=4</code>, and whose element type resolves
+  to <code>ModuleInput</code>. <code>Authentication::ProofRequest</code> reaches it
+  through the following metadata entries:</p>
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Declaration</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ProofRequest</code> (record <code>1422</code>)</td>
+        <td>Member <code>m_request</code> resolves through alias <code>1424</code> to type <code>351</code>.</td>
+      </tr>
+      <tr>
+        <td><code>ModuleRequest</code> (record <code>351</code>)</td>
+        <td>Kind <code>array</code>; 3-bit count; accepted range <code>0..=4</code>; element alias <code>352</code> resolves to record <code>346</code>.</td>
+      </tr>
+      <tr>
+        <td><code>ModuleInput</code> (record <code>346</code>)</td>
+        <td>Struct containing <code>m_id</code> and <code>m_data</code>.</td>
+      </tr>
+      <tr>
+        <td><code>ModuleId</code> (record <code>344</code>)</td>
+        <td>Alias resolving to a fixed 40-byte blob.</td>
+      </tr>
+      <tr>
+        <td><code>ModuleData</code> (record <code>345</code>)</td>
+        <td>Kind <code>blob</code>; 10-bit byte count; accepted range <code>0..=1023</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>These IDs remain in the decoder's schema lookup. Applying the resolved types
+  produces this Sunken record layout:</p>
+  <RustSchema code={`record AuthProofRequest {
+    command_id: Bits<6> = 2,
+    service_present: Bits<1> = 1,
+    service_slot: Bits<4> = 0,
+    payload: ProofRequest,
+    final_alignment: byte,
 }
 
-<span class="syn-type">ModuleInput</span> {
-    <span class="syn-field">id</span>    blob[<span class="syn-number">40</span>]
-    <span class="syn-field">data</span>  blob[<span class="syn-number">0..1023</span>]
+struct ProofRequest {
+    requests: ModuleRequest,
 }
-</pre>
-  <p>Here the array bound, blob bounds, nested type relationship, type name, and
-  member names all come from metadata. The braces and formatting are ours.</p>
 
-  <h3 id="types">7.2 Native type vocabulary</h3>
-  <p>The low six bits of a structural record identify one of sixteen kinds. The
-  kind determines what other information the record carries and what the value
-  consumes from the BSN bitstream.</p>
+type ModuleRequest = Array<ModuleInput> {
+    count_bits: 3,
+    count_range: 0..=4,
+}
+
+struct ModuleInput {
+    id: ModuleId,
+    data: ModuleData,
+}
+
+type ModuleData = Blob {
+    byte_count_bits: 10,
+    byte_count_range: 0..=1023,
+    alignment: byte,
+}`} />
+  <p><code>requests</code> is the logical field represented by
+  <code>request_count</code> and the repeated values. Three bits can represent
+  <code>0..=7</code>; the declared range rejects <code>5..=7</code>.</p>
+
+  <h3 id="types">Type kinds</h3>
+  <p>The low six bits of a structural record identify one of 16 kinds. The kind
+  defines the remaining metadata. The kind also defines how the value consumes the
+  Sunken bitstream.</p>
   <div class="type-vocabulary">
     <section>
       <h4>Scalar values</h4>
@@ -50,7 +112,7 @@ import MetadataResolutionDiagram from "../components/MetadataResolutionDiagram.a
         <dt><code>7</code> enum</dt><dd>A bounded integer, optionally restricted to listed values.</dd>
         <dt><code>8</code> FourCC</dt><dd>Exactly 32 bits.</dd>
         <dt><code>9</code> integer</dt><dd>A bounded, fixed-width integer.</dd>
-        <dt><code>10</code> void</dt><dd>No bits.</dd>
+        <dt><code>10</code> void</dt><dd>Zero bits.</dd>
         <dt><code>12</code> float32</dt><dd>32 raw bits.</dd>
         <dt><code>13</code> float64</dt><dd>64 raw bits.</dd>
       </dl>
@@ -58,12 +120,12 @@ import MetadataResolutionDiagram from "../components/MetadataResolutionDiagram.a
     <section>
       <h4>Containers</h4>
       <dl>
-        <dt><code>1</code> array</dt><dd>Bounded count, then repeated elements of another type.</dd>
-        <dt><code>2</code> byte string</dt><dd>Bounded count, byte alignment, then raw bytes.</dd>
-        <dt><code>3</code> bit array</dt><dd>Bounded bit count, then packed bits.</dd>
-        <dt><code>4</code> blob</dt><dd>Bounded count, byte alignment, then raw bytes.</dd>
+        <dt><code>1</code> array</dt><dd>Metadata-sized element count, then that many values of another type.</dd>
+        <dt><code>2</code> byte string</dt><dd>Metadata-sized byte count, byte alignment, then that many raw bytes.</dd>
+        <dt><code>3</code> bit array</dt><dd>Metadata-sized bit count, then that many packed bits.</dd>
+        <dt><code>4</code> blob</dt><dd>Metadata-sized byte count, byte alignment, then that many raw bytes.</dd>
         <dt><code>11</code> optional</dt><dd>One presence bit, then the contained value when present.</dd>
-        <dt><code>15</code> UTF-8 string</dt><dd>Bounded byte count, alignment, then UTF-8 bytes.</dd>
+        <dt><code>15</code> UTF-8 string</dt><dd>Metadata-sized byte count, alignment, then that many UTF-8 bytes.</dd>
       </dl>
     </section>
     <section>
@@ -75,15 +137,13 @@ import MetadataResolutionDiagram from "../components/MetadataResolutionDiagram.a
       </dl>
     </section>
   </div>
-  <p>Most bounded values encode <code>value - minimum</code> using the recorded bit
-  width. Fixed-size forms can omit the count entirely. For indexed choices, enums,
-  and structs, bit 7 can mean that indices are the full contiguous range rather than
-  an explicit list.</p>
+  <p>Most bounded values encode <code>value - minimum</code>. Metadata supplies the
+  bit width. A fixed-size value can omit the count. For some indexed types, bit 7
+  identifies a continuous index range.</p>
 
-  <h3 id="metadata-container">7.3 How the type library is stored</h3>
-  <p>This binary layout matters when extracting the type library from an SC2 build.
-  A packet decoder which has already loaded the parsed type graph does not encounter
-  this header or these tables on the network.</p>
+  <h3 id="metadata-container">Metadata storage</h3>
+  <p>Use this binary layout to extract BSN metadata from an SC2 build. Network
+  records contain values selected by the extracted schemas.</p>
 
   <div class="metadata-container" aria-label="Five consecutive regions in a version seven BSN metadata block">
     <div><strong>Header</strong><span>5 × big-endian <code>u32</code></span></div>
@@ -97,43 +157,35 @@ import MetadataResolutionDiagram from "../components/MetadataResolutionDiagram.a
     <div><strong>Name records</strong><span><code>string_size</code> bytes</span></div>
   </div>
 
-  <p>Type ID <code>n</code> indexes element <code>n</code> in both offset tables. Its
-  shape offset points to the structural record. Its name offset points to a small
-  record of 32-bit offsets into the NUL-terminated UTF-8 string pool, or is zero when
-  no names were retained. The header's <code>type_count</code>,
-  <code>dump_size</code>, and <code>string_size</code> delimit the five regions.</p>
+  <p>Type ID <code>n</code> selects element <code>n</code> in both offset tables. The
+  shape offset points to the structural record. The name offset points to a naming
+  record. A zero name offset identifies an unnamed type.</p>
+  <p>The naming record contains 32-bit offsets into a NUL-terminated UTF-8 string
+  pool. The <code>type_count</code>, <code>dump_size</code>, and
+  <code>string_size</code> fields set the five region boundaries.</p>
 
-<pre is:raw><span class="syn-type">MetadataHeader</span>  <span class="syn-comment"># five unsigned big-endian u32 values</span>
-    <span class="syn-field">version</span>             <span class="syn-comment"># currently 7</span>
-    <span class="syn-field">flags</span>
-    <span class="syn-field">type_count</span>
-    <span class="syn-field">dump_size</span>
-    <span class="syn-field">string_size</span>
+  <RustSchema code={`struct MetadataHeader {
+    version: BeU32, // currently 7
+    flags: BeU32,
+    type_count: BeU32,
+    dump_size: BeU32,
+    string_size: BeU32,
+}
 
-<span class="syn-keyword">followed by</span>
-    <span class="syn-field">dump_offset</span>[type_count]
-    <span class="syn-field">dump_data</span>[dump_size]
-    <span class="syn-field">string_record_offset</span>[type_count]
-    <span class="syn-field">string_data</span>[string_size]
-</pre>
+struct MetadataBlock {
+    header: MetadataHeader,
+    dump_offsets: Vec<BeU32>,          // length = type_count
+    dump_data: Vec<u8>,                // length = dump_size
+    string_record_offsets: Vec<BeU32>, // length = type_count
+    string_data: Vec<u8>,              // length = string_size
+}`} />
 
   <p>The first byte of each structural record begins with:</p>
 <pre is:raw><span class="syn-field">bits 0..5</span>  kind tag (<span class="syn-number">1..16</span>)
-<span class="syn-field">bit  6</span>     <span class="syn-keyword">obfuscated</span> flag
+<span class="syn-field">bit  6</span>     generated-handling marker
 <span class="syn-field">bit  7</span>     kind-specific compact-form flag
 </pre>
-  <p>Bit 7 is interpreted by the selected kind; for example, it can indicate an
-  implicit contiguous index range instead of an explicit list.</p>
-
-  <div class="notice metadata-caveat">
-    <p><b>Logical schema is not always exact wire order.</b> For types marked
-    <i>obfuscated</i>, the generated encoder can reorder reflected members and insert
-    reserved bit runs that the logical metadata does not show. The metadata still
-    explains the type relationships and names, but an exact serializer or decoder
-    must recover the generated order from client code.</p>
-  </div>
-  <p>The registry and type library now provide everything needed to parse native
-  records. The next chapter applies them to the first Sunken exchange: Resume
-  authentication and the transition to protected service traffic.</p>
+  <p>The selected kind defines bit 7. For example, bit 7 can identify an implicit
+  continuous index range.</p>
   <BackToContents />
 </Chapter>

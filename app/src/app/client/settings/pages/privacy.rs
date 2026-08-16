@@ -5,19 +5,18 @@ impl SettingsComponent {
         &self,
         mut page: Stateful<Div>,
         blocked_accounts: &[BlockedAccount],
+        window: &mut Window,
+        cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
         let mut blocked_list = div()
             .id("blocked-accounts-scroll")
-            .absolute()
-            .left(px(22.0))
-            .top(px(211.0))
-            .w(px(650.0))
-            .h(px(286.0))
+            .size_full()
             .flex()
             .flex_col()
             .p(px(6.0))
             .gap(px(4.0))
             .overflow_y_scroll()
+            .track_scroll(&self.privacy_scroll)
             .bg(rgba(0x04070bc7))
             .border_1()
             .border_color(rgba(0x144f78d9));
@@ -65,6 +64,15 @@ impl SettingsComponent {
                 );
             }
         }
+        let blocked_list = div()
+            .id("blocked-accounts-viewport")
+            .absolute()
+            .left(px(22.0))
+            .top(px(211.0))
+            .w(px(650.0))
+            .h(px(286.0))
+            .child(blocked_list)
+            .vertical_scrollbar_for(&self.privacy_scroll, window, cx);
         page = page
             .child(
                 div()

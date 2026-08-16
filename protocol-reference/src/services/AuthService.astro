@@ -1,113 +1,213 @@
 ---
 import ServiceSection from "../components/ServiceSection.astro";
 import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
 ---
 
 <ServiceSection id="service-auth">
-  <Fragment slot="title">9.1 <code>Auth</code> — authentication</Fragment>
+  <Fragment slot="title"><code>Auth</code> — authentication</Fragment>
 <p>These plaintext endpoints bind the Sunken connection to the account and
     session authorized by Front. The cryptographic sequence is described in
     <a href="#resume">Native Resume authentication</a>.</p>
     <p class="endpoint-index">
+      <a href="#auth-logon"><code>Auth/0</code> logon</a>
       <a href="#auth-resume-request">Auth/1 request</a>
       <a href="#auth-configuration">Auth/18 configuration</a>
       <a href="#auth-proof-request">Auth/2 request</a>
       <a href="#auth-proof-response">Auth/2 response</a>
       <a href="#auth-resume-response">Auth/1 response</a>
+      <a href="#auth-web-token"><code>Auth/16</code> web token</a>
+      <a href="#auth-sso"><code>Auth/17</code> SSO</a>
     </p>
+
+    <Endpoint id="auth-logon" direction="bidirectional" phase="plaintext, alternate entry" structure="metadata order" status="implemented, alternate flow">
+      <Fragment slot="title"><code>Auth/0</code> Authentication::Logon</Fragment>
+      <p>Starts a cold native account logon. The normal connection flow uses Front
+      followed by <code>Auth/1</code>.</p>
+      <RustSchema code={`// client → server
+struct LogonRequest3 {
+    request_common: RequestCommon,
+    account: Vec<u8>,
+    compatibility: u32, // 0x000a16a7
+}
+
+// server → client
+struct LogonResponse3 {
+    result: LogonResult,
+    raf: Option<RafState>,
+}
+
+enum LogonResult {
+    Success(LogonSuccess),
+    Failure(LogonFailure),
+}`} />
+    </Endpoint>
 
     <Endpoint id="auth-resume-request" direction="client → server" phase="plaintext, first record" structure="logical order" status="verified">
       <Fragment slot="title"><code>Auth/1</code> Authentication::ResumeRequest</Fragment>
       <p>Starts native authentication with account identity and the version set for
       the SC2 game account selected on Front.</p>
-<pre is:raw><span class="syn-type">RequestCommon</span> {
-    <span class="syn-field">program</span>    <span class="syn-type">FourCC</span>
-    <span class="syn-field">platform</span>   <span class="syn-type">FourCC</span>
-    <span class="syn-field">locale</span>     <span class="syn-type">FourCC</span>
-    <span class="syn-field">versions</span>   <span class="syn-type">Version</span>[<span class="syn-number">0..63</span>] {
-        <span class="syn-field">programId</span>  <span class="syn-type">FourCC</span>
-        <span class="syn-field">component</span>  <span class="syn-type">FourCC</span>
-        <span class="syn-field">version</span>    <span class="syn-type">u32</span>
-    }
+      <RustSchema code={`struct ResumeRequest {
+    common: RequestCommon,
+    account: Vec<u8>,           // 3..=320 bytes
+    game_account_region: u8,
+    game_account_name: Vec<u8>, // 1..=32 bytes
 }
-<span class="syn-field">account</span>            <span class="syn-type">bytes</span>[<span class="syn-number">3..320</span>]
-<span class="syn-field">gameAccountRegion</span>  <span class="syn-type">u8</span>
-<span class="syn-field">gameAccountName</span>    <span class="syn-type">bytes</span>[<span class="syn-number">1..32</span>]</pre>
+
+struct RequestCommon {
+    program: FourCC,
+    platform: FourCC,
+    locale: FourCC,
+    versions: Vec<Version>, // count: 0..=63
+}
+
+struct Version {
+    program_id: FourCC,
+    component: FourCC,
+    version: u32,
+}`} />
       <p class="endpoint-note">The Base97563 macOS version records and compatibility
-      number are listed in <a href="#resume">section 8</a>. Account fields are
+      number are listed in <a href="#resume">Resume authentication</a>. Account fields are
       private session material.</p>
     </Endpoint>
 
     <Endpoint id="auth-configuration" direction="server → client" phase="plaintext" structure="logical order" status="verified">
       <Fragment slot="title"><code>Auth/18</code> Authentication::Configuration</Fragment>
       <p>Supplies a small authentication configuration record before proof.</p>
-<pre is:raw><span class="syn-field">useS3Depot</span>  <span class="syn-type">bool</span></pre>
+      <RustSchema code={`struct Configuration {
+    use_s3_depot: bool,
+}`} />
     </Endpoint>
 
     <Endpoint id="auth-proof-request" direction="server → client" phase="plaintext" structure="logical order" status="verified">
       <Fragment slot="title"><code>Auth/2</code> Authentication::ProofRequest</Fragment>
       <p>Requests execution of up to four authentication modules. The array count
-      is explicit: the payload begins with a three-bit count, and the decoder then
-      consumes exactly that many <code>ModuleInput</code> values. Resume encodes
-      count 2 for the thumbprint and session-proof modules.</p>
-<pre is:raw><span class="syn-field">requestCount</span>  <span class="syn-type">u3</span>  <span class="syn-comment">valid values 0..4; 5..7 are invalid</span>
-<span class="syn-keyword">repeat</span> requestCount:
-    <span class="syn-keyword">alignToByte</span>
-    <span class="syn-field">id</span>             <span class="syn-type">blob</span>[<span class="syn-number">40</span>]  <span class="syn-comment">fixed size; no length prefix</span>
-    <span class="syn-field">dataByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1023</span>
-    <span class="syn-keyword">alignToByte</span>
-    <span class="syn-field">data</span>           <span class="syn-type">bytes</span>[dataByteCount]</pre>
+      occupies three bits and has the accepted range <code>0..=4</code>. Resume
+      encodes count 2 for the thumbprint and session-proof modules.</p>
+      <RustSchema code={`record AuthProofRequest {
+    command_id: Bits<6> = 2,
+    service_present: Bits<1> = 1,
+    service_slot: Bits<4> = 0,
+    payload: ProofRequest,
+    final_alignment: byte,
+}
+
+struct ProofRequest {
+    requests: ModuleRequest,
+}
+
+type ModuleRequest = Array<ModuleInput> {
+    count_bits: 3,
+    count_range: 0..=4,
+}
+
+struct ModuleInput {
+    id: ModuleId,
+    data: ModuleData,
+}
+
+type ModuleData = Blob {
+    byte_count_bits: 10,
+    byte_count_range: 0..=1023,
+    alignment: byte,
+}`} />
       <p id="auth-module-id"><b>The 40-byte module identifier</b> selects the authentication-module
-      implementation that must interpret <code>data</code>. It is not a request
-      token or an identifier for the Auth/2 route. The <code>2</code> in
-      <code>Auth/2</code> is the separate six-bit command ID in the BSN routing
-      header.</p>
-<pre is:raw><span class="syn-field">id[0..7]</span>    <span class="syn-type">usage</span>             <span class="syn-number">61 75 74 68 00 00 00 00</span>  <span class="syn-comment">ASCII "auth" + four NUL bytes</span>
-<span class="syn-field">id[8..39]</span>   <span class="syn-type">module identity</span>   opaque <span class="syn-number">32</span>-byte value
+      implementation that must interpret <code>data</code>. The Sunken routing header
+      carries the separate six-bit <code>Auth/2</code> command ID.</p>
+      <RustSchema code={`struct ModuleId {
+    usage: [u8; 8],    // b"auth\\0\\0\\0\\0"
+    identity: [u8; 32],
+}
 
-<span class="syn-comment">Thumbprint module identity</span>
-<span class="syn-number">d7 e6 62 40 80 c1 ab a6 6d ee 63 a6 f3 92 8d 8a</span>
-<span class="syn-number">54 69 25 7f 58 20 b5 72 1f b8 c3 2b 6b 5b ef 5d</span>
+const THUMBPRINT_ID: [u8; 32] = [
+    0xd7, 0xe6, 0x62, 0x40, 0x80, 0xc1, 0xab, 0xa6,
+    0x6d, 0xee, 0x63, 0xa6, 0xf3, 0x92, 0x8d, 0x8a,
+    0x54, 0x69, 0x25, 0x7f, 0x58, 0x20, 0xb5, 0x72,
+    0x1f, 0xb8, 0xc3, 0x2b, 0x6b, 0x5b, 0xef, 0x5d,
+];
 
-<span class="syn-comment">Session-proof module identity</span>
-<span class="syn-number">89 50 05 34 0a 63 0a 64 65 a6 5f ec 96 32 3c 31</span>
-<span class="syn-number">0b ca 8a 9f 66 ec ee b1 88 7a 9d 6c 0e 67 61 2e</span></pre>
+const SESSION_PROOF_ID: [u8; 32] = [
+    0x89, 0x50, 0x05, 0x34, 0x0a, 0x63, 0x0a, 0x64,
+    0x65, 0xa6, 0x5f, 0xec, 0x96, 0x32, 0x3c, 0x31,
+    0x0b, 0xca, 0x8a, 0x9f, 0x66, 0xec, 0xee, 0xb1,
+    0x88, 0x7a, 0x9d, 0x6c, 0x0e, 0x67, 0x61, 0x2e,
+];`} />
       <p class="endpoint-note">Resume supplies these two modules in the order shown.
-      The count cannot be inferred from a containing record length,
-      because native BSN has no general record-length field.</p>
+      The explicit three-bit count supplies their cardinality; the native schema
+      delimits the complete record.</p>
     </Endpoint>
 
     <Endpoint id="auth-proof-response" direction="client → server" phase="plaintext" structure="logical order" status="verified">
       <Fragment slot="title"><code>Auth/2</code> Authentication::ProofResponse</Fragment>
-      <p>Returns outputs requested by the authentication modules. This is not a
-      one-element-for-every-input array: the thumbprint module is verified locally
-      and emits no output. The Resume response therefore contains one output,
-      belonging to the session-proof module.</p>
-<pre is:raw><span class="syn-field">responseCount</span>  <span class="syn-type">u3</span>  <span class="syn-comment">valid values 0..4; Resume uses 1</span>
-<span class="syn-keyword">repeat</span> responseCount:
-    <span class="syn-field">dataByteCount</span>  <span class="syn-type">u10</span> <span class="syn-comment">0..1023</span>
-    <span class="syn-keyword">alignToByte</span>
-    <span class="syn-field">data</span>           <span class="syn-type">bytes</span>[dataByteCount]</pre>
+      <p>Returns outputs requested by the authentication modules. The thumbprint
+      module is verified locally and emits zero outputs. The Resume response
+      therefore contains one session-proof output.</p>
+      <RustSchema code={`struct ProofResponse {
+    responses: Vec<ModuleOutput>, // count: 3 wire bits, valid 0..=4
+}
+
+struct ModuleOutput {
+    data: Vec<u8>, // byte count: 10 wire bits, 0..=1023; then byte-align
+}`} />
       <p class="endpoint-note">The session-proof output is
-      <code>01 || client_nonce[16] || proof[32]</code>, for a byte count of 49.
-      No empty thumbprint placeholder is encoded.</p>
+      <code>01 || client_nonce[16] || proof[32]</code>, for a byte count of 49.</p>
     </Endpoint>
 
     <Endpoint id="auth-resume-response" direction="server → client" phase="plaintext" structure="logical order" status="verified">
       <Fragment slot="title"><code>Auth/1</code> Authentication::ResumeResponse</Fragment>
-      <p>Completes Resume. A successful response carries the phase-two server proof;
-      a failure carries an update, error/wait pair, or version-check disconnect.</p>
-<pre is:raw><span class="syn-field">result</span>  <span class="syn-keyword">choice</span> {
-    <span class="syn-keyword">success</span> {
-        <span class="syn-field">finalRequestCount</span>  <span class="syn-type">u3</span> <span class="syn-comment">0..4</span>
-        <span class="syn-field">finalRequest</span>       <span class="syn-type">ModuleInput</span>[finalRequestCount]
-        <span class="syn-field">pingTimeout</span>     <span class="syn-type">Time::Delta</span>
-        <span class="syn-field">regulatorRules</span>  <span class="syn-keyword">optional</span> <span class="syn-type">RegulatorRules</span>
-    }
-    <span class="syn-keyword">failure</span> {
-        <span class="syn-field">strings</span>  <span class="syn-keyword">optional</span> <span class="syn-type">Cache::Handle</span>[<span class="syn-number">40</span>]
-        <span class="syn-field">result</span>   <span class="syn-keyword">choice</span> { <span class="syn-keyword">update</span> | <span class="syn-keyword">failure</span> { <span class="syn-field">error</span>, <span class="syn-field">wait</span> } | <span class="syn-keyword">versionCheckDisconnect</span> }
-    }
-}</pre>
+      <p>Completes Resume. A successful response contains the phase-two server
+      proof. A failure contains an update, an error and wait pair, or a
+      version-check disconnect.</p>
+      <RustSchema code={`struct ResumeResponse {
+    result: ResumeResult,
+}
+
+enum ResumeResult {
+    Success {
+        final_requests: Vec<ModuleInput>, // count: 3 wire bits, 0..=4
+        ping_timeout: TimeDelta,
+        regulator_rules: Option<RegulatorRules>,
+    },
+    Failure {
+        strings: Option<[u8; 40]>,
+        reason: ResumeFailure,
+    },
+}
+
+enum ResumeFailure {
+    Update(UpdateInfo),
+    Failure { error: ErrorCode, wait: TimeDelta },
+    VersionCheckDisconnect,
+}`} />
+    </Endpoint>
+
+    <Endpoint id="auth-web-token" direction="bidirectional" phase="protected" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>Auth/16</code> Authentication::GenerateWebToken</Fragment>
+      <p>Requests a web token using a client-generated correlation token. The
+      response returns either token bytes or a 16-bit error.</p>
+      <RustSchema code={`// client → server
+struct GenerateWebTokenRequest {
+    token: u32,
+}
+
+// server → client
+struct GenerateWebTokenResponse {
+    token: u32,
+    result: Result<Vec<u8>, u16>,
+}`} />
+      <p class="endpoint-note">The same captured wire shapes are also named
+      <code>GenerateAppTokenRequest</code> and <code>GenerateAppTokenResponse</code>
+      in related generated interfaces. This route retains both known symbolic names.</p>
+    </Endpoint>
+
+    <Endpoint id="auth-sso" direction="client → server" phase="plaintext, alternate entry" structure="metadata order" status="implemented, alternate flow">
+      <Fragment slot="title"><code>Auth/17</code> Authentication::SingleSignOnRequest3</Fragment>
+      <p>Starts native authentication from an SSO identifier. The documented Front
+      handoff uses <code>Auth/1 ResumeRequest</code>.</p>
+      <RustSchema code={`struct SingleSignOnRequest3 {
+    request_common: RequestCommon,
+    sso_id: Vec<u8>,       // 1..=512 bytes
+    compatibility: u32,   // 0x000a16a7
+}`} />
     </Endpoint>
 </ServiceSection>

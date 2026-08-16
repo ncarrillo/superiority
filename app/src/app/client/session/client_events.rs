@@ -1,7 +1,15 @@
 use super::*;
 
+fn invalidates_immediately(event: &ClientEvent) -> bool {
+    !matches!(
+        event,
+        ClientEvent::Chat(ChatEvent::Activity { .. } | ChatEvent::Roster(_))
+    )
+}
+
 impl SuperiorityView {
-    pub(in crate::app::client) fn handle_client_event(&mut self, event: ClientEvent) {
+    pub(in crate::app::client) fn handle_client_event(&mut self, event: ClientEvent) -> bool {
+        let invalidates_immediately = invalidates_immediately(&event);
         match event {
             ClientEvent::Stage(stage) => {
                 let previous = self.connection.stage;
@@ -118,5 +126,28 @@ impl SuperiorityView {
                 }
             }
         }
+        invalidates_immediately
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queued_and_noop_chat_events_do_not_invalidate_immediately() {
+        assert!(!invalidates_immediately(&ClientEvent::Chat(
+            ChatEvent::Activity { route: (None, 0) }
+        )));
+        assert!(!invalidates_immediately(&ClientEvent::Chat(
+            ChatEvent::Roster(RosterSnapshot {
+                channel_index: 1,
+                initial_complete: true,
+                users: Vec::new(),
+            })
+        )));
+        assert!(invalidates_immediately(&ClientEvent::Stage(
+            ConnectionStage::Connected
+        )));
     }
 }

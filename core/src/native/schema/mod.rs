@@ -28,6 +28,7 @@ pub mod regulator;
 pub mod s2game;
 pub mod s2map;
 pub mod s2master;
+pub mod session;
 pub mod starcraft2;
 pub mod statistics;
 pub mod toon;

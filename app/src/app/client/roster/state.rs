@@ -94,6 +94,15 @@ impl SuperiorityView {
         previous: Vec<UiUser>,
         next: &[UiUser],
     ) {
+        let previous_handles = previous
+            .iter()
+            .map(|user| user.handle)
+            .collect::<BTreeSet<_>>();
+        let next_handles = next.iter().map(|user| user.handle).collect::<BTreeSet<_>>();
+        if previous_handles == next_handles {
+            self.roster.roster.animation = None;
+            return;
+        }
         self.roster
             .roster
             .begin_transition(channel_id, previous, next, Instant::now(), |user| {

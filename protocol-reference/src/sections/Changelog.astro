@@ -4,42 +4,66 @@ import BackToContents from "../components/BackToContents.astro";
 ---
 
 <Chapter id="changelog">
-<h2>13. Document changelog</h2>
-  <p>Revisions to this reference, newest first. Dates track when a finding was
-  settled in the implementing client, not when the protocol itself changed. All
-  entries describe the same target: SC2 <code>5.0.16.97563</code>, with native
-  BSN metadata recovered from build <code>97364</code>.</p>
+<h2>Document changelog</h2>
+  <p>The newest revision is first. Each date records client validation of the
+  documented result. All entries apply to SC2
+  <code>5.0.16.97563</code>. The BSN metadata comes from build <code>97364</code>.</p>
 
   <dl>
-    <dt>2026-08-09 — Social graph</dt>
-    <dd>Documented the whisper family (<code>Chat/19</code> send and receive,
-    <code>Chat/30</code> echo, <code>Chat/20</code> mapped but not yet decoded),
-    including the <code>PlayerTarget</code> choice that selects a whisper target by
-    presence id, toon name, account id, or toon handle. Added the Battle.net group
-    subsystem on <code>S2Mp</code>: <code>46</code> group list, <code>51</code>
-    search, <code>53</code> member clan tags, <code>54</code> invitation action,
-    and <code>55</code> group info. Added presence targeting on <code>Pres</code>
-    (<code>2</code> statistics subscribe, <code>3</code> statistics update,
-    <code>4</code> temporary presence) with the additional <code>Pres/0</code>
-    field handles the client decodes, and the toon-resolution routes
-    <code>Prfl/1</code>, <code>Prfl/3</code>, and <code>Frnd/6</code>. The runtime
-    registry table and the unresolved list were brought in step with these
-    routes.</dd>
+    <dt>2026-08-16 — generated layouts and route audit</dt>
+    <dd><ul>
+      <li>Documented <code>0x40</code> generated-handling eligibility and the
+      separate wire-layout data.</li>
+      <li>Documented the declarative field-permutation and filler-run model, verified
+      reflected layouts, candidate layouts, and remaining custom codecs.</li>
+      <li>Added the identity chain across Front accounts, SC2 game accounts, toons,
+      profile addresses, presence aliases, and channel-local member handles.</li>
+      <li>Added <code>Achv/0</code> and <code>Achv/2</code>, plus newly captured Auth,
+      Conn, Chat, Party, S2Master, S2Map, Profile, and Toon routes.</li>
+      <li>Documented the <code>BNET/ERRS/enUS</code> cache catalog and depot content
+      handle format.</li>
+      <li>Clarified join-response token correlation and the optional public channel
+      name ID in successful <code>Chat/27</code> responses.</li>
+    </ul></dd>
 
-    <dd>Corrected the client channel index: its wire range is 0&ndash;6, but the
-    service grants at most six concurrent channels, so the seventh index exists
-    without ever being handed out. Noted the <code>Chat/0</code> club locator's
-    sixteen reserved bits ahead of the group id.</dd>
+    <dt>2026-08-15 — implementation audit</dt>
+    <dd><ul>
+      <li>Separated schema-delimited service records from fixed 16-bit command responses.</li>
+      <li>Replaced the runtime-registry model with the static slot map used by the code.</li>
+      <li>Split route coverage by direction and added the implemented Party routes.</li>
+      <li>Added Chat invitation, party-status, and datagram routes.</li>
+      <li>Marked <code>Chat/32</code> and <code>Chat/33</code> unsupported pending a
+      later official-client capture; the following revision restores them with
+      generated layouts.</li>
+      <li>Aligned Front message framing, SDK identity, callback handling, and chat bootstrap notes.</li>
+      <li>Added readable native payload definitions.</li>
+    </ul></dd>
+
+    <dt>2026-08-09 — Social graph</dt>
+    <dd><ul>
+      <li>Added <code>Chat/19</code> send and receive.</li>
+      <li>Added <code>Chat/30</code> echo.</li>
+      <li>Documented the <code>Chat/20</code> route with payload decoding pending.</li>
+      <li>Added the <code>PlayerTarget</code> choice.</li>
+      <li>Added <code>S2Mp/46</code>, <code>51</code>, <code>53</code>,
+      <code>54</code>, and <code>55</code>.</li>
+      <li>Added <code>Pres/2</code>, <code>3</code>, and <code>4</code>.</li>
+      <li>Added more <code>Pres/0</code> field handles.</li>
+      <li>Added <code>Prfl/1</code>, <code>Prfl/3</code>, and
+      <code>Frnd/6</code>.</li>
+      <li>Set the client channel limit to six concurrent channels.</li>
+      <li>Added the 16 reserved bits in the <code>Chat/0</code> club locator.</li>
+    </ul></dd>
 
     <dt>2026-08-04 — Initial reference</dt>
-    <dd>First published description: the BGS protobuf control plane and logon
-    sequence, the Front-to-Sunken GameUtilities handoff, the native bit-packed BSN
-    record stream and its embedded schema metadata, resume authentication and
-    transport protection, the runtime service registry, and the core services
-    &mdash; <code>Auth</code>, <code>Conn</code>, <code>Toon</code>,
-    <code>Pres</code>, <code>Frnd</code>, <code>Cach</code>, <code>S2Ms</code>,
-    <code>S2Mp</code>, <code>Prfl</code>, and <code>Chat</code> &mdash; covering
-    channels, roster, and messages.</dd>
+    <dd><ul>
+      <li>Added the Front RPC connection and logon sequence.</li>
+      <li>Added the Front-to-Sunken handoff.</li>
+      <li>Added the Sunken record format and BSN metadata.</li>
+      <li>Added Resume authentication and transport protection.</li>
+      <li>Added the native service-slot map.</li>
+      <li>Added the core native services.</li>
+    </ul></dd>
   </dl>
   <BackToContents />
 </Chapter>

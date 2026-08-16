@@ -1,0 +1,31 @@
+---
+import Chapter from "../components/Chapter.astro";
+---
+
+<Chapter id="start">
+  <div class="section-heading">
+    <h2>Protocol model</h2>
+    <p><b>Front</b> is the regional account and session connection. It uses
+    protobuf RPC over WebSocket. <b>Sunken</b> is the native SC2 service
+    connection. It uses schema-delimited, bit-packed records over TCP.</p>
+  </div>
+
+  <div class="layer-map" aria-label="The two StarCraft II protocol connections">
+    <article class="layer-card layer-front">
+      <h3>Front</h3>
+      <p>Regional Battle.net login and session setup.</p>
+      <p class="boundary"><b>Message boundary:</b> One WebSocket binary message.</p>
+    </article>
+
+    <div class="handoff-arrow" aria-label="Front establishes the session before Sunken opens">
+      <b aria-hidden="true">→</b>
+    </div>
+
+    <article class="layer-card layer-sunken">
+      <h3>Sunken</h3>
+      <p>Native SC2 services over a separate TCP connection.</p>
+      <p class="boundary"><b>Record boundary:</b> A service schema or the fixed command-response layout sets the boundary.</p>
+    </article>
+  </div>
+
+</Chapter>

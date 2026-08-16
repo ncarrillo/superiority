@@ -5,7 +5,7 @@ use std::{
 
 use rand::random;
 
-use super::{portrait_catalog, public_channels};
+use super::{error_catalog, portrait_catalog, public_channels};
 
 const CLUB_LOOKUP_BATCH: usize = 8;
 const NAMED_CHANNEL_TYPE: u8 = 1;
@@ -13,6 +13,8 @@ const PARTY_CHANNEL_TYPE: u8 = 3;
 const PUBLIC_CHANNEL_TYPE: u8 = 4;
 const CLUB_CHANNEL_TYPE: u8 = 5;
 const PARTY_UI_CHANNEL_INDEX: u8 = u8::MAX;
+const ERROR_CATALOG_TOKEN: u32 = 1;
+const PUBLIC_CHANNEL_CATALOG_TOKEN: u32 = 2;
 
 pub const GENERAL_PUBLIC_CHANNEL: u16 = 1028;
 
@@ -208,6 +210,16 @@ struct ChannelState {
     initial_roster_complete: bool,
 }
 
+impl ChannelState {
+    fn begin_join(&mut self, channel: ChatChannel, local_member_handle: u32) {
+        self.channel = Some(channel);
+        self.local_member_handle = Some(local_member_handle);
+        self.roster.clear();
+        self.next_roster_order = 0;
+        self.initial_roster_complete = false;
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct PartyChannelState {
     wire_channel_index: u8,
@@ -301,7 +313,7 @@ impl LiveChat {
         mut initial_channel: ChatChannel,
     ) -> Result<(Self, Vec<ChatEvent>)> {
         let protocol = session.records().protocol().clone();
-        request_conference_cache(&mut session, &protocol)?;
+        request_bootstrap_catalogs(&mut session, &protocol)?;
 
         let mut toon_selection_sent = false;
         let mut toon_selected = false;
@@ -314,6 +326,7 @@ impl LiveChat {
         let mut presence_statistics_subscribed = false;
         let mut queries_sent = false;
         let mut join_sent = false;
+        let mut initial_join_token = None;
         let mut default_channel_index = None;
         let mut channels: BTreeMap<u8, ChannelState> = BTreeMap::new();
         let mut profiles = ProfileResolver::default();
@@ -325,7 +338,25 @@ impl LiveChat {
             let record = session.records_mut().receive()?;
             let profile_changed = profiles.observe(&record.value);
             match &record.value {
-                Payload::CacheStreamItems(response) => {
+                Payload::CacheStreamItems(response) if response.token == ERROR_CATALOG_TOKEN => {
+                    match error_catalog::load(response) {
+                        Ok(count) => {
+                            if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                                eprintln!("superiority: Battle.net error catalog entries={count}");
+                            }
+                        }
+                        Err(error) => {
+                            if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                                eprintln!(
+                                    "superiority: could not load Battle.net error catalog: {error}"
+                                );
+                            }
+                        }
+                    }
+                }
+                Payload::CacheStreamItems(response)
+                    if response.token == PUBLIC_CHANNEL_CATALOG_TOKEN =>
+                {
                     let catalog = public_channels::load(response)?;
                     let resolved_general = catalog
                         .iter()
@@ -374,12 +405,26 @@ impl LiveChat {
                 Payload::ChatJoin(result) => {
                     if std::env::var_os("SUPERIORITY_TRACE").is_some() {
                         eprintln!(
-                            "superiority: join response requested={initial_channel:?} success={} returned_name_id={:?} shard={:?} channel_index={:?}",
+                            "superiority: join response requested={initial_channel:?} success={} type={:?} returned_name_id={:?} shard={:?} channel_index={:?} token={:?}",
                             result.success,
+                            result.channel_type,
                             result.channel_name_id,
                             result.channel_shard_index,
-                            result.channel_index
+                            result.channel_index,
+                            result.token,
                         );
+                    }
+                    let Some(expected_token) = initial_join_token else {
+                        events.push(ChatEvent::Activity {
+                            route: record_route(&record),
+                        });
+                        continue;
+                    };
+                    if !join_result_matches_request(result, &initial_channel, expected_token) {
+                        events.push(ChatEvent::Activity {
+                            route: record_route(&record),
+                        });
+                        continue;
                     }
                     if !result.success
                         && Some(initial_channel.clone())
@@ -393,9 +438,11 @@ impl LiveChat {
                             protocol_error("General was not resolved from Battle.net")
                         })?;
                         initial_channel = ChatChannel::Public(general_channel_id);
+                        let token = random();
+                        initial_join_token = Some(token);
                         session.records_mut().send(&protocol.chat_join_public(
                             general_channel_id,
-                            random(),
+                            token,
                             "enUS",
                         )?)?;
                         continue;
@@ -405,8 +452,7 @@ impl LiveChat {
                     default_channel_index = Some(channel_index);
                     let channel = channels.entry(channel_index).or_default();
                     let joined = initial_channel.clone();
-                    channel.channel = Some(joined.clone());
-                    channel.local_member_handle = Some(member_handle);
+                    channel.begin_join(joined.clone(), member_handle);
                     events.push(ChatEvent::Joined {
                         channel_index,
                         channel: joined,
@@ -450,6 +496,15 @@ impl LiveChat {
                     events.push(ChatEvent::BlockedAccounts(block_snapshot(
                         &blocked_accounts,
                     )));
+                }
+                Payload::CommandResponse(response) => {
+                    trace_battle_net_error(
+                        format_args!("command {} response", response.command_id),
+                        response.result,
+                    );
+                    events.push(ChatEvent::Activity {
+                        route: record_route(&record),
+                    });
                 }
                 _ => events.push(ChatEvent::Activity {
                     route: record_route(&record),
@@ -496,6 +551,7 @@ impl LiveChat {
                     }
                 };
                 session.records_mut().send(&request)?;
+                initial_join_token = Some(token);
                 join_sent = true;
             }
 
@@ -1172,9 +1228,8 @@ impl LiveChat {
                                 .and_then(|channel| channel.channel.clone())
                         });
                     let channel = self.channels.entry(channel_index).or_default();
-                    channel.local_member_handle = Some(local_member_handle);
                     if let Some(joined) = joined {
-                        channel.channel = Some(joined.clone());
+                        channel.begin_join(joined.clone(), local_member_handle);
                         Ok(ChatEvent::Joined {
                             channel_index,
                             channel: joined,
@@ -1182,6 +1237,7 @@ impl LiveChat {
                             shard_index: result.channel_shard_index,
                         })
                     } else {
+                        channel.local_member_handle = Some(local_member_handle);
                         trace_party(format_args!(
                             "accepted auxiliary chat channel {channel_index} without a visible locator"
                         ));
@@ -1289,6 +1345,15 @@ impl LiveChat {
                 Ok(ChatEvent::BlockedAccounts(block_snapshot(
                     &self.blocked_accounts,
                 )))
+            }
+            Payload::CommandResponse(response) => {
+                trace_battle_net_error(
+                    format_args!("command {} response", response.command_id),
+                    response.result,
+                );
+                Ok(ChatEvent::Activity {
+                    route: record_route(&record),
+                })
             }
             _ => Ok(ChatEvent::Activity {
                 route: record_route(&record),
@@ -1555,6 +1620,22 @@ impl LiveChat {
                     }
                 }
                 self.request_temporary_presence(handle)?;
+            } else if resolved.result != 0 {
+                let peers = self
+                    .pending_whispers
+                    .iter()
+                    .filter(|pending| pending.toon_name.as_ref() == Some(&resolved.name))
+                    .map(|pending| pending.display_name.clone())
+                    .collect::<Vec<_>>();
+                self.pending_whispers
+                    .retain(|pending| pending.toon_name.as_ref() != Some(&resolved.name));
+                let reason = crate::native::errors::description(resolved.result);
+                self.pending_events.extend(peers.into_iter().map(|peer| {
+                    ChatEvent::WhisperFailed {
+                        peer,
+                        reason: reason.clone(),
+                    }
+                }));
             }
         }
 
@@ -2058,8 +2139,13 @@ impl ProfileResolver {
             ProfileReadResult::Start {
                 packet_count: 0, ..
             }
-            | ProfileReadResult::Failure(_)
             | ProfileReadResult::Cache => {
+                self.pending.remove(&response.request_id);
+                self.avatars.insert(address, None);
+                true
+            }
+            ProfileReadResult::Failure(code) => {
+                trace_battle_net_error("profile read", *code);
                 self.pending.remove(&response.request_id);
                 self.avatars.insert(address, None);
                 true
@@ -2143,7 +2229,10 @@ fn join_result_matches_channel(result: &ChatJoin, channel: &ChatChannel) -> bool
     match channel {
         ChatChannel::Public(identifier) => {
             result.channel_type == Some(PUBLIC_CHANNEL_TYPE)
-                && (!result.success || result.channel_name_id == Some(*identifier))
+                && (!result.success
+                    || result
+                        .channel_name_id
+                        .is_none_or(|actual| actual == *identifier))
         }
         ChatChannel::Private(_) => result.channel_type == Some(NAMED_CHANNEL_TYPE),
         ChatChannel::Club(_) => result.channel_type == Some(CLUB_CHANNEL_TYPE),
@@ -2151,16 +2240,23 @@ fn join_result_matches_channel(result: &ChatJoin, channel: &ChatChannel) -> bool
     }
 }
 
+fn join_result_matches_request(result: &ChatJoin, channel: &ChatChannel, token: u32) -> bool {
+    result.token.map_or_else(
+        || join_result_matches_channel(result, channel),
+        |actual| actual == token,
+    )
+}
+
 fn validate_public_join(requested: &ChatChannel, result: &ChatJoin) -> Result<()> {
     let ChatChannel::Public(expected) = requested else {
         return Ok(());
     };
-    let Some(actual) = result.channel_name_id else {
-        return Err(protocol_error(format!(
-            "Battle.net omitted the public channel ID after {expected} was requested"
-        )));
-    };
-    if actual != *expected {
+    if !result.success {
+        return Ok(());
+    }
+    if let Some(actual) = result.channel_name_id
+        && actual != *expected
+    {
         return Err(protocol_error(format!(
             "Battle.net joined public channel {actual} after {expected} was requested"
         )));
@@ -2170,9 +2266,12 @@ fn validate_public_join(requested: &ChatChannel, result: &ChatJoin) -> Result<()
 
 fn accepted_join(result: &ChatJoin) -> Result<(u8, u32)> {
     if !result.success {
+        let detail = result.reason.map_or_else(
+            || "without an error code".to_owned(),
+            crate::native::errors::description,
+        );
         return Err(Error::Server(format!(
-            "Battle.net rejected the chat join: reason={:?}",
-            result.reason
+            "Battle.net rejected the chat join: {detail}"
         )));
     }
     let channel_index = result
@@ -2212,6 +2311,15 @@ fn trace_party(message: impl std::fmt::Display) {
     }
 }
 
+fn trace_battle_net_error(context: impl std::fmt::Display, code: u16) {
+    if code != 0 && std::env::var_os("SUPERIORITY_TRACE").is_some() {
+        eprintln!(
+            "superiority: {context}: {}",
+            crate::native::errors::description(code)
+        );
+    }
+}
+
 fn conference_event(directory: &ConferenceDescriptions) -> ChatEvent {
     ChatEvent::ConferenceDirectory {
         identifiers: directory
@@ -2233,10 +2341,16 @@ fn select_first_toon(session: &mut Session, protocol: &Protocol, list: &ToonList
         .send(&protocol.toon_select(&toon.name, toon.realm)?)
 }
 
-fn request_conference_cache(session: &mut Session, protocol: &Protocol) -> Result<()> {
+fn request_bootstrap_catalogs(session: &mut Session, protocol: &Protocol) -> Result<()> {
     session
         .records_mut()
-        .send(&protocol.cache_get_stream_items(1, "BNET", "CONF", "enUS")?)
+        .send(&protocol.cache_get_stream_items(ERROR_CATALOG_TOKEN, "BNET", "ERRS", "enUS")?)?;
+    session.records_mut().send(&protocol.cache_get_stream_items(
+        PUBLIC_CHANNEL_CATALOG_TOKEN,
+        "BNET",
+        "CONF",
+        "enUS",
+    )?)
 }
 
 fn apply_membership(
@@ -2313,17 +2427,14 @@ fn apply_membership(
                 }
             }
             MembershipKind::Status => {
-                if !roster.contains_key(&change.member_handle) {
+                roster.entry(change.member_handle).or_insert_with(|| {
                     let joined_order = *next_roster_order;
                     *next_roster_order = (*next_roster_order).saturating_add(1);
-                    roster.insert(
-                        change.member_handle,
-                        RosterMember {
-                            joined_order,
-                            ..RosterMember::default()
-                        },
-                    );
-                }
+                    RosterMember {
+                        joined_order,
+                        ..RosterMember::default()
+                    }
+                });
                 if let Some(name) = &change.display_name {
                     roster
                         .get_mut(&change.member_handle)
@@ -2771,6 +2882,28 @@ mod tests {
     }
 
     #[test]
+    fn beginning_a_rejoin_clears_the_previous_roster_bootstrap_state() {
+        let mut channel = ChannelState {
+            channel: Some(ChatChannel::Private("old".into())),
+            local_member_handle: Some(7),
+            roster: BTreeMap::from([(17, RosterMember::default())]),
+            next_roster_order: 8,
+            initial_roster_complete: true,
+        };
+
+        channel.begin_join(ChatChannel::Public(GENERAL_PUBLIC_CHANNEL), 91);
+
+        assert_eq!(
+            channel.channel,
+            Some(ChatChannel::Public(GENERAL_PUBLIC_CHANNEL))
+        );
+        assert_eq!(channel.local_member_handle, Some(91));
+        assert!(channel.roster.is_empty());
+        assert_eq!(channel.next_roster_order, 0);
+        assert!(!channel.initial_roster_complete);
+    }
+
+    #[test]
     fn roster_snapshots_preserve_join_order() {
         let mut roster = BTreeMap::new();
         let mut next_roster_order = 0;
@@ -3100,6 +3233,53 @@ mod tests {
         };
 
         assert!(validate_public_join(&ChatChannel::Public(1028), &result).is_err());
+    }
+
+    #[test]
+    fn public_join_accepts_an_omitted_redundant_channel_id() {
+        let result = ChatJoin {
+            success: true,
+            channel_index: Some(2),
+            member_handle: Some(91),
+            channel_type: Some(PUBLIC_CHANNEL_TYPE),
+            channel_name_id: None,
+            channel_shard_index: Some(2),
+            reason: None,
+            token: Some(11),
+        };
+
+        assert!(validate_public_join(&ChatChannel::Public(1028), &result).is_ok());
+    }
+
+    #[test]
+    fn auxiliary_join_does_not_match_a_public_request_without_its_token() {
+        let result = ChatJoin {
+            success: true,
+            channel_index: Some(2),
+            member_handle: Some(91),
+            channel_type: Some(NAMED_CHANNEL_TYPE),
+            channel_name_id: None,
+            channel_shard_index: Some(2),
+            reason: None,
+            token: Some(11),
+        };
+
+        assert!(!join_result_matches_request(
+            &ChatJoin {
+                token: None,
+                ..result.clone()
+            },
+            &ChatChannel::Public(1028),
+            27,
+        ));
+        assert!(join_result_matches_request(
+            &ChatJoin {
+                token: Some(27),
+                ..result
+            },
+            &ChatChannel::Public(1028),
+            27,
+        ));
     }
 
     #[test]

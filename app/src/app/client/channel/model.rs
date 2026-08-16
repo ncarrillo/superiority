@@ -97,6 +97,12 @@ pub(in crate::app::client) fn join_rejection_notice(channel: &str, reason: Optio
     let Some(code) = reason else {
         return format!("Could not join {channel}.");
     };
+    if let Some(message) = crate::native::errors::localized_message(code) {
+        return format!(
+            "Could not join {channel}: {}.",
+            message.trim_end_matches('.')
+        );
+    }
     match code {
         10001 | 11001 => format!("{channel} no longer exists."),
         10000 | 11000 => format!("{channel} is full."),
@@ -108,8 +114,8 @@ pub(in crate::app::client) fn join_rejection_notice(channel: &str, reason: Optio
         }
         301 | 10017 | 11017 => "You are in as many channels as Battle.net allows.".to_owned(),
         10003 | 11003 => format!("You are already in {channel}."),
-        _ => match crate::native::errors::error_name(code) {
-            Some(name) => format!("Could not join {channel} ({name})."),
+        _ => match crate::native::errors::message(code) {
+            Some(message) => format!("Could not join {channel} ({message})."),
             None => format!("Could not join {channel} (Battle.net reason {code})."),
         },
     }

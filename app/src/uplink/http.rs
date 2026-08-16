@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use ureq::Agent;
-use ureq::tls::{TlsConfig, TlsProvider};
+use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 /// Response bodies larger than this are a config error, not data.
 const MAX_RESPONSE_BYTES: u64 = 65_536;
@@ -70,6 +70,7 @@ impl LiveHttp {
             .tls_config(
                 TlsConfig::builder()
                     .provider(TlsProvider::NativeTls)
+                    .root_certs(RootCerts::PlatformVerifier)
                     .build(),
             )
             .timeout_global(Some(timeout))
@@ -89,6 +90,11 @@ impl LiveHttp {
         token: Option<&str>,
         body: &[u8],
     ) -> Result<HttpResponse, PostError> {
+        let mut request_headers = vec![("Content-Type".to_owned(), "application/json".to_owned())];
+        if token.is_some() {
+            request_headers.push(("Authorization".to_owned(), "<redacted>".to_owned()));
+        }
+        crate::native::inspect::capture_http_request("POST", url, &request_headers, body);
         let mut request = self.agent.post(url).content_type("application/json");
         if let Some(token) = token {
             request = request.header("Authorization", &format!("Bearer {token}"));
@@ -98,12 +104,31 @@ impl LiveHttp {
             .map_err(|error| PostError::Retryable(format!("send: {error}")))?;
 
         let status = response.status().as_u16();
+        let response_headers = response
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_owned(),
+                    value
+                        .to_str()
+                        .map_or_else(|_| "<binary>".to_owned(), str::to_owned),
+                )
+            })
+            .collect::<Vec<_>>();
         let body = response
             .body_mut()
             .with_config()
             .limit(MAX_RESPONSE_BYTES)
             .read_to_vec()
             .map_err(|error| PostError::Retryable(format!("read: {error}")))?;
+        crate::native::inspect::capture_http_response(
+            "POST",
+            url,
+            status,
+            &response_headers,
+            &body,
+        );
 
         match status {
             200..=299 => Ok(HttpResponse { status, body }),
@@ -172,6 +197,14 @@ mod tests {
             })
             .unwrap_or(0);
         raw.len() >= head_end + 4 + content_length
+    }
+
+    #[test]
+    fn live_http_uses_native_platform_trust() {
+        let http = LiveHttp::new();
+        let tls = http.agent.config().tls_config();
+        assert_eq!(tls.provider(), TlsProvider::NativeTls);
+        assert!(matches!(tls.root_certs(), RootCerts::PlatformVerifier));
     }
 
     #[test]

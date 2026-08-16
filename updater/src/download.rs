@@ -14,7 +14,7 @@ use memmap2::Mmap;
 use sha2::{Digest as _, Sha256};
 use ureq::{
     Agent,
-    tls::{TlsConfig, TlsProvider},
+    tls::{RootCerts, TlsConfig, TlsProvider},
 };
 
 use crate::{Artifact, Error, Result};
@@ -27,6 +27,7 @@ fn http_agent() -> Agent {
         .tls_config(
             TlsConfig::builder()
                 .provider(TlsProvider::NativeTls)
+                .root_certs(RootCerts::PlatformVerifier)
                 .build(),
         )
         .build()
@@ -199,10 +200,13 @@ mod tests {
 
     #[test]
     fn http_agent_uses_the_enabled_native_tls_provider() {
-        assert_eq!(
-            http_agent().config().tls_config().provider(),
-            ureq::tls::TlsProvider::NativeTls,
-        );
+        let agent = http_agent();
+        let tls = agent.config().tls_config();
+        assert_eq!(tls.provider(), ureq::tls::TlsProvider::NativeTls);
+        assert!(matches!(
+            tls.root_certs(),
+            ureq::tls::RootCerts::PlatformVerifier
+        ));
     }
 
     #[test]

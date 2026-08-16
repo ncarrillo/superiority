@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 gpui.workspace = true
 pulldown-cmark = "0.13"
 unicode-segmentation = "1"
+url = "2"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

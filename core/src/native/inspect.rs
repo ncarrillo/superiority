@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -9,24 +9,33 @@ use crate::{
     bsn::bits::{BitReader, RoutingHeader},
     bsn::codec::DecodedField,
     bsn::value::BsnValue,
+    wire::protobuf::RpcHeader,
 };
 
 use super::{
     Payload, Protocol,
     protocol::{
+        ACHIEVEMENT_LISTEN_COMMAND, ACHIEVEMENT_SLOT, AUTH_GENERATE_WEB_TOKEN_COMMAND,
         AUTH_LOGON_COMMAND, AUTH_PROOF_COMMAND, AUTH_RESUME_COMMAND, AUTH_SINGLE_SIGN_ON_COMMAND,
         AUTHENTICATION_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND, CACHE_SLOT,
-        CHAT_CHANNEL_LIST_REQUEST_COMMAND, CHAT_ENUM_CONFERENCES_COMMAND,
-        CHAT_INVITE_ACCEPT_COMMAND, CHAT_INVITE_DECLINE_COMMAND, CHAT_JOIN_REQUEST_COMMAND,
-        CHAT_LEAVE_REQUEST_COMMAND, CHAT_MESSAGE_COMMAND, CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND,
+        CHAT_CHANNEL_LIST_REQUEST_COMMAND, CHAT_ENUM_CATEGORIES_COMMAND,
+        CHAT_ENUM_CONFERENCES_COMMAND, CHAT_INVITE_ACCEPT_COMMAND, CHAT_INVITE_DECLINE_COMMAND,
+        CHAT_JOIN_REQUEST_COMMAND, CHAT_LEAVE_REQUEST_COMMAND, CHAT_MESSAGE_COMMAND,
+        CHAT_MODIFY_CHANNEL_LIST_COMMAND, CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND,
         CHAT_WHISPER_SEND_COMMAND, CONNECTION_ENABLE_ENCRYPTION_COMMAND,
-        CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_PING_COMMAND, CONNECTION_SLOT, FRIENDS_SLOT,
-        FRIENDS_TOONS_COMMAND, PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND,
-        PRESENCE_TEMPORARY_COMMAND, PROFILE_ADDRESS_QUERY_COMMAND, PROFILE_READ_COMMAND,
-        PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND, PROFILE_SLOT,
-        S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND,
-        S2_MULTIPLAYER_INVITE_ACTION_COMMAND, S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND,
-        S2_MULTIPLAYER_SLOT, TOON_SELECT_COMMAND, TOON_SLOT,
+        CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_PING_COMMAND, CONNECTION_PONG_COMMAND,
+        CONNECTION_SLOT, FRIENDS_SLOT, FRIENDS_TOONS_COMMAND, PRESENCE_SLOT,
+        PRESENCE_STATISTICS_SUBSCRIBE_COMMAND, PRESENCE_TEMPORARY_COMMAND, PRESENCE_UPDATE_COMMAND,
+        PROFILE_ADDRESS_QUERY_COMMAND, PROFILE_CHANGE_SETTINGS_COMMAND, PROFILE_READ_COMMAND,
+        PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND, PROFILE_SEND_STATS_UI_EVENTS_COMMAND,
+        PROFILE_SLOT, S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND, S2_MAP_GAME_GROUP_UPDATE_COMMAND,
+        S2_MAP_LIST_FAVORITES_COMMAND, S2_MASTER_CURRENT_SEASON_COMMAND,
+        S2_MASTER_MMQ_GET_INFO_COMMAND, S2_MASTER_MMQ_GET_LIST_COMMAND,
+        S2_MASTER_SITE_LATENCY_INFO_COMMAND, S2_MASTER_SLOT, S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND,
+        S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND, S2_MULTIPLAYER_INVITE_ACTION_COMMAND,
+        S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND, S2_MULTIPLAYER_SLOT, TOON_BILLING_UPDATE_COMMAND,
+        TOON_CAIS_TIME_UPDATE_COMMAND, TOON_CREATE_CANCEL_COMMAND, TOON_CREATE_FINAL_COMMAND,
+        TOON_CREATE_INIT_COMMAND, TOON_SELECT_COMMAND, TOON_SLOT,
     },
 };
 
@@ -40,7 +49,7 @@ pub enum FieldRole {
     Padding,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Direction {
     Incoming,
     Outgoing,
@@ -140,22 +149,69 @@ pub struct Capture {
     pub records: Vec<Record>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReflectedOutgoingRecord {
+    pub header: RoutingHeader,
+    pub type_id: u32,
+    pub value: BsnValue,
+    pub logical_bits: usize,
+    pub byte_count: usize,
+}
+
 #[derive(Default)]
 struct CaptureState {
     next_sequence: u64,
     protocol: Option<Protocol>,
     paused: bool,
     records: VecDeque<RawRecord>,
+    bgs_routes: HashMap<(Direction, u32), BgsRoute>,
 }
 
 #[derive(Clone)]
 struct RawRecord {
     sequence: u64,
     captured_at_millis: u64,
+    message: RawMessage,
+}
+
+#[derive(Clone)]
+enum RawMessage {
+    Native(RawNativeRecord),
+    Bgs(RawBgsRecord),
+    Http(RawHttpRecord),
+}
+
+#[derive(Clone)]
+struct RawNativeRecord {
     direction: Direction,
     header: RoutingHeader,
     bytes: Vec<u8>,
     logical_bits: usize,
+}
+
+#[derive(Clone, Copy)]
+struct BgsRoute {
+    service_hash: u32,
+    method_id: u32,
+}
+
+#[derive(Clone)]
+struct RawBgsRecord {
+    direction: Direction,
+    header: Option<RpcHeader>,
+    route: Option<BgsRoute>,
+    bytes: Vec<u8>,
+    error: Option<String>,
+}
+
+#[derive(Clone)]
+struct RawHttpRecord {
+    direction: Direction,
+    method: String,
+    url: String,
+    status: Option<u16>,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
 }
 
 static CAPTURE: OnceLock<Mutex<CaptureState>> = OnceLock::new();
@@ -175,38 +231,48 @@ pub fn live_capture_after(sequence: Option<u64>) -> Capture {
         (state.protocol.clone(), records)
     };
     Capture {
-        records: protocol.map_or_else(Vec::new, |protocol| {
-            records
-                .iter()
-                .filter_map(|raw| {
-                    let mut record = match raw.direction {
-                        Direction::Incoming => {
-                            let mut reader = BitReader::new(&raw.bytes, None).ok()?;
-                            reader.set_position(raw.header.bit_count).ok()?;
-                            let decoded = protocol
-                                .decode_incoming_with_provenance_from(&mut reader, raw.header)
-                                .ok()?;
-                            inspect_decoded(
-                                &protocol,
-                                DecodedRecord {
-                                    direction: Direction::Incoming,
-                                    header: raw.header,
-                                    type_id: decoded.type_id,
-                                    payload: &decoded.payload,
-                                    provenance: &decoded.provenance,
-                                    bytes: &raw.bytes,
-                                    logical_bits: raw.logical_bits,
-                                },
-                            )?
+        records: records
+            .iter()
+            .filter_map(|raw| {
+                let mut record = match &raw.message {
+                    RawMessage::Native(native) => {
+                        let protocol = protocol.as_ref()?;
+                        match native.direction {
+                            Direction::Incoming => {
+                                let mut reader = BitReader::new(&native.bytes, None).ok()?;
+                                reader.set_position(native.header.bit_count).ok()?;
+                                let decoded = protocol
+                                    .decode_incoming_with_provenance_from(
+                                        &mut reader,
+                                        native.header,
+                                    )
+                                    .ok()?;
+                                inspect_decoded(
+                                    protocol,
+                                    DecodedRecord {
+                                        direction: Direction::Incoming,
+                                        header: native.header,
+                                        type_id: decoded.type_id,
+                                        payload: &decoded.payload,
+                                        provenance: &decoded.provenance,
+                                        bytes: &native.bytes,
+                                        logical_bits: native.logical_bits,
+                                    },
+                                )?
+                            }
+                            Direction::Outgoing => {
+                                inspect_outgoing(protocol, &native.bytes).ok()?
+                            }
                         }
-                        Direction::Outgoing => inspect_outgoing(&protocol, &raw.bytes).ok()?,
-                    };
-                    record.sequence = raw.sequence;
-                    record.captured_at_millis = raw.captured_at_millis;
-                    Some(record)
-                })
-                .collect()
-        }),
+                    }
+                    RawMessage::Bgs(bgs) => inspect_bgs(bgs),
+                    RawMessage::Http(http) => inspect_http(http),
+                };
+                record.sequence = raw.sequence;
+                record.captured_at_millis = raw.captured_at_millis;
+                Some(record)
+            })
+            .collect(),
     }
 }
 
@@ -226,11 +292,11 @@ pub fn set_capture_paused(paused: bool) {
 }
 
 pub fn clear_capture() {
-    capture_state()
+    let mut state = capture_state()
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .records
-        .clear();
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.records.clear();
+    state.bgs_routes.clear();
 }
 
 pub(crate) fn capture_incoming(
@@ -269,6 +335,152 @@ fn capture_record(
         return;
     }
     state.protocol.get_or_insert_with(|| protocol.clone());
+    push_record(
+        &mut state,
+        RawMessage::Native(RawNativeRecord {
+            direction,
+            header,
+            bytes: bytes.to_vec(),
+            logical_bits,
+        }),
+    );
+}
+
+pub(crate) fn capture_bgs(direction: Direction, header: &RpcHeader, body: &[u8], bytes: &[u8]) {
+    let mut state = capture_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state.paused {
+        return;
+    }
+    let response = header.service_id == 0xfe || header.is_response == Some(true);
+    let direct_route =
+        header
+            .service_hash
+            .zip(header.method_id)
+            .map(|(service_hash, method_id)| BgsRoute {
+                service_hash,
+                method_id,
+            });
+    let route = if response {
+        state
+            .bgs_routes
+            .remove(&(direction, header.token))
+            .or(direct_route)
+    } else {
+        if let Some(route) = direct_route {
+            let response_direction = match direction {
+                Direction::Incoming => Direction::Outgoing,
+                Direction::Outgoing => Direction::Incoming,
+            };
+            state
+                .bgs_routes
+                .insert((response_direction, header.token), route);
+        }
+        direct_route
+    };
+    let expected_size = header.size.map_or(body.len(), |size| size as usize);
+    let error = (expected_size != body.len()).then(|| {
+        format!(
+            "header declares {expected_size} body bytes, received {}",
+            body.len()
+        )
+    });
+    push_record(
+        &mut state,
+        RawMessage::Bgs(RawBgsRecord {
+            direction,
+            header: Some(header.clone()),
+            route,
+            bytes: bytes.to_vec(),
+            error,
+        }),
+    );
+}
+
+pub(crate) fn capture_invalid_bgs(direction: Direction, bytes: &[u8], error: &str) {
+    let mut state = capture_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state.paused {
+        return;
+    }
+    push_record(
+        &mut state,
+        RawMessage::Bgs(RawBgsRecord {
+            direction,
+            header: None,
+            route: None,
+            bytes: bytes.to_vec(),
+            error: Some(error.to_owned()),
+        }),
+    );
+}
+
+pub fn capture_http_request(method: &str, url: &str, headers: &[(String, String)], body: &[u8]) {
+    capture_http(RawHttpRecord {
+        direction: Direction::Outgoing,
+        method: method.to_owned(),
+        url: url.to_owned(),
+        status: None,
+        headers: sanitized_headers(headers),
+        body: body.to_vec(),
+    });
+}
+
+pub fn capture_http_response(
+    method: &str,
+    url: &str,
+    status: u16,
+    headers: &[(String, String)],
+    body: &[u8],
+) {
+    capture_http(RawHttpRecord {
+        direction: Direction::Incoming,
+        method: method.to_owned(),
+        url: url.to_owned(),
+        status: Some(status),
+        headers: sanitized_headers(headers),
+        body: body.to_vec(),
+    });
+}
+
+fn capture_http(http: RawHttpRecord) {
+    let mut state = capture_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state.paused {
+        return;
+    }
+    push_record(&mut state, RawMessage::Http(http));
+}
+
+fn sanitized_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let sensitive = [
+                "authorization",
+                "cookie",
+                "proxy-authorization",
+                "set-cookie",
+                "x-api-key",
+            ]
+            .iter()
+            .any(|candidate| name.eq_ignore_ascii_case(candidate));
+            (
+                name.clone(),
+                if sensitive {
+                    "<redacted>".to_owned()
+                } else {
+                    value.clone()
+                },
+            )
+        })
+        .collect()
+}
+
+fn push_record(state: &mut CaptureState, message: RawMessage) {
     let sequence = state.next_sequence;
     state.next_sequence = state.next_sequence.wrapping_add(1);
     if state.records.len() == CAPTURE_LIMIT {
@@ -277,10 +489,7 @@ fn capture_record(
     state.records.push_back(RawRecord {
         sequence,
         captured_at_millis: now_millis(),
-        direction,
-        header,
-        bytes: bytes.to_vec(),
-        logical_bits,
+        message,
     });
 }
 
@@ -326,7 +535,7 @@ pub fn inspect_chat_join(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
     .ok_or_else(|| crate::Error::Native("chat join has no service slot".to_owned()))
 }
 
-fn read_routing_header(bytes: &[u8]) -> Result<(RoutingHeader, BitReader<'_>)> {
+pub fn read_routing_header(bytes: &[u8]) -> Result<(RoutingHeader, BitReader<'_>)> {
     let mut reader = BitReader::new(bytes, None)?;
     let command_id = u8::try_from(reader.read(6)?).expect("six bits fit in u8");
     let service_slot = if reader.read(1)? == 0 {
@@ -342,6 +551,466 @@ fn read_routing_header(bytes: &[u8]) -> Result<(RoutingHeader, BitReader<'_>)> {
         },
         reader,
     ))
+}
+
+pub fn decode_reflected_outgoing(
+    protocol: &Protocol,
+    bytes: &[u8],
+) -> Result<ReflectedOutgoingRecord> {
+    let (header, mut reader) = read_routing_header(bytes)?;
+    let service_slot = header.service_slot.ok_or_else(|| {
+        crate::Error::Native("native client record has no service slot".to_owned())
+    })?;
+    let type_name = reflected_outgoing_type((service_slot, header.command_id)).ok_or(
+        crate::Error::UnmappedNativeRoute {
+            slot: service_slot,
+            command: header.command_id,
+        },
+    )?;
+    let type_id = protocol.codec().schema().unique_type_id(type_name)?;
+    let value = protocol.codec().decode_from(&mut reader, type_id)?;
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    Ok(ReflectedOutgoingRecord {
+        header,
+        type_id,
+        value,
+        logical_bits,
+        byte_count,
+    })
+}
+
+pub fn inspect_native_record(
+    protocol: &Protocol,
+    direction: Direction,
+    bytes: &[u8],
+) -> Result<Record> {
+    match direction {
+        Direction::Incoming => inspect_incoming_strict(protocol, bytes),
+        Direction::Outgoing => inspect_outgoing_strict(protocol, bytes),
+    }
+}
+
+fn inspect_incoming_strict(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
+    let (header, mut reader) = read_routing_header(bytes)?;
+    let Some(service_slot) = header.service_slot else {
+        return inspect_command_response(header, &mut reader, Direction::Incoming, bytes);
+    };
+    if (service_slot, header.command_id) == (S2_MASTER_SLOT, S2_MASTER_MMQ_GET_INFO_COMMAND) {
+        return inspect_mmq_get_info_response(header, &mut reader, bytes);
+    }
+    if (service_slot, header.command_id) == (S2_MULTIPLAYER_SLOT, S2_MAP_GAME_GROUP_UPDATE_COMMAND)
+    {
+        return inspect_game_group_update(protocol, header, &mut reader, bytes);
+    }
+    let decoded = protocol.decode_incoming_with_provenance_from(&mut reader, header)?;
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    inspect_decoded(
+        protocol,
+        DecodedRecord {
+            direction: Direction::Incoming,
+            header,
+            type_id: decoded.type_id,
+            payload: &decoded.payload,
+            provenance: &decoded.provenance,
+            bytes: &bytes[..byte_count],
+            logical_bits,
+        },
+    )
+    .ok_or_else(|| {
+        crate::Error::Native(format!(
+            "native incoming record has no service slot after decoding slot {service_slot}"
+        ))
+    })
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fields stay in physical wire order for protocol inspection"
+)]
+fn inspect_mmq_get_info_response(
+    header: RoutingHeader,
+    reader: &mut BitReader<'_>,
+    bytes: &[u8],
+) -> Result<Record> {
+    const TYPE_NAME: &str = "Battlenet::Client::S2Master::MMQGetInfoResponse";
+
+    let mut fields = route_fields(header, S2_MASTER_SLOT);
+    let payload_start = reader.position();
+    let payload_index = fields.len();
+    fields.push(Field::leaf(
+        "payload",
+        "incoming payload",
+        "MMQGetInfoResponse",
+        payload_start,
+        payload_start,
+        0,
+        FieldRole::Payload,
+    ));
+    read_number(reader, &mut fields, "payload.generated_flag", "bool", 1, 1)?;
+    read_number(reader, &mut fields, "payload.token", "uint32", 32, 1)?;
+    let present = read_number(
+        reader,
+        &mut fields,
+        "payload.queue_info.present",
+        "optional flag",
+        1,
+        1,
+    )?;
+    if present != 0 {
+        let alignment_start = reader.position();
+        let alignment = reader.align()?;
+        if alignment != 0 {
+            fields.push(Field::leaf(
+                "payload.queue_info.alignment",
+                "padding",
+                format!("{alignment} ignored bits"),
+                alignment_start,
+                reader.position(),
+                2,
+                FieldRole::Padding,
+            ));
+        }
+        let data_start = reader.position();
+        let data = reader.read_bytes(40, false)?;
+        fields.push(Field::leaf(
+            "payload.queue_info.per_game_data",
+            "generated byte block",
+            byte_summary(&data),
+            data_start,
+            reader.position(),
+            2,
+            FieldRole::Payload,
+        ));
+        read_number(
+            reader,
+            &mut fields,
+            "payload.queue_info.static_info.id",
+            "uint32",
+            32,
+            2,
+        )?;
+        read_number(
+            reader,
+            &mut fields,
+            "payload.queue_info.static_info.flags",
+            "uint64",
+            64,
+            2,
+        )?;
+        read_number(
+            reader,
+            &mut fields,
+            "payload.queue_info.handle.region",
+            "uint8",
+            8,
+            2,
+        )?;
+        read_fourcc(
+            reader,
+            &mut fields,
+            "payload.queue_info.handle.program_id",
+            2,
+        )?;
+        read_number(
+            reader,
+            &mut fields,
+            "payload.queue_info.handle.id",
+            "uint32",
+            32,
+            2,
+        )?;
+        read_number(
+            reader,
+            &mut fields,
+            "payload.queue_info.handle.version",
+            "uint16",
+            16,
+            2,
+        )?;
+    }
+
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    fields[payload_index].end_bit = logical_bits;
+    append_padding(&mut fields, logical_bits, byte_count * 8);
+    Ok(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: Direction::Incoming,
+        service: "S2Master".to_owned(),
+        command: "MMQGetInfoResponse".to_owned(),
+        type_name: TYPE_NAME.to_owned(),
+        service_slot: S2_MASTER_SLOT,
+        command_id: header.command_id,
+        bytes: bytes[..byte_count].to_vec(),
+        logical_bits,
+        fields,
+    })
+}
+
+fn inspect_game_group_update(
+    protocol: &Protocol,
+    header: RoutingHeader,
+    reader: &mut BitReader<'_>,
+    bytes: &[u8],
+) -> Result<Record> {
+    const TYPE_NAME: &str = "Battlenet::Client::S2Map::GameGroupUpdate";
+    const RESULTS_TYPE_NAME: &str = "Battlenet::Client::S2Map::GameGroupUpdate::Results";
+
+    let mut fields = route_fields(header, S2_MULTIPLAYER_SLOT);
+    let payload_start = reader.position();
+    let payload_index = fields.len();
+    fields.push(Field::leaf(
+        "payload",
+        "incoming payload",
+        "GameGroupUpdate",
+        payload_start,
+        payload_start,
+        0,
+        FieldRole::Payload,
+    ));
+    let prefix = read_number(
+        reader,
+        &mut fields,
+        "payload.generated_prefix",
+        "opaque uint5",
+        5,
+        1,
+    )?;
+    if prefix != 0 {
+        return Err(crate::Error::Native(format!(
+            "game-group update has unknown generated prefix {prefix:#x}"
+        )));
+    }
+    read_number(reader, &mut fields, "payload.is_last", "bool", 1, 1)?;
+    let marker = read_number(
+        reader,
+        &mut fields,
+        "payload.generated_marker",
+        "opaque uint28",
+        28,
+        1,
+    )?;
+    if marker != 0x00d5_cc00 {
+        return Err(crate::Error::Native(format!(
+            "game-group update has unknown generated marker {marker:#x}"
+        )));
+    }
+    read_fourcc(reader, &mut fields, "payload.tag", 1)?;
+    read_number(reader, &mut fields, "payload.is_first", "bool", 1, 1)?;
+
+    let results_type = protocol
+        .codec()
+        .schema()
+        .unique_type_id(RESULTS_TYPE_NAME)?;
+    let results = protocol.codec().decode_traced_from(reader, results_type)?;
+    append_provenance(&mut fields, &results.fields);
+
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    fields[payload_index].end_bit = logical_bits;
+    append_padding(&mut fields, logical_bits, byte_count * 8);
+    Ok(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: Direction::Incoming,
+        service: "S2Map".to_owned(),
+        command: "GameGroupUpdate".to_owned(),
+        type_name: TYPE_NAME.to_owned(),
+        service_slot: S2_MULTIPLAYER_SLOT,
+        command_id: header.command_id,
+        bytes: bytes[..byte_count].to_vec(),
+        logical_bits,
+        fields,
+    })
+}
+
+fn inspect_outgoing_strict(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
+    let (header, mut reader) = read_routing_header(bytes)?;
+    let Some(service_slot) = header.service_slot else {
+        return inspect_command_response(header, &mut reader, Direction::Outgoing, bytes);
+    };
+    let route = (service_slot, header.command_id);
+    if route == (CHAT_SLOT, CHAT_MODIFY_CHANNEL_LIST_COMMAND) {
+        return inspect_modify_channel_list(protocol, header, &mut reader, bytes);
+    }
+    if route == (CONNECTION_SLOT, CONNECTION_MESSAGE_FRAME_COMMAND) {
+        let decoded = protocol.decode_incoming_with_provenance_from(&mut reader, header)?;
+        let logical_bits = reader.position();
+        let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+        return inspect_decoded(
+            protocol,
+            DecodedRecord {
+                direction: Direction::Outgoing,
+                header,
+                type_id: decoded.type_id,
+                payload: &decoded.payload,
+                provenance: &decoded.provenance,
+                bytes: &bytes[..byte_count],
+                logical_bits,
+            },
+        )
+        .ok_or_else(|| crate::Error::Native("outgoing record has no service slot".to_owned()));
+    }
+    if let Some(type_name) = reflected_outgoing_type(route)
+        && route != (CONNECTION_SLOT, CONNECTION_ENABLE_ENCRYPTION_COMMAND)
+    {
+        let type_id = protocol.codec().schema().unique_type_id(type_name)?;
+        let decoded = protocol.codec().decode_traced_from(&mut reader, type_id)?;
+        let payload = Payload::Reflected(decoded.value);
+        let logical_bits = reader.position();
+        let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+        return inspect_decoded(
+            protocol,
+            DecodedRecord {
+                direction: Direction::Outgoing,
+                header,
+                type_id,
+                payload: &payload,
+                provenance: &decoded.fields,
+                bytes: &bytes[..byte_count],
+                logical_bits,
+            },
+        )
+        .ok_or_else(|| crate::Error::Native("outgoing record has no service slot".to_owned()));
+    }
+    let type_name = manual_outgoing_type(route).ok_or(crate::Error::UnmappedNativeRoute {
+        slot: service_slot,
+        command: header.command_id,
+    })?;
+    let (service, command) = labels(type_name);
+    let mut fields = route_fields(header, service_slot);
+    let payload_start = reader.position();
+    let payload_index = fields.len();
+    fields.push(Field::leaf(
+        "payload",
+        "outgoing payload",
+        command.clone(),
+        payload_start,
+        payload_start,
+        0,
+        FieldRole::Payload,
+    ));
+    decode_manual_outgoing(route, &mut reader, &mut fields)?;
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    fields[payload_index].end_bit = logical_bits;
+    append_padding(&mut fields, logical_bits, byte_count * 8);
+    Ok(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: Direction::Outgoing,
+        service,
+        command,
+        type_name: type_name.to_owned(),
+        service_slot,
+        command_id: header.command_id,
+        bytes: bytes[..byte_count].to_vec(),
+        logical_bits,
+        fields,
+    })
+}
+
+fn inspect_modify_channel_list(
+    protocol: &Protocol,
+    header: RoutingHeader,
+    reader: &mut BitReader<'_>,
+    bytes: &[u8],
+) -> Result<Record> {
+    let mut discriminator = reader.clone();
+    discriminator.read(32)?;
+    discriminator.read(1)?;
+    let first_alignment = discriminator.read(4)?;
+    discriminator.read(5)?;
+    let second_alignment = discriminator.read(3)?;
+    let type_name = if first_alignment == 0 && second_alignment == 0 {
+        "Battlenet::Client::Chat::ModifyChannelListRequest"
+    } else {
+        "Battlenet::Client::Chat::ModifyChannelListRequest2"
+    };
+    let (service, command) = labels(type_name);
+    let mut fields = route_fields(header, CHAT_SLOT);
+    let type_id = protocol.codec().schema().unique_type_id(type_name)?;
+    let decoded = protocol.codec().decode_traced_from(reader, type_id)?;
+    append_provenance(&mut fields, &decoded.fields);
+
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    append_padding(&mut fields, logical_bits, byte_count * 8);
+    Ok(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: Direction::Outgoing,
+        service,
+        command,
+        type_name: type_name.to_owned(),
+        service_slot: CHAT_SLOT,
+        command_id: header.command_id,
+        bytes: bytes[..byte_count].to_vec(),
+        logical_bits,
+        fields,
+    })
+}
+
+fn inspect_command_response(
+    header: RoutingHeader,
+    reader: &mut BitReader<'_>,
+    direction: Direction,
+    bytes: &[u8],
+) -> Result<Record> {
+    let result = u16::try_from(reader.read(9)?).expect("nine bits fit in u16");
+    let result_description = if result == 0 {
+        "success".to_owned()
+    } else {
+        super::errors::description(result)
+    };
+    let logical_bits = reader.position();
+    let byte_count = checked_record_byte_count(bytes, logical_bits)?;
+    Ok(Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction,
+        service: "Command".to_owned(),
+        command: format!("Response {}", header.command_id),
+        type_name: "Battlenet::Client::CommandResponse".to_owned(),
+        service_slot: u8::MAX,
+        command_id: header.command_id,
+        bytes: bytes[..byte_count].to_vec(),
+        logical_bits,
+        fields: vec![
+            Field::leaf(
+                "route.command_id",
+                "uint6",
+                header.command_id.to_string(),
+                0,
+                6,
+                1,
+                FieldRole::Route,
+            ),
+            Field::leaf(
+                "payload.result",
+                "Battle.net error",
+                result_description,
+                header.bit_count,
+                logical_bits,
+                1,
+                FieldRole::Payload,
+            ),
+        ],
+    })
+}
+
+fn checked_record_byte_count(bytes: &[u8], logical_bits: usize) -> Result<usize> {
+    let byte_count = logical_bits.div_ceil(8);
+    if byte_count > bytes.len() {
+        return Err(crate::Error::IncompleteFrame(format!(
+            "decoded record needs {byte_count} bytes, only {} are buffered",
+            bytes.len()
+        )));
+    }
+    Ok(byte_count)
 }
 
 fn inspect_outgoing(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
@@ -428,8 +1097,694 @@ fn inspect_outgoing(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
     })
 }
 
+fn inspect_bgs(raw: &RawBgsRecord) -> Record {
+    let total_bits = raw.bytes.len() * 8;
+    let header_length = raw.bytes.get(..2).map_or(0, |bytes| {
+        usize::from(u16::from_be_bytes([bytes[0], bytes[1]]))
+    });
+    let header_start = 2.min(raw.bytes.len());
+    let header_end = header_start
+        .saturating_add(header_length)
+        .min(raw.bytes.len());
+    let (service_name, full_service_name) = raw.route.map_or(("Unknown", None), |route| {
+        bgs_service(route.service_hash)
+            .map_or(("Unknown", None), |(short, full)| (short, Some(full)))
+    });
+    let method_id = raw.route.map(|route| route.method_id);
+    let method_name = method_id.map_or_else(
+        || "Message".to_owned(),
+        |method_id| bgs_method(service_name, method_id),
+    );
+    let response = raw
+        .header
+        .as_ref()
+        .is_some_and(|header| header.service_id == 0xfe || header.is_response == Some(true));
+    let command = if raw.header.is_none() {
+        "Malformed message".to_owned()
+    } else if response {
+        format!("{method_name} response")
+    } else {
+        method_name.clone()
+    };
+    let type_name = full_service_name.map_or_else(
+        || {
+            raw.header.as_ref().map_or_else(
+                || "BGS malformed WebSocket message".to_owned(),
+                |header| format!("BGS RPC token {}", header.token),
+            )
+        },
+        |service| format!("{service}::{method_name}"),
+    );
+    let fields = bgs_fields(raw, header_start, header_end, header_length);
+    Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: raw.direction,
+        service: format!("BGS · {service_name}"),
+        command,
+        type_name,
+        service_slot: u8::MAX,
+        command_id: method_id
+            .and_then(|id| u8::try_from(id).ok())
+            .unwrap_or(u8::MAX),
+        bytes: raw.bytes.clone(),
+        logical_bits: total_bits,
+        fields,
+    }
+}
+
+fn bgs_fields(
+    raw: &RawBgsRecord,
+    header_start: usize,
+    header_end: usize,
+    header_length: usize,
+) -> Vec<Field> {
+    let total_bits = raw.bytes.len() * 8;
+    let body_start = header_end;
+    let mut fields = vec![Field::leaf(
+        "message",
+        "BGS RPC message",
+        format!("{} bytes", raw.bytes.len()),
+        0,
+        total_bits,
+        0,
+        FieldRole::Control,
+    )];
+    if raw.bytes.len() >= 2 {
+        fields.push(Field::leaf(
+            "message.header_length",
+            "uint16 big-endian",
+            header_length.to_string(),
+            0,
+            16,
+            1,
+            FieldRole::Control,
+        ));
+    }
+    if header_end > header_start {
+        fields.push(Field::leaf(
+            "header",
+            "protobuf message",
+            format!("{header_length} bytes"),
+            header_start * 8,
+            header_end * 8,
+            0,
+            FieldRole::Control,
+        ));
+        append_protobuf_fields(
+            &mut fields,
+            "header",
+            &raw.bytes[header_start..header_end],
+            header_start,
+            1,
+            FieldRole::Control,
+            Some(bgs_header_field_name),
+        );
+    }
+    if body_start < raw.bytes.len() {
+        fields.push(Field::leaf(
+            "body",
+            "protobuf message",
+            format!("{} bytes", raw.bytes.len() - body_start),
+            body_start * 8,
+            total_bits,
+            0,
+            FieldRole::Payload,
+        ));
+        append_protobuf_fields(
+            &mut fields,
+            "body",
+            &raw.bytes[body_start..],
+            body_start,
+            1,
+            FieldRole::Payload,
+            None,
+        );
+    }
+    if let Some(error) = &raw.error {
+        let mut field = Field::decoded("error", "decode error", error, 0, total_bits, 0);
+        field.role = FieldRole::Control;
+        fields.push(field);
+    }
+    fields
+}
+
+fn inspect_http(raw: &RawHttpRecord) -> Record {
+    let (bytes, mut fields) = http_wire_image(raw);
+    let total_bits = bytes.len() * 8;
+    fields.insert(
+        0,
+        Field::leaf(
+            "message",
+            if raw.status.is_some() {
+                "HTTP response"
+            } else {
+                "HTTP request"
+            },
+            format!("{} bytes", bytes.len()),
+            0,
+            total_bits,
+            0,
+            FieldRole::Control,
+        ),
+    );
+    let target = http_target(&raw.url);
+    let command = raw.status.map_or_else(
+        || format!("{} {target}", raw.method),
+        |status| {
+            format!(
+                "{status} {} · {} {target}",
+                http_status_reason(status),
+                raw.method
+            )
+        },
+    );
+    Record {
+        sequence: 0,
+        captured_at_millis: now_millis(),
+        direction: raw.direction,
+        service: "HTTP".to_owned(),
+        command,
+        type_name: raw.url.clone(),
+        service_slot: u8::MAX,
+        command_id: u8::MAX,
+        bytes,
+        logical_bits: total_bits,
+        fields,
+    }
+}
+
+fn http_wire_image(raw: &RawHttpRecord) -> (Vec<u8>, Vec<Field>) {
+    let mut bytes = Vec::new();
+    let mut fields = Vec::new();
+    append_http_start_line(raw, &mut bytes, &mut fields);
+    let headers = http_headers_with_defaults(raw);
+    append_http_headers(&headers, &mut bytes, &mut fields);
+    append_http_body(&headers, &raw.body, &mut bytes, &mut fields);
+    (bytes, fields)
+}
+
+fn append_http_start_line(raw: &RawHttpRecord, bytes: &mut Vec<u8>, fields: &mut Vec<Field>) {
+    if let Some(status) = raw.status {
+        append_http_token(
+            bytes,
+            fields,
+            "response.version",
+            "HTTP version",
+            "HTTP/1.1",
+            FieldRole::Control,
+        );
+        bytes.push(b' ');
+        append_http_token(
+            bytes,
+            fields,
+            "response.status",
+            "status code",
+            &status.to_string(),
+            FieldRole::Control,
+        );
+        bytes.push(b' ');
+        append_http_token(
+            bytes,
+            fields,
+            "response.reason",
+            "reason phrase",
+            http_status_reason(status),
+            FieldRole::Control,
+        );
+    } else {
+        append_http_token(
+            bytes,
+            fields,
+            "request.method",
+            "HTTP method",
+            &raw.method,
+            FieldRole::Control,
+        );
+        bytes.push(b' ');
+        append_http_token(
+            bytes,
+            fields,
+            "request.target",
+            "request target",
+            &http_target(&raw.url),
+            FieldRole::Control,
+        );
+        bytes.push(b' ');
+        append_http_token(
+            bytes,
+            fields,
+            "request.version",
+            "HTTP version",
+            "HTTP/1.1",
+            FieldRole::Control,
+        );
+    }
+    bytes.extend_from_slice(b"\r\n");
+}
+
+fn http_headers_with_defaults(raw: &RawHttpRecord) -> Vec<(String, String)> {
+    let mut headers = raw.headers.clone();
+    if raw.status.is_none()
+        && !headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("host"))
+        && let Some(host) = http_host(&raw.url)
+    {
+        headers.insert(0, ("Host".to_owned(), host));
+    }
+    if !raw.body.is_empty()
+        && !headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+    {
+        headers.push(("Content-Length".to_owned(), raw.body.len().to_string()));
+    }
+    headers
+}
+
+fn append_http_headers(headers: &[(String, String)], bytes: &mut Vec<u8>, fields: &mut Vec<Field>) {
+    let header_start = bytes.len();
+    let root_index = fields.len();
+    for (index, (name, value)) in headers.iter().enumerate() {
+        let line_start = bytes.len();
+        bytes.extend_from_slice(name.as_bytes());
+        bytes.extend_from_slice(b": ");
+        let value_start = bytes.len();
+        bytes.extend_from_slice(value.as_bytes());
+        let line_end = bytes.len();
+        bytes.extend_from_slice(b"\r\n");
+        let path = format!("headers[{index}]");
+        fields.push(Field::leaf(
+            path.clone(),
+            "HTTP header",
+            name,
+            line_start * 8,
+            line_end * 8,
+            1,
+            FieldRole::Control,
+        ));
+        fields.push(Field::leaf(
+            format!("{path}.value"),
+            "header value",
+            value,
+            value_start * 8,
+            line_end * 8,
+            2,
+            FieldRole::Control,
+        ));
+    }
+    let header_end = bytes.len();
+    if header_end > header_start {
+        fields.insert(
+            root_index,
+            Field::leaf(
+                "headers",
+                "HTTP headers",
+                format!("{} fields", headers.len()),
+                header_start * 8,
+                header_end * 8,
+                0,
+                FieldRole::Control,
+            ),
+        );
+    }
+    bytes.extend_from_slice(b"\r\n");
+}
+
+fn append_http_body(
+    headers: &[(String, String)],
+    body: &[u8],
+    bytes: &mut Vec<u8>,
+    fields: &mut Vec<Field>,
+) {
+    let body_start = bytes.len();
+    bytes.extend_from_slice(body);
+    if !body.is_empty() {
+        fields.push(Field::leaf(
+            "body",
+            http_body_kind(headers, body),
+            byte_summary(body),
+            body_start * 8,
+            bytes.len() * 8,
+            0,
+            FieldRole::Payload,
+        ));
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(body) {
+            append_json_value(
+                fields,
+                "body.json",
+                "json",
+                &json,
+                body_start * 8,
+                bytes.len() * 8,
+                1,
+                false,
+            );
+        }
+    }
+}
+
+fn append_http_token(
+    bytes: &mut Vec<u8>,
+    fields: &mut Vec<Field>,
+    path: &str,
+    kind: &'static str,
+    value: &str,
+    role: FieldRole,
+) {
+    let start = bytes.len();
+    bytes.extend_from_slice(value.as_bytes());
+    fields.push(Field::leaf(
+        path,
+        kind,
+        value,
+        start * 8,
+        bytes.len() * 8,
+        0,
+        role,
+    ));
+}
+
+fn http_target(url: &str) -> String {
+    let Ok(url) = url::Url::parse(url) else {
+        return url.to_owned();
+    };
+    let mut target = url.path().to_owned();
+    if target.is_empty() {
+        target.push('/');
+    }
+    if let Some(query) = url.query() {
+        target.push('?');
+        target.push_str(query);
+    }
+    target
+}
+
+fn http_host(url: &str) -> Option<String> {
+    let url = url::Url::parse(url).ok()?;
+    let host = url.host_str()?;
+    Some(
+        url.port()
+            .map_or_else(|| host.to_owned(), |port| format!("{host}:{port}")),
+    )
+}
+
+fn http_status_reason(status: u16) -> &'static str {
+    match status {
+        101 => "Switching Protocols",
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        204 => "No Content",
+        206 => "Partial Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        303 => "See Other",
+        304 => "Not Modified",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        408 => "Request Timeout",
+        409 => "Conflict",
+        413 => "Content Too Large",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => "Response",
+    }
+}
+
+fn http_body_kind(headers: &[(String, String)], body: &[u8]) -> &'static str {
+    let content_type = headers.iter().find_map(|(name, value)| {
+        name.eq_ignore_ascii_case("content-type")
+            .then_some(value.as_str())
+    });
+    if content_type.is_some_and(|value| value.contains("json"))
+        || serde_json::from_slice::<serde_json::Value>(body).is_ok()
+    {
+        "JSON body"
+    } else if content_type.is_some_and(|value| value.starts_with("text/"))
+        || std::str::from_utf8(body).is_ok()
+    {
+        "text body"
+    } else {
+        "binary body"
+    }
+}
+
+fn append_protobuf_fields(
+    fields: &mut Vec<Field>,
+    prefix: &str,
+    bytes: &[u8],
+    byte_offset: usize,
+    depth: usize,
+    role: FieldRole,
+    names: Option<fn(u32) -> Option<&'static str>>,
+) {
+    let mut cursor = 0;
+    let mut occurrences = HashMap::<u32, usize>::new();
+    while cursor < bytes.len() {
+        let start = cursor;
+        let Some(key) = read_protobuf_varint(bytes, &mut cursor) else {
+            break;
+        };
+        let number = u32::try_from(key >> 3).unwrap_or(u32::MAX);
+        let wire_type = u8::try_from(key & 7).expect("protobuf wire type fits in u8");
+        if number == 0 {
+            break;
+        }
+        let Some((value_start, value, kind)) = decode_protobuf_value(wire_type, bytes, &mut cursor)
+        else {
+            break;
+        };
+        let occurrence = occurrences.entry(number).or_default();
+        let name = names
+            .and_then(|names| names(number))
+            .map_or_else(|| format!("field_{number}"), str::to_owned);
+        let path = if *occurrence == 0 {
+            format!("{prefix}.{name}")
+        } else {
+            format!("{prefix}.{name}[{occurrence}]")
+        };
+        *occurrence += 1;
+        fields.push(Field::leaf(
+            path.clone(),
+            kind,
+            value.clone(),
+            (byte_offset + start) * 8,
+            (byte_offset + cursor) * 8,
+            depth,
+            role,
+        ));
+        if wire_type == 2 && value_start < cursor {
+            fields.push(Field::leaf(
+                format!("{path}.value"),
+                if std::str::from_utf8(&bytes[value_start..cursor]).is_ok() {
+                    "string contents"
+                } else {
+                    "byte contents"
+                },
+                value,
+                (byte_offset + value_start) * 8,
+                (byte_offset + cursor) * 8,
+                depth + 1,
+                role,
+            ));
+        }
+    }
+}
+
+fn decode_protobuf_value(
+    wire_type: u8,
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Option<(usize, String, &'static str)> {
+    match wire_type {
+        0 => {
+            let value_start = *cursor;
+            let value = read_protobuf_varint(bytes, cursor)?;
+            Some((value_start, value.to_string(), "protobuf varint"))
+        }
+        1 => {
+            let value_start = *cursor;
+            let raw = bytes.get(*cursor..cursor.saturating_add(8))?;
+            *cursor += 8;
+            Some((
+                value_start,
+                format!("0x{:016x}", u64::from_le_bytes(raw.try_into().ok()?)),
+                "protobuf fixed64",
+            ))
+        }
+        2 => {
+            let length = usize::try_from(read_protobuf_varint(bytes, cursor)?).ok()?;
+            let value_start = *cursor;
+            let raw = bytes.get(*cursor..cursor.saturating_add(length))?;
+            *cursor += length;
+            let kind = if std::str::from_utf8(raw).is_ok() {
+                "protobuf string"
+            } else {
+                "protobuf bytes"
+            };
+            Some((value_start, byte_summary(raw), kind))
+        }
+        5 => {
+            let value_start = *cursor;
+            let raw = bytes.get(*cursor..cursor.saturating_add(4))?;
+            *cursor += 4;
+            Some((
+                value_start,
+                format!("0x{:08x}", u32::from_le_bytes(raw.try_into().ok()?)),
+                "protobuf fixed32",
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn read_protobuf_varint(bytes: &[u8], cursor: &mut usize) -> Option<u64> {
+    let mut value = 0_u64;
+    for shift in (0..70).step_by(7) {
+        let byte = *bytes.get(*cursor)?;
+        *cursor += 1;
+        if shift == 63 && byte > 1 {
+            return None;
+        }
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn byte_summary(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes)
+        && text
+            .chars()
+            .all(|character| !character.is_control() || character.is_ascii_whitespace())
+    {
+        let mut summary = text.chars().take(160).collect::<String>();
+        if text.chars().count() > 160 {
+            summary.push('…');
+        }
+        return summary;
+    }
+    let shown = bytes.len().min(32);
+    let suffix = if shown < bytes.len() { "…" } else { "" };
+    format!(
+        "{} bytes · {}{suffix}",
+        bytes.len(),
+        hex::encode(&bytes[..shown])
+    )
+}
+
+fn bgs_header_field_name(number: u32) -> Option<&'static str> {
+    Some(match number {
+        1 => "service_id",
+        2 => "method_id",
+        3 => "token",
+        4 => "object_id",
+        5 => "size",
+        6 => "status",
+        7 => "error",
+        8 => "timeout",
+        9 => "is_response",
+        10 => "forward_targets",
+        11 => "service_hash",
+        13 => "client_id",
+        14 => "fanout_target",
+        15 => "client_id_fanout_target",
+        16 => "client_record",
+        _ => return None,
+    })
+}
+
+fn bgs_service(hash: u32) -> Option<(&'static str, &'static str)> {
+    const SERVICES: [(&str, &str); 9] = [
+        ("Connection", "bnet.protocol.connection.ConnectionService"),
+        (
+            "Authentication",
+            "bnet.protocol.authentication.AuthenticationServer",
+        ),
+        (
+            "Authentication Client",
+            "bnet.protocol.authentication.AuthenticationClient",
+        ),
+        ("Challenge", "bnet.protocol.challenge.ChallengeNotify"),
+        (
+            "Game Utilities",
+            "bnet.protocol.game_utilities.GameUtilities",
+        ),
+        ("Account", "bnet.protocol.account.AccountService"),
+        ("Session", "bnet.protocol.session.SessionService"),
+        ("Presence", "bnet.protocol.presence.PresenceService"),
+        ("Channel", "bnet.protocol.channel.ChannelService"),
+    ];
+    SERVICES
+        .iter()
+        .copied()
+        .find(|(_, name)| bgs_service_hash(name) == hash)
+}
+
+fn bgs_method(service: &str, method: u32) -> String {
+    let name = match (service, method) {
+        ("Connection", 1) => "Connect",
+        ("Connection", 2) => "Bind",
+        ("Connection", 3) => "Echo",
+        ("Connection", 4) => "ForceDisconnect",
+        ("Connection", 5) => "KeepAlive",
+        ("Connection", 6) => "Encrypt",
+        ("Connection", 7) => "RequestDisconnect",
+        ("Authentication", 1) => "Logon",
+        ("Authentication", 2) => "ModuleNotify",
+        ("Authentication", 3) => "ModuleMessage",
+        ("Authentication", 4) => "SelectGameAccountDeprecated",
+        ("Authentication", 5) => "GenerateSsoToken",
+        ("Authentication", 6) => "SelectGameAccount",
+        ("Authentication", 7) => "VerifyWebCredentials",
+        ("Authentication", 8) => "GenerateWebCredentials",
+        ("Authentication Client", 1) => "OnModuleLoad",
+        ("Authentication Client", 2) => "OnModuleMessage",
+        ("Authentication Client", 4) => "OnServerStateChange",
+        ("Authentication Client", 5) => "OnLogonComplete",
+        ("Authentication Client", 6) => "OnMemModuleLoad",
+        ("Authentication Client", 10) => "OnLogonUpdate",
+        ("Authentication Client", 11) => "OnVersionInfoUpdated",
+        ("Authentication Client", 12) => "OnLogonQueueUpdate",
+        ("Authentication Client", 13) => "OnLogonQueueEnd",
+        ("Authentication Client", 14) => "OnGameAccountSelected",
+        ("Challenge", 3) => "OnExternalChallenge",
+        ("Challenge", 4) => "OnExternalChallengeResult",
+        ("Game Utilities", 1) => "ProcessClientRequest",
+        ("Game Utilities", 2) => "PresenceChannelCreated",
+        ("Game Utilities", 6) => "ProcessServerRequest",
+        ("Game Utilities", 7) => "OnGameAccountOnline",
+        ("Game Utilities", 8) => "OnGameAccountOffline",
+        ("Game Utilities", 10) => "GetAllValuesForAttribute",
+        ("Game Utilities", 11) => "RegisterUtilities",
+        ("Game Utilities", 12) => "UnregisterUtilities",
+        _ => return format!("Method {method}"),
+    };
+    name.to_owned()
+}
+
+fn bgs_service_hash(name: &str) -> u32 {
+    name.as_bytes().iter().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(*byte)).wrapping_mul(0x0100_0193)
+    })
+}
+
 fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
     Some(match route {
+        (ACHIEVEMENT_SLOT, ACHIEVEMENT_LISTEN_COMMAND) => {
+            "Battlenet::Client::Achievement::ListenRequest"
+        }
         (AUTHENTICATION_SLOT, AUTH_LOGON_COMMAND) => {
             "Battlenet::Client::Authentication::LogonRequest3"
         }
@@ -439,6 +1794,9 @@ fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
         (AUTHENTICATION_SLOT, AUTH_PROOF_COMMAND) => {
             "Battlenet::Client::Authentication::ProofResponse"
         }
+        (AUTHENTICATION_SLOT, AUTH_GENERATE_WEB_TOKEN_COMMAND) => {
+            "Battlenet::Client::Authentication::GenerateWebTokenRequest"
+        }
         (AUTHENTICATION_SLOT, AUTH_SINGLE_SIGN_ON_COMMAND) => {
             "Battlenet::Client::Authentication::SingleSignOnRequest3"
         }
@@ -446,21 +1804,13 @@ fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
             "Battlenet::Client::Connection::EnableEncryption"
         }
         (CONNECTION_SLOT, CONNECTION_PING_COMMAND) => "Battlenet::Client::Connection::Ping",
+        (CONNECTION_SLOT, CONNECTION_PONG_COMMAND) => "Battlenet::Client::Connection::Pong",
         (CONNECTION_SLOT, CONNECTION_MESSAGE_FRAME_COMMAND) => {
             "Battlenet::Client::Connection::MessageFrame"
         }
         (CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND) => "Battlenet::Client::Chat::StatusChangeRequest",
-        (CHAT_SLOT, CHAT_CHANNEL_LIST_REQUEST_COMMAND) => {
-            "Battlenet::Client::Chat::ChannelListRequest"
-        }
-        (CHAT_SLOT, CHAT_ENUM_CONFERENCES_COMMAND) => {
-            "Battlenet::Client::Chat::EnumConferenceDescriptions"
-        }
         (FRIENDS_SLOT, FRIENDS_TOONS_COMMAND) => {
             "Battlenet::Client::Friends::ToonsOfFriendsRequest"
-        }
-        (PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND) => {
-            "Battlenet::Client::Presence::StatisticsSubscribe"
         }
         (PRESENCE_SLOT, PRESENCE_TEMPORARY_COMMAND) => {
             "Battlenet::Client::Presence::TemporaryPresenceRequest"
@@ -471,22 +1821,67 @@ fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
         (PROFILE_SLOT, PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND) => {
             "Battlenet::Client::Profile::ResolveToonNameToHandleRequest"
         }
+        (PROFILE_SLOT, PROFILE_SEND_STATS_UI_EVENTS_COMMAND) => {
+            "Battlenet::Client::Profile::SendStatsUIEvent"
+        }
         (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND) => {
             "Battlenet::Client::Club::SearchClubsRequest"
         }
         (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND) => {
             "Battlenet::Client::Club::GetClubInfoRequest"
         }
+        (S2_MASTER_SLOT, S2_MASTER_MMQ_GET_INFO_COMMAND) => {
+            "Battlenet::Client::S2Master::MMQGetInfoRequest"
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MAP_LIST_FAVORITES_COMMAND) => {
+            "Battlenet::Client::S2Map::S2ListMapFavoritesRequest"
+        }
+        (TOON_SLOT, TOON_BILLING_UPDATE_COMMAND) => "Battlenet::Client::Toon::BillingUpdateNotify",
+        (TOON_SLOT, TOON_CAIS_TIME_UPDATE_COMMAND) => "Battlenet::Client::Toon::CaisTimeUpdate",
+        (TOON_SLOT, TOON_CREATE_INIT_COMMAND) => "Battlenet::Client::Toon::ToonCreateInit",
+        (TOON_SLOT, TOON_CREATE_FINAL_COMMAND) => "Battlenet::Client::Toon::ToonCreateFinal",
+        (TOON_SLOT, TOON_CREATE_CANCEL_COMMAND) => "Battlenet::Client::Toon::ToonCreateCancel",
         _ => return None,
     })
 }
 
 fn manual_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
     Some(match route {
+        (CONNECTION_SLOT, CONNECTION_ENABLE_ENCRYPTION_COMMAND) => {
+            "Battlenet::Client::Connection::EnableEncryption"
+        }
+        (S2_MASTER_SLOT, S2_MASTER_SITE_LATENCY_INFO_COMMAND) => {
+            "Battlenet::Client::S2Master::SiteLatencyInfo"
+        }
+        (S2_MASTER_SLOT, S2_MASTER_MMQ_GET_LIST_COMMAND) => {
+            "Battlenet::Client::S2Master::MMQGetListRequest"
+        }
+        (S2_MASTER_SLOT, S2_MASTER_CURRENT_SEASON_COMMAND) => {
+            "Battlenet::Client::S2Master::CurrentSeason"
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND) => {
+            "Battlenet::Client::S2Map::GameGroupSubscribeRequest"
+        }
+        (PROFILE_SLOT, PROFILE_CHANGE_SETTINGS_COMMAND) => {
+            "Battlenet::Client::Profile::ChangeSettings"
+        }
+        (PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND) => {
+            "Battlenet::Client::Presence::StatisticsSubscribe"
+        }
+        (PRESENCE_SLOT, PRESENCE_UPDATE_COMMAND) => "Battlenet::Client::Presence::UpdateRequest",
         (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND) => {
             "Battlenet::Client::Cache::GetStreamItemsRequest"
         }
         (CHAT_SLOT, CHAT_JOIN_REQUEST_COMMAND) => "Battlenet::Client::Chat::JoinRequest",
+        (CHAT_SLOT, CHAT_CHANNEL_LIST_REQUEST_COMMAND) => {
+            "Battlenet::Client::Chat::ChannelListRequest"
+        }
+        (CHAT_SLOT, CHAT_ENUM_CONFERENCES_COMMAND) => {
+            "Battlenet::Client::Chat::EnumConferenceDescriptions"
+        }
+        (CHAT_SLOT, CHAT_ENUM_CATEGORIES_COMMAND) => {
+            "Battlenet::Client::Chat::EnumCategoryDescriptions"
+        }
         (CHAT_SLOT, CHAT_LEAVE_REQUEST_COMMAND) => "Battlenet::Client::Chat::LeaveRequest",
         (CHAT_SLOT, CHAT_INVITE_ACCEPT_COMMAND) => "Battlenet::Client::Chat::InviteAcceptRequest",
         (CHAT_SLOT, CHAT_INVITE_DECLINE_COMMAND) => "Battlenet::Client::Chat::InviteDeclineRequest",
@@ -512,6 +1907,7 @@ fn service_name(slot: u8) -> &'static str {
         PRESENCE_SLOT => "Presence",
         CHAT_SLOT => "Chat",
         CACHE_SLOT => "Cache",
+        S2_MASTER_SLOT => "S2Master",
         S2_MULTIPLAYER_SLOT => "Club",
         PROFILE_SLOT => "Profile",
         TOON_SLOT => "Toon",
@@ -525,6 +1921,33 @@ fn decode_manual_outgoing(
     fields: &mut Vec<Field>,
 ) -> Result<()> {
     match route {
+        (CONNECTION_SLOT, CONNECTION_ENABLE_ENCRYPTION_COMMAND)
+        | (S2_MASTER_SLOT, S2_MASTER_CURRENT_SEASON_COMMAND)
+        | (
+            CHAT_SLOT,
+            CHAT_CHANNEL_LIST_REQUEST_COMMAND
+            | CHAT_ENUM_CATEGORIES_COMMAND
+            | CHAT_ENUM_CONFERENCES_COMMAND,
+        ) => Ok(()),
+        (S2_MASTER_SLOT, S2_MASTER_SITE_LATENCY_INFO_COMMAND) => {
+            decode_site_latency_info(reader, fields)
+        }
+        (S2_MASTER_SLOT, S2_MASTER_MMQ_GET_LIST_COMMAND) => {
+            decode_mmq_get_list_request(reader, fields)
+        }
+        (S2_MULTIPLAYER_SLOT, S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND) => {
+            read_fourcc(reader, fields, "payload.tag", 1)?;
+            read_number(reader, fields, "payload.type", "bool", 1, 1)?;
+            Ok(())
+        }
+        (PROFILE_SLOT, PROFILE_CHANGE_SETTINGS_COMMAND) => {
+            decode_profile_change_settings(reader, fields)
+        }
+        (PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND) => {
+            read_number(reader, fields, "payload.on", "bool", 1, 1)?;
+            Ok(())
+        }
+        (PRESENCE_SLOT, PRESENCE_UPDATE_COMMAND) => decode_presence_update_request(reader, fields),
         (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND) => decode_cache_request(reader, fields),
         (CHAT_SLOT, CHAT_JOIN_REQUEST_COMMAND) => decode_chat_join_request(reader, fields),
         (
@@ -573,10 +1996,439 @@ fn decode_manual_outgoing(
             read_number(reader, fields, "payload.realm", "uint32", 32, 1)?;
             Ok(())
         }
+        (PROFILE_SLOT, PROFILE_READ_COMMAND) => decode_profile_read_request(reader, fields),
         _ => Err(crate::Error::Native(
             "outgoing route has no structured decoder".to_owned(),
         )),
     }
+}
+
+fn decode_site_latency_info(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+    let count = read_number(reader, fields, "payload.sites.count", "uint7", 7, 1)?;
+    if count > 64 {
+        return Err(crate::Error::Native(format!(
+            "site latency count {count} exceeds the protocol maximum"
+        )));
+    }
+    for index in 0..count {
+        let base = format!("payload.sites[{index}]");
+        let length = read_number(
+            reader,
+            fields,
+            &format!("{base}.name.length"),
+            "uint6",
+            6,
+            3,
+        )?;
+        if length > 32 {
+            return Err(crate::Error::Native(format!(
+                "site name length {length} exceeds the protocol maximum"
+            )));
+        }
+        let padding = reader.position().wrapping_neg() & 7;
+        if padding != 0 {
+            let start = reader.position();
+            let value = reader.read(padding)?;
+            if value != 0 {
+                return Err(crate::Error::Native(
+                    "site name has non-zero alignment padding".to_owned(),
+                ));
+            }
+            fields.push(Field::leaf(
+                format!("{base}.name.alignment"),
+                "padding",
+                format!("{padding} zero bits"),
+                start,
+                reader.position(),
+                3,
+                FieldRole::Padding,
+            ));
+        }
+        let start = reader.position();
+        let bytes = reader.read_bytes(
+            usize::try_from(length).map_err(|_| {
+                crate::Error::Native("site name length exceeds platform limits".to_owned())
+            })?,
+            false,
+        )?;
+        let name = String::from_utf8(bytes)
+            .map_err(|_| crate::Error::Native("site name is not valid UTF-8".to_owned()))?;
+        fields.push(Field::leaf(
+            format!("{base}.name"),
+            "string",
+            name,
+            start,
+            reader.position(),
+            2,
+            FieldRole::Payload,
+        ));
+        read_number(
+            reader,
+            fields,
+            &format!("{base}.wire_tag"),
+            "opaque uint3",
+            3,
+            2,
+        )?;
+        read_number(
+            reader,
+            fields,
+            &format!("{base}.latency_ms"),
+            "uint32",
+            32,
+            2,
+        )?;
+        read_number(reader, fields, &format!("{base}.preferred"), "bool", 1, 2)?;
+    }
+    Ok(())
+}
+
+fn decode_mmq_get_list_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+    let prefix = read_number(
+        reader,
+        fields,
+        "payload.filter.generated_prefix",
+        "opaque uint20",
+        20,
+        2,
+    )?;
+    if prefix != 0x7be40 {
+        return Err(crate::Error::Native(format!(
+            "MMQ get-list filter has unknown generated prefix {prefix:#x}"
+        )));
+    }
+    let count = read_number(reader, fields, "payload.filter.tags.count", "uint5", 5, 2)?;
+    if count > 16 {
+        return Err(crate::Error::Native(format!(
+            "MMQ get-list tag count {count} exceeds the protocol maximum"
+        )));
+    }
+    for index in 0..count {
+        read_fourcc(reader, fields, &format!("payload.filter.tags[{index}]"), 3)?;
+    }
+    let suffix = read_number(
+        reader,
+        fields,
+        "payload.filter.generated_suffix",
+        "opaque bool",
+        1,
+        2,
+    )?;
+    if suffix != 0 {
+        return Err(crate::Error::Native(
+            "MMQ get-list filter has unknown generated suffix".to_owned(),
+        ));
+    }
+    read_fourcc(reader, fields, "payload.program_id", 1)?;
+    read_number(reader, fields, "payload.token", "uint32", 32, 1)?;
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the wire choice is clearer as one exhaustive decoder"
+)]
+fn decode_presence_update_request(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+) -> Result<()> {
+    let selector = read_number(reader, fields, "payload.value.kind", "choice", 5, 1)?;
+    match selector {
+        0 => {}
+        1 | 2 => {
+            read_number(reader, fields, "payload.value.data", "uint8", 8, 2)?;
+        }
+        3 | 4 => {
+            read_number(reader, fields, "payload.value.data", "uint16", 16, 2)?;
+        }
+        5 | 6 | 9 => {
+            read_number(reader, fields, "payload.value.data", "uint32", 32, 2)?;
+        }
+        7 | 8 | 10 => {
+            read_number(reader, fields, "payload.value.data", "uint64", 64, 2)?;
+        }
+        11 => {
+            read_number(reader, fields, "payload.value.data", "bool", 1, 2)?;
+        }
+        12 => {
+            read_fourcc(reader, fields, "payload.value.data", 2)?;
+        }
+        13 => {
+            read_utf8(reader, fields, "payload.value.data", 7, 2)?;
+        }
+        15 => {
+            read_number(
+                reader,
+                fields,
+                "payload.value.image_table_entry",
+                "opaque uint32",
+                32,
+                2,
+            )?;
+        }
+        17 => {
+            read_number(reader, fields, "payload.value.region", "uint8", 8, 2)?;
+            read_fourcc(reader, fields, "payload.value.program_id", 2)?;
+            read_number(reader, fields, "payload.value.realm", "uint32", 32, 2)?;
+            let encoded_length = read_number(
+                reader,
+                fields,
+                "payload.value.name.encoded_length",
+                "uint5",
+                5,
+                3,
+            )?;
+            read_utf8_bytes(
+                reader,
+                fields,
+                "payload.value.name",
+                usize::try_from(encoded_length + 2).unwrap_or(usize::MAX),
+                2,
+            )?;
+        }
+        19 => {
+            read_number(reader, fields, "payload.value.label", "uint32", 32, 2)?;
+            read_number(reader, fields, "payload.value.id", "uint64", 64, 2)?;
+        }
+        20 => {
+            read_number(reader, fields, "payload.value.id", "uint32", 32, 2)?;
+            read_number(reader, fields, "payload.value.version", "uint16", 16, 2)?;
+        }
+        24 => {
+            read_number(
+                reader,
+                fields,
+                "payload.value.toon_handle",
+                "opaque uint64",
+                64,
+                2,
+            )?;
+            read_number(
+                reader,
+                fields,
+                "payload.value.toon_handle_continued",
+                "opaque uint64",
+                64,
+                2,
+            )?;
+            read_number(
+                reader,
+                fields,
+                "payload.value.toon_handle_tail",
+                "opaque uint8",
+                8,
+                2,
+            )?;
+        }
+        25 => {
+            read_number(reader, fields, "payload.value.region", "uint8", 8, 2)?;
+            read_fourcc(reader, fields, "payload.value.program_id", 2)?;
+            read_number(reader, fields, "payload.value.id", "uint32", 32, 2)?;
+        }
+        26 => {
+            read_number(reader, fields, "payload.value.account_id", "uint32", 32, 2)?;
+        }
+        27 => {
+            read_number(
+                reader,
+                fields,
+                "payload.value.achievement",
+                "opaque uint64",
+                64,
+                2,
+            )?;
+            read_number(
+                reader,
+                fields,
+                "payload.value.achievement_continued",
+                "opaque uint64",
+                64,
+                2,
+            )?;
+        }
+        28 => {
+            read_number(reader, fields, "payload.value.region", "uint8", 8, 2)?;
+            read_fourcc(reader, fields, "payload.value.program_id", 2)?;
+            read_number(reader, fields, "payload.value.id", "uint32", 32, 2)?;
+            read_number(reader, fields, "payload.value.version", "uint16", 16, 2)?;
+        }
+        29 => {
+            read_utf8(reader, fields, "payload.value.nickname", 5, 2)?;
+        }
+        _ => {
+            return Err(crate::Error::Native(format!(
+                "presence update value kind {selector} has no verified decoder"
+            )));
+        }
+    }
+    read_number(reader, fields, "payload.handle", "uint32", 32, 1)?;
+    read_number(
+        reader,
+        fields,
+        "payload.generated_checksum",
+        "opaque uint9",
+        9,
+        1,
+    )?;
+    read_number(reader, fields, "payload.presence_id", "uint32", 32, 1)?;
+    Ok(())
+}
+
+fn decode_profile_read_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+    read_number(reader, fields, "payload.client_hash", "uint32", 32, 1)?;
+    read_number(reader, fields, "payload.request_id", "uint32", 32, 1)?;
+    read_number(reader, fields, "payload.address.label", "uint32", 32, 2)?;
+    read_number(reader, fields, "payload.address.id", "uint64", 64, 2)?;
+    let selector = read_number(
+        reader,
+        fields,
+        "payload.specification.generated_selector",
+        "uint5",
+        5,
+        2,
+    )?;
+    match selector {
+        0 => {
+            let path_length = read_number(
+                reader,
+                fields,
+                "payload.specification.path.length",
+                "uint8",
+                8,
+                3,
+            )?;
+            read_hex_bytes(
+                reader,
+                fields,
+                "payload.specification.path",
+                usize::try_from(path_length).unwrap_or(usize::MAX),
+                2,
+            )?;
+            Ok(())
+        }
+        6 => {
+            let count = read_number(
+                reader,
+                fields,
+                "payload.specification.generated_path.count",
+                "uint8",
+                8,
+                3,
+            )?;
+            if count > 32 {
+                return Err(crate::Error::Native(format!(
+                    "profile generated path contains {count} segments"
+                )));
+            }
+            for index in 0..count {
+                let length_path = format!("payload.specification.generated_path[{index}].length");
+                let length = read_number(reader, fields, &length_path, "uint8", 8, 4)?;
+                let value_path = format!("payload.specification.generated_path[{index}]");
+                read_hex_bytes(
+                    reader,
+                    fields,
+                    &value_path,
+                    usize::try_from(length).unwrap_or(usize::MAX),
+                    3,
+                )?;
+            }
+            Ok(())
+        }
+        _ => Err(crate::Error::Native(format!(
+            "unsupported profile read generated selector {selector}"
+        ))),
+    }
+}
+
+fn decode_profile_change_settings(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+) -> Result<()> {
+    let count = read_number(
+        reader,
+        fields,
+        "payload.settings.string_settings.count",
+        "uint7",
+        7,
+        2,
+    )?;
+    if count > 100 {
+        return Err(crate::Error::Native(format!(
+            "profile settings count {count} exceeds the protocol maximum"
+        )));
+    }
+
+    for index in 0..count {
+        let base = format!("payload.settings.string_settings[{index}]");
+        read_number(
+            reader,
+            fields,
+            &format!("{base}.wire_tag"),
+            "opaque uint29",
+            29,
+            3,
+        )?;
+        let length = read_number(
+            reader,
+            fields,
+            &format!("{base}.value.length"),
+            "uint10",
+            10,
+            4,
+        )?;
+        let padding = reader.position().wrapping_neg() & 7;
+        if padding != 0 {
+            let start = reader.position();
+            let value = reader.read(padding)?;
+            if value != 0 {
+                return Err(crate::Error::Native(
+                    "profile setting string has non-zero alignment padding".to_owned(),
+                ));
+            }
+            fields.push(Field::leaf(
+                format!("{base}.value.alignment"),
+                "padding",
+                format!("{padding} zero bits"),
+                start,
+                reader.position(),
+                4,
+                FieldRole::Padding,
+            ));
+        }
+        let start = reader.position();
+        let bytes = reader.read_bytes(
+            usize::try_from(length).map_err(|_| {
+                crate::Error::Native("profile setting length exceeds platform limits".to_owned())
+            })?,
+            false,
+        )?;
+        let value = String::from_utf8(bytes).map_err(|_| {
+            crate::Error::Native("profile setting value is not valid UTF-8".to_owned())
+        })?;
+        fields.push(Field::leaf(
+            format!("{base}.value"),
+            "string",
+            value,
+            start,
+            reader.position(),
+            3,
+            FieldRole::Payload,
+        ));
+        read_number(reader, fields, &format!("{base}.index"), "uint32", 32, 3)?;
+    }
+
+    let settings_type = read_number(reader, fields, "payload.settings_type", "enum2", 2, 1)?;
+    if settings_type > 2 {
+        return Err(crate::Error::Native(format!(
+            "profile settings type {} is outside the protocol range",
+            settings_type + 1
+        )));
+    }
+    fields
+        .last_mut()
+        .expect("the settings type field was just added")
+        .value = (settings_type + 1).to_string();
+    Ok(())
 }
 
 fn decode_cache_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
@@ -772,6 +2624,27 @@ fn read_utf8_bytes(
     Ok(value)
 }
 
+fn read_hex_bytes(
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+    path: &str,
+    length: usize,
+    depth: usize,
+) -> Result<Vec<u8>> {
+    let start = reader.position();
+    let bytes = reader.read_bytes(length, true)?;
+    fields.push(Field::leaf(
+        path,
+        "bytes",
+        hex::encode(&bytes),
+        start,
+        reader.position(),
+        depth,
+        FieldRole::Payload,
+    ));
+    Ok(bytes)
+}
+
 #[derive(Clone, Copy)]
 struct DecodedRecord<'a> {
     direction: Direction,
@@ -804,6 +2677,7 @@ fn inspect_decoded(protocol: &Protocol, decoded: DecodedRecord<'_>) -> Option<Re
     let (service, command) = labels(&type_name);
     let route_end = header.bit_count;
     let mut fields = route_fields(header, service_slot);
+    append_decode_audit(protocol, direction, header, type_id, route_end, &mut fields);
     let traced_fields = append_provenance(&mut fields, provenance);
     if traced_fields == 0 {
         append_decoded_payload(&mut fields, payload, route_end, logical_bits);
@@ -825,6 +2699,49 @@ fn inspect_decoded(protocol: &Protocol, decoded: DecodedRecord<'_>) -> Option<Re
         logical_bits,
         fields,
     })
+}
+
+fn append_decode_audit(
+    protocol: &Protocol,
+    direction: Direction,
+    header: RoutingHeader,
+    type_id: u32,
+    route_end: usize,
+    fields: &mut Vec<Field>,
+) {
+    let support = protocol.codec().wire_layout_support(type_id).ok();
+    if support == Some(crate::bsn::codec::WireLayoutSupport::CandidateReflected) {
+        fields.push(Field::leaf(
+            "audit.wire_layout",
+            "unverified generic layout",
+            "reflection order is a candidate; the generated SC2 wire layout has not been recovered",
+            route_end,
+            route_end,
+            0,
+            FieldRole::Control,
+        ));
+    }
+    if header.service_slot == Some(AUTHENTICATION_SLOT)
+        && header.command_id == AUTH_GENERATE_WEB_TOKEN_COMMAND
+    {
+        let detail = match direction {
+            Direction::Outgoing => {
+                "Authentication/16 matches the complete GenerateWebTokenRequest schema, but GenerateAppTokenRequest has the same wire shape"
+            }
+            Direction::Incoming => {
+                "Authentication/16 matches the complete GenerateWebTokenResponse schema, but GenerateAppTokenResponse has the same wire shape"
+            }
+        };
+        fields.push(Field::leaf(
+            "audit.route_mapping",
+            "candidate route identity",
+            detail,
+            route_end,
+            route_end,
+            0,
+            FieldRole::Control,
+        ));
+    }
 }
 
 fn route_fields(header: RoutingHeader, service_slot: u8) -> Vec<Field> {
@@ -873,8 +2790,8 @@ fn append_padding(fields: &mut Vec<Field>, logical_bits: usize, total_bits: usiz
     if logical_bits < total_bits {
         fields.push(Field::leaf(
             "padding",
-            "zero bits",
-            "0",
+            "unused bits",
+            "ignored",
             logical_bits,
             total_bits,
             0,
@@ -1188,6 +3105,632 @@ fn sample_chat_join_bytes(name: &str, member: u32, channel: u8, token: u32) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_change_settings_uses_verified_generated_layout() {
+        assert_eq!(
+            manual_outgoing_type((PROFILE_SLOT, PROFILE_CHANGE_SETTINGS_COMMAND)),
+            Some("Battlenet::Client::Profile::ChangeSettings")
+        );
+
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "c506013638001501426174746c6541757468656e7469636174696f6e2e4163636f756e74436f756e7472793d35353931383733771b72e001",
+        )
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "Profile");
+        assert_eq!(record.command_id, PROFILE_CHANGE_SETTINGS_COMMAND);
+        assert_eq!(record.logical_bits, 442);
+        assert_eq!(record.bytes.len(), 56);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.settings.string_settings[0].value"
+                && field.value == "BattleAuthentication.AccountCountry=5591873"
+        }));
+    }
+
+    #[test]
+    fn profile_stats_ui_event_uses_the_complete_bzip_payload() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(concat!(
+            "c8064301425a683131415926535959ff742200003c1f8058047df00260000a26",
+            "a7dd0a20006a2091ea1934d0f420683108a7a329ea369000193464c84571e7b9",
+            "71e9d016d1514db0d20ec1086d3447d91328b14b662239a41d5299cb3ee056fc",
+            "280da213dd42584cd59550502c60b0de6df1ca8a21225605e0eb80a68fa2ab2f",
+            "c5dc914e1424167fdd0880",
+        ))
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Profile");
+        assert_eq!(record.command_id, PROFILE_SEND_STATS_UI_EVENTS_COMMAND);
+        assert_eq!(record.command, "SendStatsUIEvent");
+        assert_eq!(record.logical_bits, bytes.len() * 8);
+        assert_eq!(record.bytes, bytes);
+        assert!(record.fields.iter().any(|field| {
+            field.path.ends_with("m_events")
+                && field.value == "135 bytes"
+                && field.end_bit == record.logical_bits
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_accepts_command_responses() {
+        let protocol = Protocol::current().unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &[0, 0]).unwrap();
+        assert_eq!(record.service, "Command");
+        assert_eq!(record.command, "Response 0");
+        assert_eq!(record.bytes, [0, 0]);
+        assert_eq!(record.logical_bits, 16);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.result"
+                && field.kind == "Battle.net error"
+                && field.value == "success"
+        }));
+    }
+
+    #[test]
+    fn schema_error_codes_are_annotated_without_field_name_guesses() {
+        let protocol = Protocol::current().unwrap();
+        let type_id = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Error::Code")
+            .unwrap();
+        let encoded = protocol
+            .codec()
+            .encode(type_id, &BsnValue::Integer(402))
+            .unwrap();
+        let mut reader = BitReader::new(&encoded.data, Some(encoded.bit_count)).unwrap();
+        let decoded = protocol
+            .codec()
+            .decode_traced_from(&mut reader, type_id)
+            .unwrap();
+        assert_eq!(decoded.value, BsnValue::Integer(402));
+        assert!(decoded.fields.iter().any(|field| {
+            field.kind == "Battle.net error" && field.value == "Battle.net error 402"
+        }));
+    }
+
+    #[test]
+    fn generic_cais_candidate_is_labeled_and_framed() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("d7070000000000000000").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Toon");
+        assert_eq!(record.command_id, TOON_CAIS_TIME_UPDATE_COMMAND);
+        assert_eq!(record.logical_bits, 75);
+        assert_eq!(record.bytes.len(), 10);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "audit.wire_layout"
+                && field.kind == "unverified generic layout"
+                && field.role == FieldRole::Control
+        }));
+    }
+
+    #[test]
+    fn authentication_token_response_preserves_route_ambiguity() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "5000000000210d55532d38393463316662663233613632353132353561633432366366616230613032342d393931363531343130",
+        )
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Incoming, &bytes).unwrap();
+
+        assert_eq!(record.service, "Authentication");
+        assert_eq!(record.command_id, AUTH_GENERATE_WEB_TOKEN_COMMAND);
+        assert_eq!(record.logical_bits, 416);
+        assert_eq!(record.bytes.len(), 52);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "audit.route_mapping"
+                && field.value.contains("GenerateAppTokenResponse")
+                && field.value.contains("same wire shape")
+                && field.role == FieldRole::Control
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path.ends_with("m_webToken")
+                && field.value == "45 bytes"
+                && field.end_bit == record.logical_bits
+        }));
+    }
+
+    #[test]
+    fn authentication_token_request_preserves_route_ambiguity() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("500000000001").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Authentication");
+        assert_eq!(record.command_id, AUTH_GENERATE_WEB_TOKEN_COMMAND);
+        assert_eq!(record.logical_bits, 43);
+        assert_eq!(record.bytes.len(), 6);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "audit.route_mapping"
+                && field.value.contains("GenerateAppTokenRequest")
+                && field.value.contains("same wire shape")
+                && field.role == FieldRole::Control
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path.ends_with("m_token")
+                && field.value == "1"
+                && field.end_bit == record.logical_bits
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_pong_before_next_record() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("4cc93530000000000003cdcf2319000000000d00000001090001").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "Connection");
+        assert_eq!(record.command_id, CONNECTION_PONG_COMMAND);
+        assert_eq!(record.command, "Pong");
+        assert_eq!(record.logical_bits, 76);
+        assert_eq!(record.bytes, bytes[..10]);
+        assert!(record.fields.iter().any(|field| {
+            field.path.ends_with(".m_timeData") && field.start_bit == 11 && field.end_bit == 76
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_billing_update_before_next_record() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("cdcf2319000000000d00000001090001").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "Toon");
+        assert_eq!(record.command_id, TOON_BILLING_UPDATE_COMMAND);
+        assert_eq!(record.command, "BillingUpdateNotify");
+        assert_eq!(record.logical_bits, 100);
+        assert_eq!(record.bytes, bytes[..13]);
+        assert!(record.fields.iter().any(|field| {
+            field.path.ends_with(".m_info.m_flags") && field.start_bit == 11 && field.end_bit == 43
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field
+                .path
+                .ends_with(".m_info.filler_before_m_subscriptionExpires")
+                && field.start_bit == 43
+                && field.end_bit == 62
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field
+                .path
+                .ends_with(".m_info.filler_before_m_unitsRemaining")
+                && field.start_bit == 63
+                && field.end_bit == 91
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_waits_for_complete_message_frame() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "4d010601010008906c00000000000000318104414cc93530000000000023f1e08115000000000d00000001090001",
+        )
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        for end in 1..bytes.len() {
+            assert!(
+                matches!(
+                    inspect_native_record(&protocol, Direction::Outgoing, &bytes[..end]),
+                    Err(crate::Error::IncompleteFrame(_))
+                ),
+                "accepted a partial message frame containing {end} of {} bytes",
+                bytes.len()
+            );
+        }
+        assert_eq!(record.service, "Connection");
+        assert_eq!(record.command_id, CONNECTION_MESSAGE_FRAME_COMMAND);
+        assert_eq!(record.command, "MessageFrame");
+        assert_eq!(record.logical_bits, 367);
+        assert_eq!(record.bytes, bytes);
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_site_latency_info() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "e30a1e555331302d53320200000310034f5244312d53320200000317024155312d53320200000e1c025341312d5332020000080903555333030000050e035347310100000f0c",
+        )
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "S2Master");
+        assert_eq!(record.command_id, S2_MASTER_SITE_LATENCY_INFO_COMMAND);
+        assert_eq!(record.logical_bits, 556);
+        assert_eq!(record.bytes.len(), 70);
+        assert_eq!(
+            record
+                .fields
+                .iter()
+                .filter(|field| field.path.ends_with(".name") && field.kind == "string")
+                .map(|field| field.value.as_str())
+                .collect::<Vec<_>>(),
+            ["US10-S2", "ORD1-S2", "AU1-S2", "SA1-S2", "US3", "SG1"]
+        );
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_mmq_get_list_variants() {
+        let protocol = Protocol::current().unwrap();
+        for (hex, logical_bits, tags) in [
+            ("dc7a7c4041d75747020002991280001413", 133, 1),
+            ("dc7a7c4042c6164644c6f74506000299128000650a", 165, 2),
+        ] {
+            let bytes = hex::decode(hex).unwrap();
+            let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+            assert_eq!(record.service, "S2Master");
+            assert_eq!(record.command_id, S2_MASTER_MMQ_GET_LIST_COMMAND);
+            assert_eq!(record.command, "MMQGetListRequest");
+            assert_eq!(record.logical_bits, logical_bits);
+            assert_eq!(record.bytes, bytes);
+            assert_eq!(
+                record
+                    .fields
+                    .iter()
+                    .filter(|field| field.path.starts_with("payload.filter.tags[")
+                        && field.kind == "fourcc")
+                    .count(),
+                tags
+            );
+            assert!(
+                record
+                    .fields
+                    .iter()
+                    .any(|field| { field.path == "payload.program_id" && field.value == "\0\0S2" })
+            );
+        }
+    }
+
+    #[test]
+    fn strict_incoming_inspection_frames_mmq_get_info_response() {
+        let protocol = Protocol::current().unwrap();
+        let mut bytes = hex::decode(
+            "d102000000147332716800005553f0d0428b768f9e4189e52bd7174be28ad0758b158bd85bc6f20f214dc3b0fcfdcafebabe2fe3aa0d0000000001000053320000012300a1",
+        )
+        .unwrap();
+        bytes.extend_from_slice(&[0xc0, 0x06, 0, 0]);
+        let record = inspect_native_record(&protocol, Direction::Incoming, &bytes).unwrap();
+        assert_eq!(record.service, "S2Master");
+        assert_eq!(record.command_id, S2_MASTER_MMQ_GET_INFO_COMMAND);
+        assert_eq!(record.command, "MMQGetInfoResponse");
+        assert_eq!(record.logical_bits, 552);
+        assert_eq!(record.bytes.len(), 69);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.queue_info.handle.program_id" && field.value == "\0\0S2"
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_game_group_subscribe() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("cb558a49290c").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "S2Map");
+        assert_eq!(record.command_id, S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND);
+        assert_eq!(record.logical_bits, 44);
+        assert_eq!(record.bytes.len(), 6);
+        assert!(
+            record
+                .fields
+                .iter()
+                .any(|field| field.path == "payload.tag" && field.value == "TRIL")
+        );
+    }
+
+    #[test]
+    fn strict_inspection_frames_s2_map_favorites_exchange() {
+        let protocol = Protocol::current().unwrap();
+        let request = inspect_native_record(&protocol, Direction::Outgoing, &[0xcd, 0x05]).unwrap();
+        assert_eq!(request.service, "S2Map");
+        assert_eq!(request.command_id, S2_MAP_LIST_FAVORITES_COMMAND);
+        assert_eq!(request.command, "S2ListMapFavoritesRequest");
+        assert_eq!(request.logical_bits, 12);
+        assert_eq!(request.bytes, [0xcd, 0x05]);
+
+        let response =
+            inspect_native_record(&protocol, Direction::Incoming, &[0xcd, 0x05, 0x08]).unwrap();
+        assert_eq!(response.service, "S2Map");
+        assert_eq!(response.command_id, S2_MAP_LIST_FAVORITES_COMMAND);
+        assert_eq!(response.command, "S2ListMapFavoritesResponse");
+        assert_eq!(response.logical_bits, 21);
+        assert_eq!(response.bytes, [0xcd, 0x05, 0x08]);
+        assert!(
+            response
+                .fields
+                .iter()
+                .any(|field| { field.path.ends_with(".m_endOfList") && field.value == "true" })
+        );
+    }
+
+    #[test]
+    fn strict_incoming_inspection_frames_modify_channel_list_response() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("6115000164e3a80c590c").unwrap();
+        let response = inspect_native_record(&protocol, Direction::Incoming, &bytes).unwrap();
+        assert_eq!(response.service, "Chat");
+        assert_eq!(
+            response.command_id,
+            crate::native::protocol::CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND
+        );
+        assert_eq!(response.command, "ModifyChannelListResponse2");
+        assert_eq!(response.logical_bits, 76);
+        assert_eq!(response.bytes, bytes);
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_empty_chat_requests() {
+        let protocol = Protocol::current().unwrap();
+        for (bytes, command_id, command) in [
+            (
+                [0x55, 0x05],
+                CHAT_CHANNEL_LIST_REQUEST_COMMAND,
+                "ChannelListRequest",
+            ),
+            (
+                [0x59, 0x05],
+                CHAT_ENUM_CONFERENCES_COMMAND,
+                "EnumConferenceDescriptions",
+            ),
+        ] {
+            let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+            assert_eq!(record.service, "Chat");
+            assert_eq!(record.command_id, command_id);
+            assert_eq!(record.command, command);
+            assert_eq!(record.logical_bits, 11);
+            assert_eq!(record.bytes, bytes);
+        }
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_current_season_request() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("db02").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "S2Master");
+        assert_eq!(record.command_id, S2_MASTER_CURRENT_SEASON_COMMAND);
+        assert_eq!(record.command, "CurrentSeason");
+        assert_eq!(record.logical_bits, 11);
+        assert_eq!(record.bytes, bytes);
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_achievement_listen_request() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("c000c85fd757ce3aab22a00000000001").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "Achievement");
+        assert_eq!(record.command_id, ACHIEVEMENT_LISTEN_COMMAND);
+        assert_eq!(record.command, "ListenRequest");
+        assert_eq!(record.logical_bits, 123);
+        assert_eq!(record.bytes, bytes);
+    }
+
+    #[test]
+    fn strict_incoming_inspection_frames_game_group_update() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("cc050dae600002bb7a6c0100000002").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Incoming, &bytes).unwrap();
+        assert_eq!(record.service, "S2Map");
+        assert_eq!(record.command_id, S2_MAP_GAME_GROUP_UPDATE_COMMAND);
+        assert_eq!(record.command, "GameGroupUpdate");
+        assert_eq!(record.logical_bits, 117);
+        assert_eq!(record.bytes, bytes);
+        assert!(
+            record
+                .fields
+                .iter()
+                .any(|field| field.path == "payload.tag" && field.value == "\0WoL")
+        );
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_presence_statistics_subscription() {
+        let protocol = Protocol::current().unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &[0x42, 0x0c]).unwrap();
+        assert_eq!(record.service, "Presence");
+        assert_eq!(record.command_id, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND);
+        assert_eq!(record.command, "StatisticsSubscribe");
+        assert_eq!(record.logical_bits, 12);
+        assert_eq!(record.bytes, [0x42, 0x0c]);
+        assert!(
+            record
+                .fields
+                .iter()
+                .any(|field| field.path == "payload.on" && field.value == "1")
+        );
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_presence_updates() {
+        let protocol = Protocol::current().unwrap();
+        for (wire, logical_bits, kind) in [
+            ("405c000280070303bdb68303", 90, "11"),
+            ("4034ea80aa940001000b05037b6d0601", 121, "6"),
+            ("402c000000000005000c0602079f2601", 121, "5"),
+            (
+                "408c000000000000000000012020200005000b0503079f2601",
+                193,
+                "17",
+            ),
+            ("400c00000500050203079f2601", 97, "1"),
+        ] {
+            let bytes = hex::decode(wire).unwrap();
+            let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes)
+                .unwrap_or_else(|error| panic!("{wire}: {error}"));
+            assert_eq!(record.service, "Presence");
+            assert_eq!(record.command_id, PRESENCE_UPDATE_COMMAND);
+            assert_eq!(record.command, "UpdateRequest");
+            assert_eq!(record.logical_bits, logical_bits);
+            assert_eq!(record.bytes, bytes);
+            assert!(
+                record
+                    .fields
+                    .iter()
+                    .any(|field| field.path == "payload.value.kind" && field.value == kind)
+            );
+        }
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_encryption_and_profile_read() {
+        let protocol = Protocol::current().unwrap();
+        let marker = protocol.enable_encryption().unwrap();
+        let marker = inspect_native_record(&protocol, Direction::Outgoing, &marker).unwrap();
+        assert_eq!(marker.service, "Connection");
+        assert_eq!(marker.command_id, CONNECTION_ENABLE_ENCRYPTION_COMMAND);
+
+        let profile = protocol
+            .profile_read(
+                24,
+                super::super::model::ProfileAddress {
+                    label: 0xcafe_babe,
+                    id: 0xdc82_c80e_0000_0000,
+                },
+                &[4],
+            )
+            .unwrap();
+        let profile = inspect_native_record(&protocol, Direction::Outgoing, &profile).unwrap();
+        assert_eq!(profile.service, "Profile");
+        assert_eq!(profile.command_id, PROFILE_READ_COMMAND);
+        assert_eq!(profile.bytes.len(), 24);
+        assert!(profile.fields.iter().any(|field| {
+            field.path == "payload.specification.path" && field.start_bit < field.end_bit
+        }));
+
+        let generated_path =
+            hex::decode("c00600000000000001c95fd757c6daab22a000000030020221000116").unwrap();
+        let generated_path =
+            inspect_native_record(&protocol, Direction::Outgoing, &generated_path).unwrap();
+        assert_eq!(generated_path.logical_bits, 224);
+        assert_eq!(generated_path.bytes.len(), 28);
+        assert!(generated_path.fields.iter().any(|field| {
+            field.path == "payload.specification.generated_path[0]" && field.value == "2100"
+        }));
+        assert!(generated_path.fields.iter().any(|field| {
+            field.path == "payload.specification.generated_path[1]" && field.value == "16"
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_generated_profile_path_before_message_frame() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "c00600000000000003cf5fd757ee02ab62a000000030030102010401014d010601010008906c00000000000000318104414cc93530000000000023f1e08115000000000d00000001090001",
+        )
+        .unwrap();
+        let profile = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(profile.service, "Profile");
+        assert_eq!(profile.command_id, PROFILE_READ_COMMAND);
+        assert_eq!(profile.logical_bits, 232);
+        assert_eq!(profile.bytes.len(), 29);
+        assert_eq!(
+            profile
+                .fields
+                .iter()
+                .filter(|field| {
+                    field
+                        .path
+                        .starts_with("payload.specification.generated_path[")
+                        && !field.path.ends_with(".length")
+                })
+                .map(|field| field.value.as_str())
+                .collect::<Vec<_>>(),
+            ["02", "04", "01"]
+        );
+
+        let frame = inspect_native_record(
+            &protocol,
+            Direction::Outgoing,
+            &bytes[profile.bytes.len()..],
+        )
+        .unwrap();
+        assert_eq!(frame.service, "Connection");
+        assert_eq!(frame.command_id, CONNECTION_MESSAGE_FRAME_COMMAND);
+        assert_eq!(frame.bytes.len(), 46);
+    }
+
+    #[test]
+    fn bgs_messages_expose_framing_headers_and_generic_protobuf_fields() {
+        let header = RpcHeader {
+            service_id: 0,
+            method_id: Some(1),
+            token: 7,
+            service_hash: Some(bgs_service_hash(
+                "bnet.protocol.authentication.AuthenticationServer",
+            )),
+            ..RpcHeader::default()
+        };
+        let body = [0x08, 0x01, 0x12, 0x03, b'a', b'b', b'c'];
+        let bytes = crate::wire::protobuf::encode_frame(&header, &body).unwrap();
+        let record = inspect_bgs(&RawBgsRecord {
+            direction: Direction::Outgoing,
+            header: Some(header),
+            route: Some(BgsRoute {
+                service_hash: bgs_service_hash("bnet.protocol.authentication.AuthenticationServer"),
+                method_id: 1,
+            }),
+            bytes,
+            error: None,
+        });
+
+        assert_eq!(record.service, "BGS · Authentication");
+        assert_eq!(record.command, "Logon");
+        assert!(record.fields.iter().any(|field| {
+            field.path == "header.service_hash"
+                && field.kind == "protobuf fixed32"
+                && field.exact_range
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "body.field_1" && field.value == "1" && field.exact_range
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "body.field_2.value" && field.value == "abc" && field.exact_range
+        }));
+    }
+
+    #[test]
+    fn http_messages_expose_start_line_headers_json_and_redaction() {
+        let headers = sanitized_headers(&[
+            ("Content-Type".to_owned(), "application/json".to_owned()),
+            ("Authorization".to_owned(), "Bearer secret".to_owned()),
+        ]);
+        let record = inspect_http(&RawHttpRecord {
+            direction: Direction::Outgoing,
+            method: "POST".to_owned(),
+            url: "https://example.com/v1/events?batch=1".to_owned(),
+            status: None,
+            headers,
+            body: br#"{"accepted":5}"#.to_vec(),
+        });
+
+        assert_eq!(record.service, "HTTP");
+        assert_eq!(record.command, "POST /v1/events?batch=1");
+        assert!(
+            record
+                .bytes
+                .starts_with(b"POST /v1/events?batch=1 HTTP/1.1\r\n")
+        );
+        assert!(
+            record
+                .bytes
+                .windows(b"Authorization: <redacted>".len())
+                .any(|window| window == b"Authorization: <redacted>")
+        );
+        assert!(
+            record
+                .fields
+                .iter()
+                .any(|field| field.path == "body.json.accepted" && field.value == "5")
+        );
+        assert!(
+            record
+                .fields
+                .iter()
+                .filter(|field| field.exact_range)
+                .all(|field| field.end_bit <= record.logical_bits)
+        );
+    }
 
     #[test]
     fn outgoing_cache_requests_are_captured_with_exact_fields() {

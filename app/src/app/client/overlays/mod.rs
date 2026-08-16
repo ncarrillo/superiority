@@ -76,6 +76,111 @@ impl OverlayComponent {
         let account_detail_color =
             identity.map_or(rgb(0x7d8fa8), |(user, _)| user.presence.text_color());
         let account_portrait = identity.and_then(|(user, _)| user.portrait.clone());
+        let account_menu = div()
+            .id("account-menu")
+            .absolute()
+            .top(px(51.0))
+            .w(px(292.0))
+            .h(px(196.0))
+            .bg(rgba(0x050a0ffc))
+            .border_1()
+            .border_color(rgb(0x33a8f0))
+            .rounded(px(3.0))
+            .shadow_lg()
+            .font_family(FONT_INTERFACE)
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(
+                account_portrait
+                    .map_or_else(|| img("images/icons/account-placeholder.png"), img)
+                    .absolute()
+                    .left(px(20.0))
+                    .top(px(13.0))
+                    .size(px(44.0))
+                    .object_fit(ObjectFit::Contain),
+            )
+            .child(
+                img("images/nine-patch/portraits/frame.png")
+                    .absolute()
+                    .left(px(16.0))
+                    .top(px(9.0))
+                    .size(px(52.0))
+                    .object_fit(ObjectFit::Fill),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(80.0))
+                    .top(px(11.0))
+                    .w(px(194.0))
+                    .h(px(23.0))
+                    .flex()
+                    .items_center()
+                    .font_family(FONT_INTERNATIONAL)
+                    .font_weight(FontWeight::BOLD)
+                    .text_size(px(14.0))
+                    .text_color(rgb(0xd6e0f0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(account_name),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(80.0))
+                    .top(px(36.0))
+                    .w(px(194.0))
+                    .h(px(20.0))
+                    .flex()
+                    .items_center()
+                    .text_size(px(11.5))
+                    .text_color(account_detail_color)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(account_detail),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(18.0))
+                    .top(px(69.0))
+                    .w(px(256.0))
+                    .h(px(1.0))
+                    .bg(rgb(0x174f78)),
+            )
+            .child(
+                chrome
+                    .action_button("account-settings", "SETTINGS", 260.0, 42.0, false)
+                    .absolute()
+                    .left(px(16.0))
+                    .top(px(84.0))
+                    .text_size(px(12.0))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_settings(cx);
+                    })),
+            )
+            .child(
+                chrome
+                    .action_button("account-sign-out", "SIGN OUT", 260.0, 42.0, true)
+                    .absolute()
+                    .left(px(16.0))
+                    .top(px(138.0))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.sign_out(window, cx);
+                    })),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(10.0))
+                    .top(px(193.0))
+                    .w(px(272.0))
+                    .h(px(2.0))
+                    .bg(rgb(0x33a8f0)),
+            );
+        #[cfg(target_os = "windows")]
+        let account_menu = account_menu.left_0();
+        #[cfg(target_os = "macos")]
+        let account_menu = account_menu.right_0();
         let overlay = div()
             .id("account-menu-dismiss")
             .absolute()
@@ -87,110 +192,7 @@ impl OverlayComponent {
             .on_click(cx.listener(|this, _, window, cx| {
                 this.dismiss_overlay(window, cx);
             }))
-            .child(
-                div()
-                    .id("account-menu")
-                    .absolute()
-                    .right_0()
-                    .top(px(51.0))
-                    .w(px(292.0))
-                    .h(px(196.0))
-                    .bg(rgba(0x050a0ffc))
-                    .border_1()
-                    .border_color(rgb(0x33a8f0))
-                    .rounded(px(3.0))
-                    .shadow_lg()
-                    .font_family(FONT_INTERFACE)
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(
-                        account_portrait
-                            .map_or_else(|| img("images/icons/account-placeholder.png"), img)
-                            .absolute()
-                            .left(px(20.0))
-                            .top(px(13.0))
-                            .size(px(44.0))
-                            .object_fit(ObjectFit::Contain),
-                    )
-                    .child(
-                        img("images/nine-patch/portraits/frame.png")
-                            .absolute()
-                            .left(px(16.0))
-                            .top(px(9.0))
-                            .size(px(52.0))
-                            .object_fit(ObjectFit::Fill),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(80.0))
-                            .top(px(11.0))
-                            .w(px(194.0))
-                            .h(px(23.0))
-                            .flex()
-                            .items_center()
-                            .font_family(FONT_INTERNATIONAL)
-                            .font_weight(FontWeight::BOLD)
-                            .text_size(px(14.0))
-                            .text_color(rgb(0xd6e0f0))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .child(account_name),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(80.0))
-                            .top(px(36.0))
-                            .w(px(194.0))
-                            .h(px(20.0))
-                            .flex()
-                            .items_center()
-                            .text_size(px(11.5))
-                            .text_color(account_detail_color)
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .child(account_detail),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(18.0))
-                            .top(px(69.0))
-                            .w(px(256.0))
-                            .h(px(1.0))
-                            .bg(rgb(0x174f78)),
-                    )
-                    .child(
-                        chrome
-                            .action_button("account-settings", "SETTINGS", 260.0, 42.0, false)
-                            .absolute()
-                            .left(px(16.0))
-                            .top(px(84.0))
-                            .text_size(px(12.0))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_settings(cx);
-                            })),
-                    )
-                    .child(
-                        chrome
-                            .action_button("account-sign-out", "SIGN OUT", 260.0, 42.0, true)
-                            .absolute()
-                            .left(px(16.0))
-                            .top(px(138.0))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.sign_out(window, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(10.0))
-                            .top(px(193.0))
-                            .w(px(272.0))
-                            .h(px(2.0))
-                            .bg(rgb(0x33a8f0)),
-                    ),
-            );
+            .child(account_menu);
         self.animated(
             overlay,
             "account-overlay-open",

@@ -5,12 +5,15 @@ use std::{
 
 use prost::Message as _;
 use tungstenite::{
-    ClientRequestBuilder, Message, WebSocket, client_tls_with_config, http::Uri,
-    protocol::WebSocketConfig, stream::MaybeTlsStream,
+    ClientRequestBuilder, Message, WebSocket, client::IntoClientRequest, client_tls_with_config,
+    http::Uri, protocol::WebSocketConfig, stream::MaybeTlsStream,
 };
 
 use crate::{
     Error, Result,
+    native::inspect::{
+        Direction, capture_bgs, capture_http_request, capture_http_response, capture_invalid_bgs,
+    },
     wire::protobuf::{RpcFrame, RpcHeader},
 };
 
@@ -35,7 +38,12 @@ impl RpcSocket {
         let uri = format!("wss://{host}:{port}/")
             .parse::<Uri>()
             .map_err(|error| transport_error(format!("invalid BGS URI: {error}")))?;
-        let request = ClientRequestBuilder::new(uri).with_sub_protocol(PROTOCOL);
+        let request_url = uri.to_string();
+        let request = ClientRequestBuilder::new(uri)
+            .with_sub_protocol(PROTOCOL)
+            .into_client_request()
+            .map_err(|error| transport_error(format!("invalid BGS request: {error}")))?;
+        capture_http_request("GET", &request_url, &http_headers(request.headers()), &[]);
         let config = WebSocketConfig::default()
             .write_buffer_size(0)
             .max_message_size(Some(MAX_MESSAGE_SIZE))
@@ -46,6 +54,13 @@ impl RpcSocket {
             .headers()
             .get("sec-websocket-protocol")
             .and_then(|value| value.to_str().ok());
+        capture_http_response(
+            "GET",
+            &request_url,
+            response.status().as_u16(),
+            &http_headers(response.headers()),
+            &[],
+        );
         if selected != Some(PROTOCOL) {
             return Err(transport_error(
                 "Battle.net selected an unexpected websocket subprotocol",
@@ -62,14 +77,24 @@ impl RpcSocket {
         payload.extend_from_slice(&header_length.to_be_bytes());
         payload.extend_from_slice(&encoded_header);
         payload.extend_from_slice(body);
-        self.socket.send(Message::binary(payload))?;
+        self.socket.send(Message::binary(payload.clone()))?;
+        capture_bgs(Direction::Outgoing, header, body, &payload);
         Ok(())
     }
 
     pub fn receive(&mut self) -> Result<RpcFrame> {
         loop {
             match self.socket.read()? {
-                Message::Binary(message) => return decode_bgs_message(&message),
+                Message::Binary(message) => match decode_bgs_message(&message) {
+                    Ok(frame) => {
+                        capture_bgs(Direction::Incoming, &frame.header, &frame.body, &message);
+                        return Ok(frame);
+                    }
+                    Err(error) => {
+                        capture_invalid_bgs(Direction::Incoming, &message, &error.to_string());
+                        return Err(error);
+                    }
+                },
                 Message::Close(_) => {
                     return Err(transport_error("BGS websocket received a close frame"));
                 }
@@ -96,6 +121,20 @@ impl RpcSocket {
         stream.set_write_timeout(timeout)?;
         Ok(())
     }
+}
+
+fn http_headers(headers: &tungstenite::http::HeaderMap) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_owned(),
+                value
+                    .to_str()
+                    .map_or_else(|_| "<binary>".to_owned(), str::to_owned),
+            )
+        })
+        .collect()
 }
 
 fn decode_bgs_message(message: &[u8]) -> Result<RpcFrame> {

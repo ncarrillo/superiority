@@ -6,6 +6,8 @@ members = [
     "updater",
     "live-app",
     "bsn-derive",
+    "gateway",
+    "scanner-sweep",
     "tools/bsn-schema-generator",
     "tools/extract-bsn-metadata",
 ]

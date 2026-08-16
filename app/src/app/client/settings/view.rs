@@ -10,6 +10,7 @@ impl SettingsComponent {
         blocked_accounts: &[BlockedAccount],
         live_url: Option<String>,
         live_error: Option<String>,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
         let mut modal = div()
@@ -136,6 +137,7 @@ impl SettingsComponent {
                     blocked_accounts,
                     live_url.clone(),
                     live_error.clone(),
+                    window,
                     cx,
                 ))
                 .child(self.settings_page(
@@ -145,6 +147,7 @@ impl SettingsComponent {
                     blocked_accounts,
                     live_url.clone(),
                     live_error.clone(),
+                    window,
                     cx,
                 ));
         } else {
@@ -155,6 +158,7 @@ impl SettingsComponent {
                 blocked_accounts,
                 live_url,
                 live_error,
+                window,
                 cx,
             ));
         }
@@ -206,9 +210,10 @@ impl SettingsComponent {
         blocked_accounts: &[BlockedAccount],
         live_url: Option<String>,
         live_error: Option<String>,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> AnyElement {
-        let modal = self.modal(chrome, blocked_accounts, live_url, live_error, cx);
+        let modal = self.modal(chrome, blocked_accounts, live_url, live_error, window, cx);
         let overlay = div()
             .id("settings-dismiss")
             .absolute()

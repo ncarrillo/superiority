@@ -4,28 +4,27 @@ import BackToContents from "../components/BackToContents.astro";
 ---
 
 <Chapter id="handoff">
-<h2>4. Front-to-Sunken handoff</h2>
-  <p>The SC2 client names the generic BGS side “Front” and the native endpoint
-  “Sunken.” Front authenticates the Battle.net account, selects an SC2 game account,
-  and returns the values needed to open and authenticate the second connection.</p>
-  <p>The <code>logon_response</code> attribute is not an opaque ticket. It decodes
-  as <code>Battlenet::Client::Authentication::LogonResponse3</code>, including
-  response status, final authentication-module requests, ping timeout, regulator
-  rules, account and game-account region, game-account name, failure count, and
-  optional RAF state. The enclosing protobuf blob carries no native bit count;
-  unused bits in the last byte must be zero.</p>
-  <p>The native TCP connection may be established before Front finishes closing, but
-  the first native <a href="#resume-name"><code>Auth/1 ResumeRequest</code></a> is
-  written after the Front shutdown. The sockets remain independent even when their
-  lifetimes briefly overlap.</p>
-  <p>An ordered Front shutdown uses
-  <code>ConnectionService.RequestDisconnect</code> (method 7, declared
-  <code>NO_RESPONSE</code>). The server answers with the one-way
-  <code>ConnectionService.ForceDisconnect</code> notification (method 4) and then
-  closes TLS. This notification is a protocol event, not the response frame that
-  <code>NO_RESPONSE</code> explicitly forbids.</p>
-  <p>From this point onward, the transport and payload format are native BSN. The
-  next chapter introduces its bit cursor, record header, and schema-delimited
-  boundaries before any authentication payloads are decoded.</p>
+<h2>Starting Sunken</h2>
+  <p>Front authenticates the Battle.net account and selects an SC2 game account.
+  It then supplies the data for the Sunken connection.</p>
+  <p>The <code>logon_response</code> attribute contains a bit-packed
+  <code>Battlenet::Client::Authentication::LogonResponse3</code>. This type contains
+  the status, authentication requests, timeouts, regulator rules, account data,
+  and optional RAF state.</p>
+  <p>The selected BSN metadata type determines the protobuf blob's logical bit length. All unused
+  bits in the last byte must be zero.</p>
+  <p>The <code>address</code> attribute contains the Sunken host and optional port.
+  Port 1119 is used when the string omits it. A bracketed IPv6 address can
+  include a port after the closing bracket.</p>
+  <p>The client can open the Sunken TCP connection before Front closes. The client
+  must send <a href="#resume-name"><code>Auth/1 ResumeRequest</code></a> after Front
+  closes. Front and Sunken are independent TCP connections.</p>
+  <p>The Front protocol defines <code>RequestDisconnect</code> method 7 and
+  <code>ForceDisconnect</code> method 4. The documented handoff sends a WebSocket
+  close frame directly.</p>
+  <p>The Sunken TCP connection opens first, followed by the Front close.
+  <code>Auth/1 ResumeRequest</code> is sent after the close call succeeds.</p>
+  <p>After the handoff, the client uses the Sunken transport and payload format.
+  The Sunken record section defines its bit cursor, header, and boundary.</p>
   <BackToContents />
 </Chapter>

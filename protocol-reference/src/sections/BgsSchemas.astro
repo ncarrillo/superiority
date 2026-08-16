@@ -1,0 +1,134 @@
+---
+import Chapter from "../components/Chapter.astro";
+---
+
+<Chapter id="bgs-schemas">
+  <h2>Front protobuf messages</h2>
+  <p>These definitions cover the protobuf messages used by the documented Front
+  connection sequence. They preserve the field names, field numbers, scalar
+  types, cardinality, and defaults from the protobuf descriptors.</p>
+
+  <h3>Methods</h3>
+  <table>
+    <thead><tr><th>Direction</th><th>Service / method</th><th>Message</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>C&rarr;S</td><td><code>ConnectionService / 1</code></td><td><code>ConnectRequest</code></td><td>Open bindless Front RPC.</td></tr>
+      <tr><td>C&rarr;S</td><td><code>AuthenticationServer / 1</code></td><td><code>LogonRequest</code></td><td>Start account authentication.</td></tr>
+      <tr><td>S&rarr;C</td><td><code>ChallengeNotify / 3</code></td><td><code>ChallengeExternalRequest</code></td><td>Request the external web challenge.</td></tr>
+      <tr><td>C&rarr;S</td><td><code>AuthenticationServer / 7</code></td><td><code>VerifyWebCredentialsRequest</code></td><td>Submit the short-lived web credential.</td></tr>
+      <tr><td>S&rarr;C</td><td><code>AuthenticationClient / 5</code></td><td><code>LogonResult</code></td><td>Return account, game-account, region, and session data.</td></tr>
+      <tr><td>S&rarr;C</td><td><code>AuthenticationClient / 14</code></td><td><code>GameAccountSelectedRequest</code></td><td>Report game-account selection.</td></tr>
+      <tr><td>C&rarr;S</td><td><code>AuthenticationServer / 8</code></td><td><code>GenerateWebCredentialsRequest</code></td><td>Request a reusable cached credential.</td></tr>
+      <tr><td>C&rarr;S</td><td><code>GameUtilities / 1</code></td><td><code>ClientRequest</code></td><td>Request the SC2-native handoff.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RPC envelope</h3>
+<pre is:raw><span class="syn-keyword">message</span> <span class="syn-type">Header</span> {
+  <span class="syn-keyword">required</span> <span class="syn-type">uint32</span>  <span class="syn-field">service_id</span>              = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint32</span>  <span class="syn-field">method_id</span>               = <span class="syn-number">2</span>;
+  <span class="syn-keyword">required</span> <span class="syn-type">uint32</span>  <span class="syn-field">token</span>                   = <span class="syn-number">3</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint64</span>  <span class="syn-field">object_id</span>               = <span class="syn-number">4</span> [default = <span class="syn-number">0</span>];
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint32</span>  <span class="syn-field">size</span>                    = <span class="syn-number">5</span> [default = <span class="syn-number">0</span>];
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint32</span>  <span class="syn-field">status</span>                  = <span class="syn-number">6</span> [default = <span class="syn-number">0</span>];
+  <span class="syn-keyword">repeated</span> <span class="syn-type">ErrorInfo</span> <span class="syn-field">error</span>                   = <span class="syn-number">7</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint64</span>  <span class="syn-field">timeout</span>                 = <span class="syn-number">8</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bool</span>    <span class="syn-field">is_response</span>             = <span class="syn-number">9</span>;
+  <span class="syn-keyword">repeated</span> <span class="syn-type">ProcessId</span> <span class="syn-field">forward_targets</span>        = <span class="syn-number">10</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">fixed32</span> <span class="syn-field">service_hash</span>            = <span class="syn-number">11</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>  <span class="syn-field">client_id</span>               = <span class="syn-number">13</span>;
+  <span class="syn-keyword">repeated</span> <span class="syn-type">FanoutTarget</span> <span class="syn-field">fanout_target</span>          = <span class="syn-number">14</span>;
+  <span class="syn-keyword">repeated</span> <span class="syn-type">string</span>  <span class="syn-field">client_id_fanout_target</span> = <span class="syn-number">15</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span>   <span class="syn-field">client_record</span>           = <span class="syn-number">16</span>;
+}</pre>
+
+  <h3>Session messages</h3>
+<pre is:raw><span class="syn-keyword">message</span> <span class="syn-type">ConnectRequest</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">ProcessId</span>   <span class="syn-field">client_id</span>        = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">BindRequest</span> <span class="syn-field">bind_request</span>     = <span class="syn-number">2</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bool</span>        <span class="syn-field">use_bindless_rpc</span> = <span class="syn-number">3</span> [default = <span class="syn-keyword">true</span>];
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">LogonRequest</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">program</span>                         = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">platform</span>                        = <span class="syn-number">2</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">locale</span>                          = <span class="syn-number">3</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">email</span>                           = <span class="syn-number">4</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">version</span>                         = <span class="syn-number">5</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">int32</span>  <span class="syn-field">application_version</span>             = <span class="syn-number">6</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bool</span>   <span class="syn-field">public_computer</span>                 = <span class="syn-number">7</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bool</span>   <span class="syn-field">allow_logon_queue_notifications</span> = <span class="syn-number">10</span> [default = <span class="syn-keyword">false</span>];
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span>  <span class="syn-field">cached_web_credentials</span>          = <span class="syn-number">12</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">user_agent</span>                      = <span class="syn-number">14</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">device_id</span>                       = <span class="syn-number">15</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">LogonResult</span> {
+  <span class="syn-keyword">required</span> <span class="syn-type">uint32</span>   <span class="syn-field">error_code</span>       = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">EntityId</span> <span class="syn-field">account_id</span>       = <span class="syn-number">2</span>;
+  <span class="syn-keyword">repeated</span> <span class="syn-type">EntityId</span> <span class="syn-field">game_account_id</span>  = <span class="syn-number">3</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>   <span class="syn-field">email</span>            = <span class="syn-number">4</span>;
+  <span class="syn-keyword">repeated</span> <span class="syn-type">uint32</span>   <span class="syn-field">available_region</span> = <span class="syn-number">5</span> [packed = <span class="syn-keyword">false</span>];
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint32</span>   <span class="syn-field">connected_region</span> = <span class="syn-number">6</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>   <span class="syn-field">battle_tag</span>       = <span class="syn-number">7</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>   <span class="syn-field">geoip_country</span>    = <span class="syn-number">8</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span>    <span class="syn-field">session_key</span>      = <span class="syn-number">9</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bool</span>     <span class="syn-field">restricted_mode</span>  = <span class="syn-number">10</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>   <span class="syn-field">client_id</span>        = <span class="syn-number">11</span>;
+}</pre>
+
+  <h3>Web credentials</h3>
+<pre is:raw><span class="syn-keyword">message</span> <span class="syn-type">ChallengeExternalRequest</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">request_token</span> = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span> <span class="syn-field">payload_type</span>  = <span class="syn-number">2</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span>  <span class="syn-field">payload</span>       = <span class="syn-number">3</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">VerifyWebCredentialsRequest</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span> <span class="syn-field">web_credentials</span> = <span class="syn-number">1</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">GenerateWebCredentialsRequest</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">fixed32</span> <span class="syn-field">program</span> = <span class="syn-number">1</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">GenerateWebCredentialsResponse</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span> <span class="syn-field">web_credentials</span> = <span class="syn-number">1</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">GameAccountSelectedRequest</span> {
+  <span class="syn-keyword">required</span> <span class="syn-type">uint32</span>   <span class="syn-field">result</span>          = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">EntityId</span> <span class="syn-field">game_account_id</span> = <span class="syn-number">2</span>;
+}</pre>
+
+  <h3>Sunken session data</h3>
+<pre is:raw><span class="syn-keyword">message</span> <span class="syn-type">ClientRequest</span> {
+  <span class="syn-keyword">repeated</span> <span class="syn-type">Attribute</span> <span class="syn-field">attribute</span>       = <span class="syn-number">1</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">ProcessId</span> <span class="syn-field">host</span>             = <span class="syn-number">2</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">EntityId</span>  <span class="syn-field">account_id</span>       = <span class="syn-number">3</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">EntityId</span>  <span class="syn-field">game_account_id</span>  = <span class="syn-number">4</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">fixed32</span>   <span class="syn-field">program</span>          = <span class="syn-number">5</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">ClientInfo</span> <span class="syn-field">client_info</span>     = <span class="syn-number">6</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">ClientResponse</span> {
+  <span class="syn-keyword">repeated</span> <span class="syn-type">Attribute</span> <span class="syn-field">attribute</span> = <span class="syn-number">1</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">Attribute</span> {
+  <span class="syn-keyword">required</span> <span class="syn-type">string</span>  <span class="syn-field">name</span>  = <span class="syn-number">1</span>;
+  <span class="syn-keyword">required</span> <span class="syn-type">Variant</span> <span class="syn-field">value</span> = <span class="syn-number">2</span>;
+}
+
+<span class="syn-keyword">message</span> <span class="syn-type">Variant</span> {
+  <span class="syn-keyword">optional</span> <span class="syn-type">bool</span>     <span class="syn-field">bool_value</span>      = <span class="syn-number">2</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">int64</span>    <span class="syn-field">int_value</span>       = <span class="syn-number">3</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">double</span>   <span class="syn-field">float_value</span>     = <span class="syn-number">4</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>   <span class="syn-field">string_value</span>    = <span class="syn-number">5</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span>    <span class="syn-field">blob_value</span>      = <span class="syn-number">6</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">bytes</span>    <span class="syn-field">message_value</span>   = <span class="syn-number">7</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">string</span>   <span class="syn-field">fourcc_value</span>    = <span class="syn-number">8</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">uint64</span>   <span class="syn-field">uint_value</span>      = <span class="syn-number">9</span>;
+  <span class="syn-keyword">optional</span> <span class="syn-type">EntityId</span> <span class="syn-field">entity_id_value</span> = <span class="syn-number">10</span>;
+}</pre>
+</Chapter>

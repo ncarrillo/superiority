@@ -38,6 +38,7 @@ pub(super) struct UpdateComponent {
     pub(super) update_events: Option<Receiver<String>>,
     pub(super) update_model: UpdateModel,
     pub(super) update_notes_selection: ui_release_notes::ReleaseNotesSelection,
+    pub(super) update_notes_scroll: ScrollHandle,
     pub(super) update_dialog_visible: bool,
     pub(super) update_dialog_closing: bool,
     pub(super) update_hide_due: Option<Instant>,

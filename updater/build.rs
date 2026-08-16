@@ -14,9 +14,7 @@ fn main() {
             .flag("-fobjc-arc")
             .compile("superiority_updater_authorization");
     }
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
-        && std::env::consts::OS == "windows"
-    {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         build_windows_resources(&manifest);
     }
 }

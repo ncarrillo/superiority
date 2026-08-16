@@ -1,0 +1,96 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BackToContents from "../components/BackToContents.astro";
+import RustSchema from "../components/RustSchema.astro";
+---
+
+<Chapter id="identity-model">
+<h2>Identity and presence</h2>
+  <p>The protocol uses several identifier namespaces for the same person. Account
+  and character identities are stable. Presence IDs and member handles belong to
+  one native connection or joined channel.</p>
+
+  <h3 id="identity-chain">Identity path</h3>
+  <ol>
+    <li>Front logon returns a Battle.net <b>account entity ID</b> and one or more
+    <b>game-account entity IDs</b>. These are 128-bit protobuf entity values.</li>
+    <li>The selected SC2 game account is passed to Game Utilities. Its response
+    supplies the native game-account name, region, session key, and native logon
+    response used by Resume.</li>
+    <li>After Resume, <code>Toon/0</code> lists the playable SC2 identities owned by
+    that game account. <code>Toon/5</code> selects one; <code>Toon/6</code> returns
+    its stable <code>ToonHandle</code> and profile record address.</li>
+    <li><code>Pres/0</code> associates that stable identity and native account data
+    with connection-local presence IDs.</li>
+    <li><code>Chat/1</code> associates a channel-local member handle with a presence
+    ID. The chain can then resolve a message sender to account, toon, profile, and
+    display state.</li>
+  </ol>
+
+  <h3 id="identity-namespaces">Identifier namespaces</h3>
+  <table>
+    <thead><tr><th>Identifier</th><th>Scope</th><th>Meaning</th><th>Related namespace</th></tr></thead>
+    <tbody>
+      <tr><td>Front account <code>EntityId</code></td><td>Battle.net account</td><td>The platform account returned by Front logon.</td><td>Native 32-bit account ID.</td></tr>
+      <tr><td>Front game-account <code>EntityId</code></td><td>One game license/account</td><td>The selected SC2 game account passed to Game Utilities.</td><td>Battle.net account entity or toon.</td></tr>
+      <tr><td>Native game-account name</td><td>Resume session</td><td>The SC2 game-account string returned by Game Utilities.</td><td>A toon display name.</td></tr>
+      <tr><td>Native <code>account_id</code></td><td>Social services</td><td>A 32-bit Battle.net account key used by Presence, Friends, Profile, and whisper targets.</td><td>Either Front protobuf entity ID.</td></tr>
+      <tr><td><code>ToonFullName</code></td><td>Name-based SC2 identity</td><td>Region, program, realm, and display name. <code>Prfl/3</code> resolves it to a handle.</td><td>A stable handle.</td></tr>
+      <tr><td><code>ToonHandle</code></td><td>Stable SC2 character</td><td>Region, program, realm, and 64-bit toon ID.</td><td>Profile address or account ID.</td></tr>
+      <tr><td><code>RecordAddress</code></td><td>Profile storage</td><td>A label and 64-bit record ID used by <code>Prfl/0</code>.</td><td>Toon handle.</td></tr>
+      <tr><td>Local/master presence ID</td><td>One native connection</td><td>Aliases for an online presence record announced by <code>Pres/0</code>.</td><td>Stable account or toon identity.</td></tr>
+      <tr><td>Channel index</td><td>One connection</td><td>A three-bit slot assigned to one joined channel.</td><td>Public channel name ID.</td></tr>
+      <tr><td>Member handle</td><td>One joined channel</td><td>A roster member key used by Chat messages and membership changes.</td><td>Presence ID or account ID.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="identity-cardinality">Identity cardinality</h3>
+  <p>One Battle.net account can own multiple game accounts. One SC2 game account can
+  expose region- and realm-specific toons. One stable account or toon can appear
+  through more than one presence alias, and the same presence can participate in
+  several channels under a different member handle in each channel.</p>
+  <p>Use a native account ID or toon handle as the durable person key. Merge local
+  and master presence IDs announced together.
+  When two presence records expose the same nonzero native account ID, fold them to
+  the same social identity while retaining every connection-local alias needed for
+  routing.</p>
+
+  <h3 id="identity-presence-fields">Presence links</h3>
+  <p><code>Pres/1</code> first defines field handles and widths. A later
+  <code>Pres/0</code> value can then carry the links below:</p>
+  <table>
+    <thead><tr><th>Field</th><th>Value</th><th>Relationship</th></tr></thead>
+    <tbody>
+      <tr><td><code>0x00010005</code></td><td>native account ID</td><td>Primary stable social-account link.</td></tr>
+      <tr><td><code>0x0001001b</code></td><td>native account ID</td><td>Secondary social-account link.</td></tr>
+      <tr><td><code>65561</code></td><td><code>ToonHandle</code></td><td>Stable SC2 character link.</td></tr>
+      <tr><td><code>65556</code></td><td><code>RecordAddress</code></td><td>Profile data and avatar lookup link.</td></tr>
+      <tr><td><code>65555</code></td><td><code>ImageTableEntry</code></td><td>Direct avatar link when present.</td></tr>
+    </tbody>
+  </table>
+
+  <p><code>Pres/4</code> starts with a stable <code>ToonHandle</code> and asks the
+  server to create temporary presence. Its immediate response reports only a
+  result. A later <code>Pres/0</code> supplies the connection-local presence ID.
+  That ID can then be used by the <code>LocalPresenceId</code> whisper target.</p>
+
+  <h3 id="identity-chat-link">Channel members</h3>
+  <RustSchema code={`struct MembershipChangeJoining {
+    member_handle: u32, // local to one joined channel
+    presence_id: u32,   // local to the native connection
+    statuses: Vec<MemberStatus>,
+}`} />
+  <p>An incoming <code>Chat/11</code> message names only the channel index and
+  member handle. Resolve the member handle through the roster, then resolve its
+  presence ID through the Presence store. Only after those two local lookups is it
+  safe to associate the message with a native account ID, toon handle, profile
+  address, display name, avatar, or standing state.</p>
+
+  <h3 id="identity-profile-links">Profiles and friends</h3>
+  <p><code>Prfl/1</code> maps a native account ID to a profile record address.
+  <code>Prfl/3</code> maps a <code>ToonFullName</code> to a stable
+  <code>ToonHandle</code>. <code>Frnd/6</code> carries the inverse social links in
+  bulk: native account ID, full toon name, and profile address. These mappings join
+  identity namespaces while preserving the scope of each numeric value.</p>
+  <BackToContents />
+</Chapter>

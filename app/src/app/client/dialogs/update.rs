@@ -7,6 +7,7 @@ impl UpdateComponent {
     pub(in crate::app::client) fn overlay(
         &self,
         chrome: &ChromeComponent,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
         let (status, progress, primary_title, secondary_title, primary_enabled) =
@@ -89,15 +90,18 @@ impl UpdateComponent {
             )
             .child(
                 div()
-                    .id("update-notes-scroll")
+                    .id("update-notes-viewport")
                     .absolute()
                     .left(px(41.0))
                     .top(px(169.0))
                     .w(px(698.0))
                     .h(px(252.0))
-                    .overflow_y_scroll()
                     .child(
                         div()
+                            .id("update-notes-scroll")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.update_notes_scroll)
                             .w_full()
                             .min_h(px(252.0))
                             .px(px(22.0))
@@ -106,7 +110,8 @@ impl UpdateComponent {
                                 &self.update_model.notes,
                                 &self.update_notes_selection,
                             )),
-                    ),
+                    )
+                    .vertical_scrollbar_for(&self.update_notes_scroll, window, cx),
             )
             .child(
                 div()

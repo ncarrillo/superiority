@@ -39,7 +39,7 @@ use model::{
 const CHANNEL_CAPACITY: usize = 1024;
 const IDLE_POLL: Duration = Duration::from_millis(500);
 const SHUTDOWN_FLUSH_DEADLINE: Duration = Duration::from_secs(5);
-const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const CLIENT_VERSION: &str = env!("SUPERIORITY_EFFECTIVE_VERSION");
 
 /// Shared handles between the UI (config writer, stats reader) and the
 /// uplink machinery. Cheap to clone.

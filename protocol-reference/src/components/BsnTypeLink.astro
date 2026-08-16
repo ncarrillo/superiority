@@ -1,0 +1,23 @@
+---
+import {
+  displayTypeReference,
+  namedTypeForReference,
+  typeTooltip,
+  typeAnchor,
+} from "../data/bsnRegistry";
+
+interface Props {
+  typeId: number;
+}
+
+const { typeId } = Astro.props;
+const linkedType = namedTypeForReference(typeId);
+---
+
+{linkedType ? (
+  <a class="type-reference" href={`#${typeAnchor(linkedType)}`} data-type-tooltip={typeTooltip(linkedType)}>
+    <code>{displayTypeReference(typeId)}</code>
+  </a>
+) : (
+  <code>{displayTypeReference(typeId)}</code>
+)}

@@ -139,19 +139,19 @@ pub fn publish_macos_release(
         .descendants()
         .find(|node| node.is_element() && node.tag_name().name() == "channel")
         .ok_or_else(|| Error::InvalidAppcast("feed is missing its channel".into()))?;
-    let insertion = channel
+    let first_item = channel
         .children()
-        .find(|node| node.is_element() && node.tag_name().name() == "item")
-        .map_or_else(
-            || {
-                channel
-                    .range()
-                    .end
-                    .checked_sub("</channel>".len())
-                    .ok_or_else(|| Error::InvalidAppcast("channel has an invalid range".into()))
-            },
-            |item| Ok(item.range().start),
-        )?;
+        .find(|node| node.is_element() && node.tag_name().name() == "item");
+    let insertion = if let Some(item) = first_item {
+        insertion_line_start(&output, item.range().start)
+    } else {
+        let closing = channel
+            .range()
+            .end
+            .checked_sub("</channel>".len())
+            .ok_or_else(|| Error::InvalidAppcast("channel has an invalid range".into()))?;
+        insertion_line_start(&output, closing)
+    };
     let item = macos_item(
         title,
         version,
@@ -184,6 +184,116 @@ pub fn publish_macos_release(
     Ok(output)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn publish_platform_release(
+    existing: Option<&str>,
+    feed_url: &str,
+    title: &str,
+    version: &str,
+    build: &str,
+    published_at: &str,
+    notes: &str,
+    platform: Platform,
+    artifact: &Artifact,
+    maximum_releases: usize,
+) -> Result<String> {
+    if platform == Platform::MacOs {
+        return Err(Error::InvalidAppcast(
+            "macOS releases must use the existing Sparkle enclosure".into(),
+        ));
+    }
+    if maximum_releases == 0 {
+        return Err(Error::InvalidAppcast(
+            "the feed must retain at least one release".into(),
+        ));
+    }
+    if notes.contains("]]>") {
+        return Err(Error::InvalidAppcast(
+            "release notes cannot contain the CDATA terminator ]]>".into(),
+        ));
+    }
+    let initial = existing.map_or_else(
+        || empty_appcast(feed_url),
+        |xml| xml.trim_end().to_owned() + "\n",
+    );
+    let mut output = ensure_namespace(&initial)?;
+    let document = parse_document(&output)?;
+    let channel = document
+        .descendants()
+        .find(|node| node.is_element() && node.tag_name().name() == "channel")
+        .ok_or_else(|| Error::InvalidAppcast("feed is missing its channel".into()))?;
+    let items = channel
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "item")
+        .collect::<Vec<_>>();
+    let mut retained = 0_usize;
+    let mut remove = Vec::new();
+    for item in items {
+        if item_build(item).is_some_and(|item_build| item_build == build) {
+            remove.push(item.range());
+        } else if retained < maximum_releases - 1 {
+            retained += 1;
+        } else {
+            remove.push(item.range());
+        }
+    }
+    drop(document);
+    for range in remove.into_iter().rev() {
+        output.replace_range(range, "");
+    }
+
+    let document = parse_document(&output)?;
+    let channel = document
+        .descendants()
+        .find(|node| node.is_element() && node.tag_name().name() == "channel")
+        .ok_or_else(|| Error::InvalidAppcast("feed is missing its channel".into()))?;
+    let first_item = channel
+        .children()
+        .find(|node| node.is_element() && node.tag_name().name() == "item");
+    let insertion = if let Some(item) = first_item {
+        insertion_line_start(&output, item.range().start)
+    } else {
+        let closing = channel
+            .range()
+            .end
+            .checked_sub("</channel>".len())
+            .ok_or_else(|| Error::InvalidAppcast("channel has an invalid range".into()))?;
+        insertion_line_start(&output, closing)
+    };
+    output.insert_str(
+        insertion,
+        &platform_item(
+            title,
+            version,
+            build,
+            published_at,
+            notes,
+            platform,
+            artifact,
+        ),
+    );
+
+    let parsed = Appcast::parse(&output, platform)?;
+    let published = parsed
+        .releases()
+        .iter()
+        .find(|release| release.build == build)
+        .ok_or_else(|| {
+            Error::InvalidAppcast("published platform release could not be read back".into())
+        })?;
+    if published.artifact != *artifact || published.version != version {
+        return Err(Error::InvalidAppcast(
+            "published platform release did not round-trip through the appcast".into(),
+        ));
+    }
+    if parsed.releases().len() > maximum_releases {
+        return Err(Error::InvalidAppcast(
+            "published appcast retained too many releases".into(),
+        ));
+    }
+    Ok(output)
+}
+
 fn ensure_namespace(xml: &str) -> Result<String> {
     let declaration = format!("xmlns:superiority=\"{SUPERIORITY_NAMESPACE}\"");
     if xml.contains(&declaration) {
@@ -204,6 +314,17 @@ fn ensure_namespace(xml: &str) -> Result<String> {
     let mut output = xml.to_owned();
     output.insert_str(end, &format!(" {declaration}"));
     Ok(output)
+}
+
+fn insertion_line_start(xml: &str, offset: usize) -> usize {
+    let start = xml[..offset]
+        .rfind('\n')
+        .map_or(offset, |newline| newline + 1);
+    if xml[start..offset].chars().all(char::is_whitespace) {
+        start
+    } else {
+        offset
+    }
 }
 
 fn parse_document(xml: &str) -> Result<roxmltree::Document<'_>> {
@@ -298,6 +419,27 @@ fn macos_item(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+fn platform_item(
+    title: &str,
+    version: &str,
+    build: &str,
+    published_at: &str,
+    notes: &str,
+    platform: Platform,
+    artifact: &Artifact,
+) -> String {
+    format!(
+        "        <item>\n            <title>{}</title>\n            <pubDate>{}</pubDate>\n            <sparkle:version>{}</sparkle:version>\n            <sparkle:shortVersionString>{}</sparkle:shortVersionString>\n            <description sparkle:format=\"markdown\"><![CDATA[{}]]></description>{}\n        </item>\n",
+        escape_text(title),
+        escape_text(published_at),
+        escape_text(build),
+        escape_text(version),
+        notes.trim(),
+        artifact_element(platform, artifact),
+    )
+}
+
 fn escape_attribute(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -317,7 +459,7 @@ fn escape_text(value: &str) -> String {
 mod tests {
     use url::Url;
 
-    use super::{add_platform_artifact, preserve_platform_artifacts};
+    use super::{add_platform_artifact, preserve_platform_artifacts, publish_platform_release};
     use crate::{Appcast, Artifact, Platform, SUPERIORITY_NAMESPACE};
 
     const MAC_ONLY: &str = r#"<?xml version="1.0"?>
@@ -468,5 +610,28 @@ mod tests {
                 .build,
             "1"
         );
+    }
+
+    #[test]
+    fn can_create_a_windows_only_appcast() {
+        let artifact = windows_artifact("http://192.0.2.1:8765/windows.zip");
+        let published = publish_platform_release(
+            None,
+            "http://192.0.2.1:8765/appcast.xml",
+            "0.1.30 test update",
+            "0.1.30",
+            "30",
+            "Fri, 14 Aug 2026 12:00:00 -0400",
+            "# windows updater test",
+            Platform::WindowsX86_64,
+            &artifact,
+            2,
+        )
+        .unwrap();
+        let appcast = Appcast::parse(&published, Platform::WindowsX86_64).unwrap();
+        assert_eq!(appcast.releases().len(), 1);
+        assert_eq!(appcast.releases()[0].build, "30");
+        assert_eq!(appcast.releases()[0].artifact, artifact);
+        assert!(!published.contains("<enclosure"));
     }
 }

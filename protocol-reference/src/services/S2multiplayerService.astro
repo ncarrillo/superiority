@@ -1,17 +1,20 @@
 ---
 import ServiceSection from "../components/ServiceSection.astro";
 import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
 ---
 
 <ServiceSection id="service-s2multiplayer">
-  <Fragment slot="title">9.8 <code>S2Mp</code> — SC2 multiplayer and groups</Fragment>
-<p>Beyond club-settings validation, this service carries the Battle.net group
-    (&ldquo;club&rdquo;) subsystem: listing an account's groups, searching them,
-    reading a group's details, and answering invitations. Several of these
-    decoders are <em>positional</em> &mdash; they seek to absolute bit offsets
-    measured from the start of the record, header included &mdash; because the
-    generated order interleaves reserved runs the reflection metadata omits.</p>
+  <Fragment slot="title"><code>S2Mp</code> — SC2 multiplayer and groups</Fragment>
+<p>Slot 13 carries both the <code>S2Map</code> namespace and the Battle.net group
+    subsystem. Blizzard also calls a group a “club.” The service lists and searches
+    groups, reads group data, answers invitations, subscribes to game-group data,
+    and reads map favorites.</p>
+    <p>Some decoders are <em>positional</em>. A positional decoder uses absolute bit
+    offsets from the start of the record. The offsets include the route header.
+    Generated order can add reserved bits beyond the metadata fields.</p>
     <p class="endpoint-index">
+      <a href="#s2map-game-groups">S2Map/11 and S2Map/12</a><a href="#s2map-favorites">S2Map/13 favorites</a>
       <a href="#s2multiplayer-get-toon-clubs">S2Mp/46 GetToonClubs</a><a href="#s2multiplayer-get-toon-clubs-response">S2Mp/46 response</a>
       <a href="#s2multiplayer-search-clubs">S2Mp/51 SearchClubs</a><a href="#s2multiplayer-search-clubs-response">S2Mp/51 response</a>
       <a href="#s2multiplayer-member-clan-tags">S2Mp/53 MemberClanTags</a><a href="#s2multiplayer-invite-action">S2Mp/54 InviteAction</a>
@@ -19,76 +22,152 @@ import Endpoint from "../components/Endpoint.astro";
       <a href="#s2multiplayer-club-settings">S2Mp/57 ClubSettings</a>
     </p>
 
+    <Endpoint id="s2map-game-groups" direction="bidirectional" phase="protected bootstrap" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>S2Map/11</code> GameGroupSubscribe and <code>S2Map/12</code> GameGroupUpdate</Fragment>
+      <p>Subscribes to a tagged game- or map-group feed. The server returns paged
+      updates whose result choice contains either map short links or map-group IDs.</p>
+      <RustSchema code={`// client → server, command 11
+struct GameGroupSubscribeRequest {
+    tag: FourCC,
+    group_type: bool,
+}
+
+// server → client, command 12
+struct GameGroupUpdate {
+    generated_prefix: Bits<5>,
+    is_last: bool,
+    generated_marker: Bits<28>,
+    tag: FourCC,
+    is_first: bool,
+    results: GameGroupResults,
+}
+
+enum GameGroupResults {
+    GameGroup(Vec<S2MapShortLink>),
+    MapGroup(Vec<u32>),
+}`} />
+      <p class="endpoint-note">The observed generated marker is
+      <code>0x00d5cc00</code>. A different marker identifies an unknown build
+      layout and must halt decoding.</p>
+    </Endpoint>
+
+    <Endpoint id="s2map-favorites" direction="bidirectional" phase="protected bootstrap" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>S2Map/13</code> S2ListMapFavorites</Fragment>
+      <p>Requests favorites for the active or explicitly named toon and returns a
+      page of map links.</p>
+      <RustSchema code={`// client → server
+struct ListMapFavoritesRequest {
+    toon: Option<ToonFullName>,
+}
+
+// server → client
+struct ListMapFavoritesResponse {
+    result: Result<FavoritesPage, u16>,
+}
+
+struct FavoritesPage {
+    favorites: Vec<MapFavorite>,
+    end_of_list: bool,
+    external_profile: bool,
+}`} />
+    </Endpoint>
+
     <Endpoint id="s2multiplayer-get-toon-clubs" direction="client → server" phase="protected" structure="logical order" status="live verified">
       <Fragment slot="title"><code>S2Mp/46</code> Club::GetToonClubs</Fragment>
       <p>Asks which groups a toon belongs to. The answer returns on the same
       command id.</p>
-<pre is:raw><span class="syn-field">token</span>            <span class="syn-type">u32</span>
-<span class="syn-field">handle.programId</span> <span class="syn-type">u32</span>
-<span class="syn-field">handle.region</span>    <span class="syn-type">u8</span>
-<span class="syn-field">handle.realm</span>     <span class="syn-type">u32</span>
-<span class="syn-field">handle.id</span>        <span class="syn-type">u64</span>
-<span class="syn-keyword">alignToByte</span>       <span class="syn-comment">168 payload bits, 23 bytes total</span></pre>
+      <RustSchema code={`struct GetToonClubsRequest {
+    token: u32,
+    handle: ToonHandle,
+}
+
+struct ToonHandle {
+    program_id: u32,
+    region: u8,
+    realm: u32,
+    id: u64,
+}
+
+// 168 payload bits; 23-byte record after final alignment`} />
     </Endpoint>
 
     <Endpoint id="s2multiplayer-get-toon-clubs-response" direction="server → client" phase="protected" structure="positional (generated order)" status="capture verified">
       <Fragment slot="title"><code>S2Mp/46</code> Club::GetToonClubsResponse</Fragment>
-      <p>An array of <code>ClubSummaryInfo</code> for the account's groups. The
-      element walk below is shared with <code>S2Mp/55</code>; offsets inside an
-      element are relative to that element's start <code>S</code>.</p>
-<pre is:raw><span class="syn-field">resultTag</span>    <span class="syn-type">u1</span> <span class="syn-comment">0 = success</span>
-<span class="syn-field">clubCount</span>    <span class="syn-type">u8</span> <span class="syn-comment">&lt;=201</span>
-<span class="syn-field">token</span>        <span class="syn-type">u32</span>
-<span class="syn-keyword">repeat</span> clubCount: <span class="syn-type">ClubSummaryInfo</span>
-<span class="syn-field">tail</span>         <span class="syn-type">u32</span> + <span class="syn-field">rankCount</span> <span class="syn-type">u8</span> + <span class="syn-field">rank</span> <span class="syn-type">u8</span>[clubCount] + <span class="syn-field">isLastPacket</span> <span class="syn-type">bool</span>
+      <p>Contains a <code>ClubSummaryInfo</code> array for the account. The element
+      layout is also used by <code>S2Mp/55</code>. Each offset is relative to the
+      element start <code>S</code>.</p>
+      <RustSchema code={`struct GetToonClubsResponse {
+    result_tag: bool, // bit 11; false means success
+    club_count: u8,  // bits 12..20, 0..=201
+    token: u32,
+    clubs: Vec<ClubSummaryInfo>, // exactly club_count elements
+    tail: u32,
+    rank_count: u8,
+    ranks: Vec<u8>, // one rank for each club
+    is_last_packet: bool,
+}
 
-<span class="syn-type">ClubSummaryInfo</span> {
-    <span class="syn-field">m_id</span>        <span class="syn-type">u32</span>                          <span class="syn-comment">S+0</span>
-    <span class="syn-field">clubId</span>      <span class="syn-type">u32</span>                          <span class="syn-comment">S+32; the id Battle.net shows</span>
-    <span class="syn-field">category</span>    <span class="syn-type">u8</span>                           <span class="syn-comment">S+64</span>
-    <span class="syn-field">nameLen</span>     <span class="syn-type">u8</span> <span class="syn-comment">&lt;=32 bytes</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">name</span> <span class="syn-type">bytes</span>[nameLen]
-    <span class="syn-field">private</span>     <span class="syn-type">u1</span>                           <span class="syn-comment">nameEnd+128</span>
-    <span class="syn-field">kind</span>        <span class="syn-type">u8</span>                           <span class="syn-comment">nameEnd+134</span>
-    <span class="syn-field">tagPresent</span>  <span class="syn-type">u1</span>                           <span class="syn-comment">nameEnd+206</span>
-        <span class="syn-keyword">if set</span>: <span class="syn-field">tagLen</span> <span class="syn-type">u5</span> <span class="syn-comment">&lt;=24</span>, <span class="syn-keyword">alignToByte</span>, <span class="syn-field">tag</span> <span class="syn-type">bytes</span>[tagLen]
-    <span class="syn-field">iconPresent</span> <span class="syn-type">u1</span>                           <span class="syn-comment">cursor+28</span>
-        <span class="syn-keyword">if set</span>: <span class="syn-keyword">alignToByte</span>, <span class="syn-field">icon</span> <span class="syn-type">Cache::Handle bytes</span>[<span class="syn-number">40</span>]
-}</pre>
-      <p class="endpoint-note">Positional decode from bit 0 of the record. The name
-      length is an eight-bit count capped at 32 bytes (earlier notes said 128; the
-      decoder is the authority).</p>
+struct ClubSummaryInfo {
+    internal_id: u32,       // S + 0 bits
+    club_id: u32,           // S + 32; the ID Battle.net shows
+    category: u8,           // S + 64
+    name: String,           // u8 byte count, 0..=32; then byte-align
+    private: bool,          // name_end + 128
+    kind: u8,               // name_end + 134
+    tag: Option<String>,    // flag at name_end + 206; u5 length, 0..=24
+    icon: Option<[u8; 40]>, // flag at cursor + 28; then byte-align
+}`} />
+      <p class="endpoint-note">Start positional decoding at bit 0 of the record.
+      The name length is an eight-bit count. The maximum name length is 32 bytes.</p>
     </Endpoint>
 
     <Endpoint id="s2multiplayer-search-clubs" direction="client → server" phase="protected" structure="generated order" status="defined">
       <Fragment slot="title"><code>S2Mp/51</code> Club::SearchClubs</Fragment>
       <p>Searches Battle.net groups by name. The type filter excludes clans so the
       results are joinable communities.</p>
-<pre is:raw><span class="syn-field">token</span>    <span class="syn-type">integer</span>
-<span class="syn-field">search</span>  <span class="syn-type">Search</span> <span class="syn-keyword">choice</span> {
-    <span class="syn-number">0</span> <span class="syn-keyword">name</span> { <span class="syn-field">name</span> <span class="syn-type">string</span>, <span class="syn-field">type</span> <span class="syn-type">integer</span> <span class="syn-comment">1 = GROUP</span>,
-             <span class="syn-field">category</span> <span class="syn-type">integer</span> <span class="syn-comment">0 = ANY</span>, <span class="syn-field">locale</span> <span class="syn-type">FourCC</span> <span class="syn-comment">0</span> }
-}</pre>
-      <p class="endpoint-note">Metadata-built; widths come from the embedded type
-      library. Never sent by the current client outside tests.</p>
+      <RustSchema code={`struct SearchClubsRequest {
+    token: u32,
+    search: ClubSearch,
+}
+
+enum ClubSearch {
+    Name {
+        name: String,
+        club_type: u32, // 1 = group
+        category: u32,  // 0 = any
+        locale: FourCC, // 0
+    },
+}`} />
+      <p class="endpoint-note">The embedded BSN metadata supplies the field widths.
+      This record is sent when the user starts a group search. The current request
+      uses token <code>0</code>.</p>
     </Endpoint>
 
     <Endpoint id="s2multiplayer-search-clubs-response" direction="server → client" phase="protected" structure="reflected order" status="metadata decoded">
       <Fragment slot="title"><code>S2Mp/51</code> Club::SearchClubsResponse</Fragment>
-      <p>The matched group ids only &mdash; no names or member counts. The decoder
-      harvests every integer inside the result list.</p>
-<pre is:raw><span class="syn-field">token</span>   <span class="syn-type">integer</span>
-<span class="syn-field">result</span>  <span class="syn-keyword">choice</span> { <span class="syn-keyword">matches</span> <span class="syn-type">array</span>&lt;<span class="syn-type">u32 clubId</span>&gt; | <span class="syn-keyword">failure</span> <span class="syn-comment">empty</span> }</pre>
+      <p>Returns the matching group IDs. Fetch names and member counts through the
+      corresponding group-info endpoints.</p>
+      <RustSchema code={`struct SearchClubsResponse {
+    token: u32,
+    result: SearchResult,
+}
+
+enum SearchResult {
+    Matches(Vec<u32>), // club IDs
+    Failure,
+}`} />
     </Endpoint>
 
     <Endpoint id="s2multiplayer-member-clan-tags" direction="server → client" phase="protected" structure="reflected order" status="metadata decoded">
       <Fragment slot="title"><code>S2Mp/53</code> Club::GetMemberClanTagsResponse</Fragment>
-      <p>Clan tags for members. Note the roster does not use this path &mdash;
-      retail carries a member's clan tag in presence field <code>0x50004</code>
-      instead.</p>
-<pre is:raw><span class="syn-field">token</span>    <span class="syn-type">u32</span>
-<span class="syn-field">result</span>   <span class="syn-type">u16</span>
-<span class="syn-field">clubId?</span>  <span class="syn-type">u32</span> <span class="syn-comment">optional</span>
-<span class="syn-field">clubTag?</span> <span class="syn-type">string</span> <span class="syn-comment">optional</span></pre>
+      <p>Returns clan tags for members. Retail roster state obtains each member's
+      clan tag from presence field <code>0x50004</code>.</p>
+      <RustSchema code={`struct GetMemberClanTagsResponse {
+    token: u32,
+    result: u16,
+    club_id: Option<u32>,
+    club_tag: Option<String>,
+}`} />
     </Endpoint>
 
     <Endpoint id="s2multiplayer-invite-action" direction="bidirectional" phase="protected" structure="positional (generated order)" status="verified">
@@ -96,14 +175,20 @@ import Endpoint from "../components/Endpoint.astro";
       <p>Carries a group or clan invitation (<code>code 0</code>) and its
       accept / decline / auto-decline answer (<code>codes 1 / 2 / 3</code>). The
       record is a fixed 208-bit positional layout.</p>
-<pre is:raw><span class="syn-field">code</span>              <span class="syn-type">u2</span> <span class="syn-comment">bits 11..13; 0=INVITED 1=ACCEPTED 2=DECLINED 3=AUTODECLINED</span>
-<span class="syn-field">member.programId</span>  <span class="syn-type">u32</span> <span class="syn-comment">bits 13..45</span>
-<span class="syn-field">member.kind</span>       <span class="syn-type">u8</span>  <span class="syn-comment">bits 45..53</span>
-<span class="syn-field">member.realm</span>      <span class="syn-type">u32</span> <span class="syn-comment">bits 53..85</span>
-<span class="syn-field">member.toonId</span>     <span class="syn-type">u64</span> <span class="syn-comment">bits 85..149</span>
-<span class="syn-field">clubId</span>            <span class="syn-type">u32</span> <span class="syn-comment">bits 149..181</span>
-<span class="syn-keyword">reserved</span>          <span class="syn-type">bits</span>[<span class="syn-number">11</span>] <span class="syn-comment">bits 181..192; written as 4</span>
-<span class="syn-field">result</span>            <span class="syn-type">u16</span> <span class="syn-comment">bits 192..208</span></pre>
+      <RustSchema code={`struct InviteAction {
+    action: InviteActionCode, // bits 11..13: invited, accepted, declined, auto-declined
+    member: InviteMember,
+    club_id: u32,             // bits 149..181
+    _reserved: Reserved<11>, // bits 181..192; value 4
+    result: u16,              // bits 192..208
+}
+
+struct InviteMember {
+    program_id: u32, // bits 13..45
+    kind: u8,        // bits 45..53
+    realm: u32,      // bits 53..85
+    toon_id: u64,    // bits 85..149
+}`} />
       <p class="endpoint-note">An answer carries an empty member handle (program id
       only); only an invitation (code 0) names the invitee. The reader takes the
       program id at bit 13 and the club id at bit 149, then seeks to bit 208.</p>
@@ -112,27 +197,31 @@ import Endpoint from "../components/Endpoint.astro";
     <Endpoint id="s2multiplayer-get-club-info" direction="client → server" phase="protected" structure="generated order" status="verified">
       <Fragment slot="title"><code>S2Mp/55</code> Club::GetClubInfo</Fragment>
       <p>Fetches name and tag for group ids an invitation carried only by number.</p>
-<pre is:raw><span class="syn-field">token</span>  <span class="syn-type">integer</span>
-<span class="syn-field">clubs</span>  <span class="syn-type">array</span>&lt;<span class="syn-type">u32 clubId</span>&gt;</pre>
+      <RustSchema code={`struct GetClubInfoRequest {
+    token: u32,
+    clubs: Vec<u32>, // club IDs
+}`} />
     </Endpoint>
 
     <Endpoint id="s2multiplayer-get-club-info-response" direction="server → client" phase="protected" structure="positional (generated order)" status="capture verified">
       <Fragment slot="title"><code>S2Mp/55</code> Club::GetClubInfoResponse</Fragment>
       <p>The same <code>ClubSummaryInfo</code> element walk as <code>S2Mp/46</code>,
       for the requested ids. Its tail is shorter: past the last element it carries
-      only <code>isLastPacket</code>, without the rank list.</p>
+      <code>isLastPacket</code> and a zero-length rank list.</p>
     </Endpoint>
 
     <Endpoint id="s2multiplayer-club-settings" direction="server → client" phase="protected bootstrap" structure="generated order" status="boundary verified">
       <Fragment slot="title"><code>S2Mp/57</code> Club::ClubSettings</Fragment>
       <p>Supplies club-name and tag validation expressions plus cache size and expiry
       policy.</p>
-<pre is:raw><span class="syn-field">namePattern</span>          <span class="syn-type">UTF-8</span> <span class="syn-comment">u13 byte count; up to 4096 bytes</span>
-<span class="syn-field">tagPattern</span>           <span class="syn-type">UTF-8</span> <span class="syn-comment">u13 byte count; up to 4096 bytes</span>
-<span class="syn-field">informationCacheSize</span> <span class="syn-type">u32</span>
-<span class="syn-field">memberCacheSize</span>      <span class="syn-type">u32</span>
-<span class="syn-field">informationExpiry</span>    <span class="syn-type">s32</span>
-<span class="syn-field">onlineStatusExpiry</span>   <span class="syn-type">s32</span>
-<span class="syn-field">eventExpiry</span>          <span class="syn-type">s32</span></pre>
+      <RustSchema code={`struct ClubSettings {
+    name_pattern: String, // byte count: 13 wire bits, 0..=4096
+    tag_pattern: String,  // byte count: 13 wire bits, 0..=4096
+    information_cache_size: u32,
+    member_cache_size: u32,
+    information_expiry: i32,
+    online_status_expiry: i32,
+    event_expiry: i32,
+}`} />
     </Endpoint>
 </ServiceSection>

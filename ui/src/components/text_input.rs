@@ -1,11 +1,11 @@
-use std::{cell::RefCell, ops::Range, rc::Rc};
+use std::{cell::RefCell, ops::Range, rc::Rc, time::Duration};
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, Element, ElementId, ElementInputHandler, Entity,
     EntityInputHandler, EventEmitter, FocusHandle, GlobalElementId, InspectorElementId, KeyBinding,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ShapedLine, Style, Subscription, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
-    fill, point, prelude::*, px, relative, rgb, rgba, size,
+    ShapedLine, Style, Subscription, Task, TextRun, UTF16Selection, UnderlineStyle, Window,
+    actions, div, fill, point, prelude::*, px, relative, rgb, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -40,6 +40,7 @@ const PLACEHOLDER: u32 = 0x5e8291;
 const CURSOR: u32 = 0x89d5ff;
 const SELECTION: u32 = 0x1769_9dcc;
 const HISTORY_LIMIT: usize = 100;
+const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 struct Snapshot {
@@ -219,6 +220,10 @@ impl TextInput {
                 state,
                 focus_handle,
                 placeholder,
+                cursor_visible: false,
+                cursor_blinking: false,
+                cursor_blink_task: Task::ready(()),
+                focus_subscriptions: Vec::new(),
             }
         });
         Self {
@@ -246,6 +251,8 @@ impl TextInput {
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.focus_handle.focus(window, cx);
+        self.view
+            .update(cx, |input, cx| input.start_cursor_blink(cx));
     }
 
     pub fn clear(&self) {
@@ -331,6 +338,10 @@ struct TextInputView {
     state: Rc<RefCell<InputState>>,
     focus_handle: FocusHandle,
     placeholder: Rc<RefCell<String>>,
+    cursor_visible: bool,
+    cursor_blinking: bool,
+    cursor_blink_task: Task<()>,
+    focus_subscriptions: Vec<Subscription>,
 }
 
 struct TextInputEvent;
@@ -338,7 +349,46 @@ struct TextInputEvent;
 impl EventEmitter<TextInputEvent> for TextInputView {}
 
 impl TextInputView {
+    fn start_cursor_blink(&mut self, cx: &mut Context<Self>) {
+        self.cursor_blinking = true;
+        self.reset_cursor_blink(cx);
+    }
+
+    fn stop_cursor_blink(&mut self, cx: &mut Context<Self>) {
+        self.cursor_blinking = false;
+        self.cursor_visible = false;
+        self.cursor_blink_task = Task::ready(());
+        cx.notify();
+    }
+
+    fn reset_cursor_blink(&mut self, cx: &mut Context<Self>) {
+        if !self.cursor_blinking {
+            return;
+        }
+        self.cursor_visible = true;
+        self.cursor_blink_task = Self::spawn_cursor_blink(cx);
+        cx.notify();
+    }
+
+    fn spawn_cursor_blink(cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(CURSOR_BLINK_INTERVAL).await;
+                if this
+                    .update(cx, |input, cx| {
+                        input.cursor_visible = !input.cursor_visible;
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+    }
+
     fn update(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut InputState)) {
+        self.reset_cursor_blink(cx);
         let changed = {
             let mut state = self.state.borrow_mut();
             let previous = state.content.clone();
@@ -546,6 +596,7 @@ impl TextInputView {
             }
             state.selecting = true;
         });
+        self.start_cursor_blink(cx);
     }
 
     fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -712,7 +763,20 @@ impl EntityInputHandler for TextInputView {
 }
 
 impl Render for TextInputView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.focus_subscriptions.is_empty() {
+            let focus_handle = self.focus_handle.clone();
+            let focus = cx.on_focus(&focus_handle, window, |input, _, cx| {
+                input.start_cursor_blink(cx);
+            });
+            let blur = cx.on_blur(&focus_handle, window, |input, _, cx| {
+                input.stop_cursor_blink(cx);
+            });
+            self.focus_subscriptions = vec![focus, blur];
+            if self.focus_handle.is_focused(window) {
+                self.start_cursor_blink(cx);
+            }
+        }
         div()
             .id(("superiority-input", cx.entity_id()))
             .key_context("SuperiorityInput")
@@ -865,7 +929,7 @@ impl Element for TextElement {
             scroll_x = (cursor_x - viewport + px(2.0)).min(max_scroll);
         }
         let x = |offset| bounds.left() + line.x_for_index(offset) - scroll_x;
-        let cursor = (focused && state.selection.is_empty()).then(|| {
+        let cursor = (focused && input.cursor_visible && state.selection.is_empty()).then(|| {
             fill(
                 Bounds::new(
                     point(x(state.cursor()), bounds.top()),
@@ -1043,5 +1107,28 @@ mod tests {
             assert_eq!(view.input.content(), "hello world");
             assert_eq!(view.mirrored, "hello world");
         });
+    }
+
+    #[gpui::test]
+    fn focused_cursor_blinks_and_input_restores_visibility(cx: &mut gpui::TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let input = TextInput::new("placeholder", cx);
+            let subscription = input.subscribe(cx, |_: &mut InputHarness, _| {});
+            InputHarness {
+                input,
+                mirrored: String::new(),
+                _subscription: subscription,
+            }
+        });
+        view.update_in(cx, |view, window, cx| view.input.focus(window, cx));
+        let input_view = view.update(cx, |view, _| view.input.view.clone());
+        assert!(input_view.update(cx, |input, _| input.cursor_visible));
+
+        cx.executor().advance_clock(CURSOR_BLINK_INTERVAL);
+        cx.run_until_parked();
+        assert!(!input_view.update(cx, |input, _| input.cursor_visible));
+
+        cx.simulate_input("x");
+        assert!(input_view.update(cx, |input, _| input.cursor_visible));
     }
 }

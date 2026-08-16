@@ -17,6 +17,14 @@ pub struct ClientPartyMapOptionsChange {
     pub map_options: super::matchmaker::MatchMakerMapOptions,
 }
 
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientPartyReadyProcessUpdate {
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: Option<u32>,
+    #[bsn(name = "m_reason")]
+    pub reason: u16,
+}
+
 #[derive(Clone, Debug)]
 pub enum PartyReadyProcess {
     JoinAmm(super::party::PartyReadyProcessJoinAmm),

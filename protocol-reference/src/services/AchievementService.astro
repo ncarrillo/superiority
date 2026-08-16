@@ -1,0 +1,42 @@
+---
+import ServiceSection from "../components/ServiceSection.astro";
+import Endpoint from "../components/Endpoint.astro";
+import RustSchema from "../components/RustSchema.astro";
+---
+
+<ServiceSection id="service-achievement">
+  <Fragment slot="title"><code>Achv</code> — achievements</Fragment>
+  <p>Slot 8 carries achievement snapshot and subscription traffic.</p>
+  <p class="endpoint-index">
+    <a href="#achievement-listen"><code>Achv/0</code> ListenRequest</a>
+    <a href="#achievement-data"><code>Achv/2</code> Data</a>
+  </p>
+
+  <Endpoint id="achievement-listen" direction="client → server" phase="protected bootstrap" structure="verified reflected order" status="capture verified">
+    <Fragment slot="title"><code>Achv/0</code> Achievement::ListenRequest</Fragment>
+    <p>Starts an achievement snapshot or subscription for one profile record.</p>
+    <RustSchema code={`struct ListenRequest {
+    address: RecordAddress,
+    mode: ListenMode,   // subscription or snapshot
+    scope: ListenScope, // achievements only, or achievements and criteria
+}`} />
+  </Endpoint>
+
+  <Endpoint id="achievement-data" direction="server → client" phase="protected" structure="generated order" status="capture decoded">
+    <Fragment slot="title"><code>Achv/2</code> Achievement::Data</Fragment>
+    <p>Returns achievement state for a profile address. The segment choice carries
+    persistent achievements, criteria updates, stream notifications, or quest
+    updates.</p>
+    <RustSchema code={`struct Data {
+    address: RecordAddress,
+    segment: DataSegment,
+}
+
+enum DataSegment {
+    Achievements(Vec<PersistentRecord>),
+    Criteria(Vec<CriteriaUpdateRecord>),
+    Notification { code: Notification, programs: Vec<FourCC>, evaluators: Vec<FourCC> },
+    Quests(Vec<QuestUpdateRecord>),
+}`} />
+  </Endpoint>
+</ServiceSection>

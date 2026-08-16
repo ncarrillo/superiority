@@ -12,6 +12,7 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use sha2::{Digest as _, Sha256};
 use superiority_updater::{
     Artifact, Platform, add_platform_artifact, preserve_platform_artifacts, publish_macos_release,
+    publish_platform_release,
 };
 use url::Url;
 
@@ -60,7 +61,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .transpose()?,
     };
     let xml = fs::read_to_string(&input)?;
-    let updated = if arguments.get("mode").map(String::as_str) == Some("publish-macos") {
+    let mode = arguments.get("mode").map(String::as_str);
+    let updated = if mode == Some("publish-macos") {
         let notes = fs::read_to_string(required_path(&arguments, "notes-file")?)?;
         let maximum_releases = arguments
             .get("maximum-releases")
@@ -74,6 +76,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             required(&arguments, "published-at")?,
             required(&arguments, "minimum-system-version")?,
             &notes,
+            &artifact,
+            maximum_releases,
+        )?
+    } else if mode == Some("publish-platform") {
+        let platform = Platform::from_feed_name(required(&arguments, "platform")?)?;
+        let notes = fs::read_to_string(required_path(&arguments, "notes-file")?)?;
+        let maximum_releases = arguments
+            .get("maximum-releases")
+            .map_or(Ok(3), |value| value.parse::<usize>())?;
+        publish_platform_release(
+            (!xml.trim().is_empty()).then_some(xml.as_str()),
+            required(&arguments, "feed-url")?,
+            required(&arguments, "title")?,
+            required(&arguments, "version")?,
+            build,
+            required(&arguments, "published-at")?,
+            &notes,
+            platform,
             &artifact,
             maximum_releases,
         )?

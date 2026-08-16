@@ -8,10 +8,26 @@ impl SocialComponent {
         &self,
         chrome: &ChromeComponent,
         overlays: &OverlayComponent,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> AnyElement {
         let pane_offset = self.pane_offset(Instant::now());
         let social_rows = self.rows(chrome, cx);
+        let social_results = div()
+            .id("social-results-scroll")
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(&self.social_scroll)
+            .children(social_rows);
+        let social_viewport = div()
+            .id("social-results-viewport")
+            .absolute()
+            .left(px(SOCIAL_CONTENT_GUTTER))
+            .right(px(SOCIAL_CONTENT_GUTTER))
+            .top(px(10.0))
+            .bottom(px(20.0))
+            .child(social_results)
+            .vertical_scrollbar_for(&self.social_scroll, window, cx);
         let list_pane = div()
             .absolute()
             .left_0()
@@ -19,22 +35,7 @@ impl SocialComponent {
             .w(px(400.0))
             .h(px(SOCIAL_BODY_HEIGHT))
             .font_family(FONT_INTERFACE)
-            .child(
-                div()
-                    .absolute()
-                    .left(px(SOCIAL_CONTENT_GUTTER))
-                    .right(px(SOCIAL_CONTENT_GUTTER))
-                    .top(px(10.0))
-                    .bottom(px(20.0))
-                    .child(
-                        div()
-                            .id("social-results-scroll")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.social_scroll)
-                            .children(social_rows),
-                    ),
-            );
+            .child(social_viewport);
         let body_track = div()
             .absolute()
             .left(px(pane_offset - SOCIAL_FRAME_CLIP_GUTTER))
@@ -42,7 +43,7 @@ impl SocialComponent {
             .w(px(800.0))
             .h(px(SOCIAL_BODY_HEIGHT))
             .child(list_pane)
-            .child(self.conversation_pane(chrome, cx));
+            .child(self.conversation_pane(chrome, window, cx));
         let body_clip = div()
             .absolute()
             .left(px(SOCIAL_FRAME_CLIP_GUTTER))

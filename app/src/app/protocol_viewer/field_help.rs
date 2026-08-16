@@ -139,10 +139,30 @@ fn known_meaning(path: &str, name: &str) -> Option<&'static str> {
 }
 
 fn encoded_meaning(field: &Field, container: bool) -> String {
+    let kind = field.kind.to_ascii_lowercase();
+    if kind == "http request" || kind == "http response" {
+        return "HTTP message assembled from the captured start line, headers, and body."
+            .to_owned();
+    }
+    if kind == "http headers" || kind == "http header" || kind == "header value" {
+        return "HTTP metadata captured for this request or response.".to_owned();
+    }
+    if kind.ends_with("body") {
+        return "HTTP entity body captured for this request or response.".to_owned();
+    }
+    if kind == "bgs rpc message" {
+        return "BGS RPC message carried by one WebSocket binary message.".to_owned();
+    }
+    if kind == "protobuf message" || kind.starts_with("protobuf ") {
+        return "Protobuf wire value decoded without requiring a registered message type."
+            .to_owned();
+    }
+    if kind == "decode error" {
+        return "Reason this captured message could not be decoded completely.".to_owned();
+    }
     if let Some(meaning) = known_meaning(&field.path, &normalized_name(&field.path)) {
         return meaning.to_owned();
     }
-    let kind = field.kind.to_ascii_lowercase();
     if container || kind.contains("struct") || kind == "object" {
         "Structured schema value containing the nested properties shown below.".to_owned()
     } else if kind.contains("array") {

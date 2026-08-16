@@ -4,6 +4,7 @@ impl SocialComponent {
     pub(super) fn conversation_pane(
         &self,
         chrome: &ChromeComponent,
+        window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Div {
         let peer = self
@@ -94,6 +95,22 @@ impl SocialComponent {
             rgb(0xd6e0f0)
         };
 
+        let messages = div()
+            .id("conversation-scroll")
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(&self.conversation_scroll)
+            .children(messages);
+        let conversation = div()
+            .id("conversation-viewport")
+            .absolute()
+            .left(px(SOCIAL_CONVERSATION_GUTTER))
+            .right(px(SOCIAL_CONVERSATION_GUTTER))
+            .top(px(104.0))
+            .bottom(px(72.0))
+            .child(messages)
+            .vertical_scrollbar_for(&self.conversation_scroll, window, cx);
+
         div()
             .absolute()
             .left(px(400.0))
@@ -158,23 +175,19 @@ impl SocialComponent {
                     .child(peer.clone()),
             )
             .child(
-                img(presence_icon)
-                    .absolute()
-                    .left(px(SOCIAL_CONVERSATION_GUTTER + 50.0))
-                    .top(px(70.0))
-                    .size(px(12.0))
-                    .object_fit(ObjectFit::Contain),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(SOCIAL_CONVERSATION_GUTTER + 68.0))
-                    .right(px(SOCIAL_CONVERSATION_GUTTER))
-                    .top(px(67.0))
-                    .h(px(18.0))
-                    .text_size(px(11.5))
-                    .text_color(rgb(0x7d8fa8))
-                    .child(presence_copy),
+                ui_roster::presence_line(
+                    presence_icon,
+                    presence_copy,
+                    12.0,
+                    6.0,
+                    11.5,
+                    rgb(0x7d8fa8).into(),
+                )
+                .absolute()
+                .left(px(SOCIAL_CONVERSATION_GUTTER + 50.0))
+                .right(px(SOCIAL_CONVERSATION_GUTTER))
+                .top(px(67.0))
+                .h(px(18.0)),
             )
             .child(
                 div()
@@ -185,18 +198,7 @@ impl SocialComponent {
                     .h(px(1.0))
                     .bg(rgb(0x174f78)),
             )
-            .child(
-                div()
-                    .id("conversation-scroll")
-                    .absolute()
-                    .left(px(SOCIAL_CONVERSATION_GUTTER))
-                    .right(px(SOCIAL_CONVERSATION_GUTTER))
-                    .top(px(104.0))
-                    .bottom(px(72.0))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.conversation_scroll)
-                    .children(messages),
-            )
+            .child(conversation)
             .child(
                 div()
                     .id("conversation-input")

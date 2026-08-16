@@ -276,6 +276,14 @@ impl sc2_core::bsn::FromBsn for ChatPartyMemberStatusEnum {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatCategoryDescriptions {
+    #[bsn(name = "m_list")]
+    pub list: Vec<super::conference::ConferenceCategoryDescription>,
+    #[bsn(name = "m_isLast")]
+    pub is_last: bool,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatChannelList {}
 
 #[derive(Clone, Debug, FromBsn)]
@@ -290,6 +298,23 @@ pub struct ClientChatChannelListResponse {
     pub channel_list: super::chat::ClientChatChannelList,
     #[bsn(name = "m_channels")]
     pub channels: Vec<super::chat::ChatFullName>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClientChatChannelListTypeEnum {
+    AUTOJOIN,
+    RECENTLYJOINED,
+}
+impl sc2_core::bsn::FromBsn for ClientChatChannelListTypeEnum {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        match sc2_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::AUTOJOIN),
+            1i128 => Ok(Self::RECENTLYJOINED),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a valid ClientChatChannelListTypeEnum"
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -307,6 +332,9 @@ pub struct ClientChatDatagramConnectionUpdate {
     #[bsn(name = "m_info")]
     pub info: super::chat::ChatDatagramConnectionInfo,
 }
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatEnumCategoryDescriptions {}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatEnumConferenceDescriptions {}
@@ -382,6 +410,67 @@ pub struct ClientChatMessageSend {
     pub channel_index: u8,
     #[bsn(name = "m_body")]
     pub body: String,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatModifyChannelListRequest {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_index")]
+    pub index: u8,
+    #[bsn(name = "m_name")]
+    pub name: String,
+    #[bsn(name = "m_type")]
+    pub type_: super::chat::ClientChatChannelListTypeEnum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatModifyChannelListRequest2 {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_index")]
+    pub index: u8,
+    #[bsn(name = "m_key")]
+    pub key: super::conference::ConferenceLocatorKey,
+    #[bsn(name = "m_type")]
+    pub type_: super::chat::ClientChatChannelListTypeEnum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatModifyChannelListResponse2 {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_result")]
+    pub result: super::chat::ClientChatModifyChannelListResponse2Result,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClientChatModifyChannelListResponse2Result {
+    Success(i32),
+    Failure(u16),
+}
+impl sc2_core::bsn::FromBsn for ClientChatModifyChannelListResponse2Result {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        let (index, inner) = match value {
+            sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
+            other => {
+                return Err(sc2_core::Error::BsnWire(format!(
+                    "expected a choice for ClientChatModifyChannelListResponse2Result, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Success(<i32 as sc2_core::bsn::FromBsn>::from_bsn(
+                inner,
+            )?)),
+            1i128 => Ok(Self::Failure(<u16 as sc2_core::bsn::FromBsn>::from_bsn(
+                inner,
+            )?)),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a ClientChatModifyChannelListResponse2Result variant"
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Debug, FromBsn)]

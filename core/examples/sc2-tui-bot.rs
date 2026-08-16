@@ -393,9 +393,13 @@ impl App {
                 self.push_message(MessageKind::Warning, "removed from channel");
             }
             ChatEvent::JoinRejected { reason, .. } => {
+                let reason = reason.map_or_else(
+                    || "unspecified error".to_owned(),
+                    sc2_core::native::errors::description,
+                );
                 self.push_message(
                     MessageKind::Error,
-                    format!("channel join rejected: {reason:?}"),
+                    format!("channel join rejected: {reason}"),
                 );
             }
             ChatEvent::WhisperFailed { peer, reason } => {

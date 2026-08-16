@@ -4,7 +4,52 @@ use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonBillingUpdateNotify {
+    #[bsn(name = "m_info")]
+    pub info: super::session::SessionBillingInfo,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonCaisTimeUpdate {
+    #[bsn(name = "m_rested")]
+    pub rested: u32,
+    #[bsn(name = "m_played")]
+    pub played: u32,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonFailure {
+    #[bsn(name = "m_error")]
+    pub error: u16,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientToonInitialNotifiesComplete {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonToonCreateCancel {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonToonCreateFinal {
+    #[bsn(name = "m_toonCreateData")]
+    pub toon_create_data: super::toon::ToonToonCreationData,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonToonCreateInit {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonToonCreateSetup {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientToonToonCreated {
+    #[bsn(name = "m_toonName")]
+    pub toon_name: String,
+    #[bsn(name = "m_realm")]
+    pub realm: u32,
+    #[bsn(name = "m_recordAddress")]
+    pub record_address: super::profile::ProfileRecordAddress,
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientToonToonList {
@@ -100,6 +145,12 @@ pub struct ToonInfo {
     pub handle: super::toon::ToonHandle,
     #[bsn(name = "m_name")]
     pub name: String,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ToonToonCreationData {
+    #[bsn(name = "m_displayName")]
+    pub display_name: String,
 }
 
 #[derive(Clone, Debug, FromBsn)]

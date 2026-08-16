@@ -1,0 +1,206 @@
+---
+import Chapter from "../components/Chapter.astro";
+import BsnTypeDefinition from "../components/BsnTypeDefinition.astro";
+import {
+  bsnNamedTypes,
+  shortTypeName,
+  typeAnchor,
+  type BsnType,
+} from "../data/bsnRegistry";
+
+function bitRange(type: BsnType): string | undefined {
+  if (!type.range) return undefined;
+  const width = type.range.bitWidth === undefined
+    ? "variable-width"
+    : `${type.range.bitWidth}-bit`;
+  return `${width}; ${type.range.minimum}..=${type.range.maximum}`;
+}
+
+function kindSummary(type: BsnType): string {
+  switch (type.kind) {
+    case "Array": return `array · ${bitRange(type) ?? "counted"}`;
+    case "BitArray": return `bit array · ${bitRange(type) ?? "counted"}`;
+    case "Blob": return `blob · ${bitRange(type) ?? "counted"}`;
+    case "ByteString": return `byte string · ${bitRange(type) ?? "counted"}`;
+    case "Choice": return `choice · ${bitRange(type) ?? "selector"}`;
+    case "Enum": return `enum · ${bitRange(type) ?? "bounded integer"}`;
+    case "Float": return type.range?.bitWidth ? `float · ${type.range.bitWidth} bits` : "float";
+    case "FourCc": return "FourCC · 32 bits";
+    case "Integer": return `integer · ${bitRange(type) ?? "bounded"}`;
+    case "Optional": return "optional · 1-bit presence";
+    case "String": return `UTF-8 string · ${bitRange(type) ?? "counted"}`;
+    case "Struct": return `${type.obfuscated ? "generated layout" : "metadata order"} · ${type.memberTypes.length} fields`;
+    case "Bool": return "Boolean · 1 bit";
+    case "Void": return "void · 0 bits";
+    default: return type.kind.toLowerCase();
+  }
+}
+---
+
+<Chapter id="type-registry">
+  <h2>Type registry</h2>
+  <p>The documented client contains {bsnNamedTypes.length} named BSN metadata
+  types. Each entry has a stable link. Search accepts a full type name, a short
+  name, a kind, or a metadata record number.</p>
+
+  <div class="type-registry-controls">
+    <label for="type-registry-search">Find a type</label>
+    <input id="type-registry-search" type="search" autocomplete="off"
+      placeholder="ModuleRequest, Toon::Handle, struct, 351" />
+    <output id="type-registry-count" aria-live="polite">{bsnNamedTypes.length} types</output>
+  </div>
+
+  <div class="type-registry-list" id="type-registry-list">
+    {bsnNamedTypes.map((type) => (
+      <details
+        class="type-registry-entry"
+        id={typeAnchor(type)}
+        data-type-search={`${type.name} ${shortTypeName(type.name)} ${type.kind} ${type.id}`.toLowerCase()}
+      >
+        <summary>
+          <span>{type.name}</span>
+          <small>{kindSummary(type)}</small>
+        </summary>
+        <div class="type-registry-definition">
+          <p class="type-record-number">Metadata record {type.id}</p>
+          <BsnTypeDefinition type={type} />
+          {type.kind === "Struct" && type.obfuscated && (
+            <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
+            supplies the transmitted order and filler runs.</p>
+          )}
+        </div>
+      </details>
+    ))}
+  </div>
+
+  <div id="sunken-type-tooltip" class="type-tooltip" role="tooltip" hidden></div>
+</Chapter>
+
+<script>
+  const search = document.querySelector<HTMLInputElement>("#type-registry-search");
+  const count = document.querySelector<HTMLOutputElement>("#type-registry-count");
+  const entries = [...document.querySelectorAll<HTMLElement>(".type-registry-entry")];
+
+  search?.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    let visible = 0;
+    for (const entry of entries) {
+      const matches = !query || entry.dataset.typeSearch?.includes(query);
+      entry.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    if (count) count.textContent = `${visible} ${visible === 1 ? "type" : "types"}`;
+  });
+
+  function revealLinkedType() {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (!id.startsWith("type-")) return;
+    const target = document.getElementById(id);
+    if (!(target instanceof HTMLDetailsElement)) return;
+    target.hidden = false;
+    target.open = true;
+    let ancestor = target.parentElement;
+    while (ancestor) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+      ancestor = ancestor.parentElement;
+    }
+  }
+
+  revealLinkedType();
+  window.addEventListener("hashchange", revealLinkedType);
+
+  const tooltip = document.querySelector<HTMLElement>("#sunken-type-tooltip");
+  const typeLinks = [...document.querySelectorAll<HTMLElement>("[data-type-tooltip]")];
+  let activeLink: HTMLElement | undefined;
+
+  function placeTooltip(x: number, y: number) {
+    if (!tooltip || tooltip.hidden) return;
+    const gap = 12;
+    const edge = 10;
+    const bounds = tooltip.getBoundingClientRect();
+    let left = Math.min(x + gap, window.innerWidth - bounds.width - edge);
+    let top = y + gap;
+    if (top + bounds.height > window.innerHeight - edge) {
+      top = y - bounds.height - gap;
+    }
+    left = Math.max(edge, left);
+    top = Math.max(edge, top);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function tooltipElement(tag: string, className: string, content?: string) {
+    const element = document.createElement(tag);
+    element.className = className;
+    if (content !== undefined) element.textContent = content;
+    return element;
+  }
+
+  function renderTooltip(content: string) {
+    if (!tooltip) return;
+    const [qualifiedName = "", metadata = "", ...properties] = content.split("\n");
+    const heading = tooltipElement("div", "type-tooltip-name", qualifiedName);
+
+    const fields = tooltipElement("dl", "type-tooltip-fields");
+    for (const property of properties) {
+      const separator = property.indexOf(":");
+      if (separator < 0) {
+        fields.append(tooltipElement("div", "type-tooltip-note", property));
+        continue;
+      }
+
+      const row = tooltipElement("div", "type-tooltip-row");
+      row.append(tooltipElement("dt", "", property.slice(0, separator)));
+      const value = tooltipElement("dd", "");
+      const [primary, ...qualifiers] = property.slice(separator + 1).trim().split(" · ");
+      value.append(tooltipElement("strong", "", primary));
+      if (qualifiers.length > 0) {
+        value.append(tooltipElement("small", "", qualifiers.join(" · ")));
+      }
+      row.append(value);
+      fields.append(row);
+    }
+
+    const footer = tooltipElement("div", "type-tooltip-meta", metadata);
+    tooltip.replaceChildren(heading);
+    if (properties.length > 0) tooltip.append(fields);
+    tooltip.append(footer);
+  }
+
+  function showTooltip(link: HTMLElement, x?: number, y?: number) {
+    const content = link.dataset.typeTooltip;
+    if (!tooltip || !content) return;
+    activeLink?.removeAttribute("aria-describedby");
+    activeLink = link;
+    renderTooltip(content);
+    tooltip.hidden = false;
+    link.setAttribute("aria-describedby", tooltip.id);
+    if (x !== undefined && y !== undefined) {
+      placeTooltip(x, y);
+      return;
+    }
+    const bounds = link.getBoundingClientRect();
+    placeTooltip(bounds.left + bounds.width / 2, bounds.bottom);
+  }
+
+  function hideTooltip(link?: HTMLElement) {
+    if (!tooltip || (link && link !== activeLink)) return;
+    activeLink?.removeAttribute("aria-describedby");
+    activeLink = undefined;
+    tooltip.hidden = true;
+  }
+
+  for (const link of typeLinks) {
+    link.addEventListener("pointerenter", (event) => showTooltip(link, event.clientX, event.clientY));
+    link.addEventListener("pointermove", (event) => placeTooltip(event.clientX, event.clientY));
+    link.addEventListener("pointerleave", () => hideTooltip(link));
+    link.addEventListener("focus", () => showTooltip(link));
+    link.addEventListener("blur", () => hideTooltip(link));
+    link.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideTooltip(link);
+    });
+  }
+
+  window.addEventListener("scroll", () => hideTooltip(), { passive: true });
+  window.addEventListener("resize", () => hideTooltip());
+</script>
