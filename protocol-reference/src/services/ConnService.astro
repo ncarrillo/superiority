@@ -10,7 +10,7 @@ import RustSchema from "../components/RustSchema.astro";
     transport protection. They also carry routed application frames.</p>
     <p class="endpoint-index">
       <a href="#conn-boom">Conn/1</a><a href="#conn-server-version">Conn/3</a>
-      <a href="#conn-enable-encryption">Conn/5</a><a href="#conn-command-10">Conn/10</a>
+      <a href="#conn-enable-encryption">Conn/5</a><a href="#conn-logout">Conn/6</a><a href="#conn-command-10">Conn/10</a>
       <a href="#conn-regulator-update">Conn/11</a><a href="#conn-pong">Conn/12</a><a href="#conn-message-frame">Conn/13</a>
       <a href="#conn-game-site-info">Conn/14</a>
     </p>
@@ -37,6 +37,12 @@ import RustSchema from "../components/RustSchema.astro";
       <p>Starts independent inbound and outbound RC4 streams. Protection starts
       immediately after this empty record.</p>
       <RustSchema code={`struct EnableEncryption; // zero payload bits`} />
+    </Endpoint>
+
+    <Endpoint id="conn-logout" direction="client → server" phase="shutdown" structure="empty payload" status="capture verified">
+      <Fragment slot="title"><code>Conn/6</code> Connection::LogoutRequest</Fragment>
+      <p>Ends the native session. The request has no payload fields.</p>
+      <RustSchema code={`struct LogoutRequest; // zero payload bits`} />
     </Endpoint>
 
     <Endpoint id="conn-command-10" direction="client → server" phase="protected keepalive" structure="generated order" status="verified">

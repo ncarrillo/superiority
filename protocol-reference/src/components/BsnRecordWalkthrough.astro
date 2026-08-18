@@ -1,57 +1,93 @@
 <figure class="bsn-walkthrough" aria-labelledby="bsn-walkthrough-title">
-  <div class="walkthrough-heading">
+  <div class="record-spec">
     <h4 id="bsn-walkthrough-title">Chat/2 LeaveRequest</h4>
-    <p><code>42 35</code> is a verified client-to-server <code>Chat/2 LeaveRequest</code>
-    for channel index 6.</p>
+    <dl class="record-spec-meta">
+      <div><dt>bytes</dt><dd><code class="tone-command">42 35</code></dd></div>
+      <div><dt>direction</dt><dd><code>client → server</code></dd></div>
+      <div><dt>channelIndex</dt><dd><code class="tone-payload">6</code></dd></div>
+    </dl>
   </div>
+
+  <div class="walkthrough-step">
+    <span class="step-number" aria-hidden="true">01</span>
+    <h5>The two bytes</h5>
+    <span class="step-note">what each bit region holds</span>
+  </div>
+
+  <ul class="field-legend" aria-label="Field colors used by the byte diagrams">
+    <li class="legend-command"><i class="swatch" aria-hidden="true"></i>Command</li>
+    <li class="legend-flag"><i class="swatch" aria-hidden="true"></i>Service flag</li>
+    <li class="legend-slot"><i class="swatch" aria-hidden="true"></i>Service slot</li>
+    <li class="legend-payload"><i class="swatch" aria-hidden="true"></i>Payload</li>
+    <li class="legend-padding"><i class="swatch" aria-hidden="true"></i>Padding</li>
+  </ul>
 
   <div class="record-bytes" aria-label="The two bytes 42 and 35 split into command, service flag, service slot, channel index, and padding">
     <div class="record-byte">
-      <div class="record-byte-label"><b>byte 0</b><code>0x42</code></div>
-      <div class="record-bit-labels" aria-hidden="true">
-        <span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span><span>0</span>
-      </div>
-      <div class="record-bit-fields">
-        <span class="record-slot-head"><b>0</b><small>slot</small></span>
-        <span class="record-service"><b>1</b><small>service</small></span>
-        <span class="record-command"><b>000010</b><small>command 2</small></span>
+      <div class="record-byte-label"><b>Byte 0</b><code>0x42</code></div>
+      <div class="record-byte-body">
+        <div class="record-bit-labels" aria-hidden="true">
+          <span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span><span>0</span>
+        </div>
+        <div class="record-bit-fields">
+          <span class="record-slot-head"><b>0</b><small>slot</small></span>
+          <span class="record-service"><b>1</b><small>service</small></span>
+          <span class="record-command"><b>000010</b><small>command 2</small></span>
+        </div>
+        <div class="record-byte-hint" aria-hidden="true">← decoder reads bit 0 first</div>
       </div>
     </div>
 
     <div class="record-byte">
-      <div class="record-byte-label"><b>byte 1</b><code>0x35</code></div>
-      <div class="record-bit-labels" aria-hidden="true">
-        <span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span><span>0</span>
-      </div>
-      <div class="record-bit-fields">
-        <span class="record-padding"><b>00</b><small>pad</small></span>
-        <span class="record-payload"><b>110</b><small>channel 6</small></span>
-        <span class="record-slot-tail"><b>101</b><small>slot 5</small></span>
+      <div class="record-byte-label"><b>Byte 1</b><code>0x35</code></div>
+      <div class="record-byte-body">
+        <div class="record-bit-labels" aria-hidden="true">
+          <span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span><span>0</span>
+        </div>
+        <div class="record-bit-fields">
+          <span class="record-padding"><b>00</b><small>pad</small></span>
+          <span class="record-payload"><b>110</b><small>channel 6</small></span>
+          <span class="record-slot-tail"><b>101</b><small>slot 5</small></span>
+        </div>
+        <div class="record-byte-hint" aria-hidden="true">← decoder reads bit 0 first</div>
       </div>
     </div>
   </div>
 
+  <div class="walkthrough-step">
+    <span class="step-number" aria-hidden="true">02</span>
+    <h5>Walk the cursor</h5>
+    <span class="step-note">five reads, in decode order</span>
+  </div>
+
   <table class="walkthrough-table">
-    <caption>The byte diagrams use ordinary hex-display order, bit 7 through bit 0. The decoder consumes each byte from bit 0 through bit 7.</caption>
+    <caption>Diagrams above use ordinary hex-display order, bit 7 → bit 0. The decoder consumes each byte from bit 0 → bit 7.</caption>
     <thead>
       <tr><th>Cursor range</th><th>Read</th><th>Value</th><th>Meaning</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>byte 0, bits 0..5</code></td><td>6 bits</td><td><code>2</code></td><td>Command 2</td></tr>
-      <tr><td><code>byte 0, bit 6</code></td><td>1 bit</td><td><code>1</code></td><td>A service slot follows</td></tr>
-      <tr><td><code>byte 0, bit 7</code><br><code>byte 1, bits 0..2</code></td><td>1 + 3 bits</td><td><code>0 || 101₂ = 5</code></td><td>Service slot 5, <code>Chat</code></td></tr>
-      <tr><td><code>byte 1, bits 3..5</code></td><td>3 bits</td><td><code>110₂ = 6</code></td><td><code>LeaveRequest.channelIndex</code></td></tr>
-      <tr><td><code>byte 1, bits 6..7</code></td><td>2 bits</td><td><code>00₂</code></td><td>Zero padding through the byte boundary</td></tr>
+      <tr><td><i class="swatch swatch-command" aria-hidden="true"></i><code>byte 0, bits 0..5</code></td><td>6 bits</td><td><code class="tone-command">2</code></td><td>Command 2</td></tr>
+      <tr><td><i class="swatch swatch-flag" aria-hidden="true"></i><code>byte 0, bit 6</code></td><td>1 bit</td><td><code class="tone-flag">1</code></td><td>A service slot follows</td></tr>
+      <tr><td><i class="swatch swatch-slot" aria-hidden="true"></i><code>byte 0, bit 7</code><br><code>byte 1, bits 0..2</code></td><td>1 + 3 bits</td><td><code class="tone-slot">0 || 101₂ = 5</code></td><td>Service slot 5, <code>Chat</code></td></tr>
+      <tr><td><i class="swatch swatch-payload" aria-hidden="true"></i><code>byte 1, bits 3..5</code></td><td>3 bits</td><td><code class="tone-payload">110₂ = 6</code></td><td><code>LeaveRequest.channelIndex</code></td></tr>
+      <tr><td><i class="swatch swatch-padding" aria-hidden="true"></i><code>byte 1, bits 6..7</code></td><td>2 bits</td><td><code class="tone-padding">00₂</code></td><td>Zero padding through the byte boundary</td></tr>
     </tbody>
   </table>
 
-  <div class="walkthrough-result">
-    <p><b>Route lookup</b><br><code>(client → server, slot 5, command 2)</code> → <code>Chat::LeaveRequest</code></p>
-    <p><b>Selected payload schema</b><br><code>channelIndex: u3</code></p>
-    <p><b>Record boundary</b><br><code>11 route + 3 payload + 2 pad = 16 bits = 2 bytes</code></p>
+  <div class="walkthrough-step">
+    <span class="step-number" aria-hidden="true">03</span>
+    <h5>Resolve the record</h5>
+    <span class="step-note">route → schema → boundary</span>
   </div>
 
-  <figcaption>Every Sunken service record follows this sequence: read the route,
-  select its payload schema, decode that payload with the same bit cursor, then
-  consume zero padding through the next byte boundary.</figcaption>
+  <div class="walkthrough-result">
+    <div class="result-route"><b>Route lookup</b><code>(client → server, slot 5, command 2)</code> → <code class="result-target">Chat::LeaveRequest</code></div>
+    <div class="result-payload"><b>Payload schema</b><code>channelIndex: u3</code></div>
+    <div class="result-boundary"><b>Record boundary</b><code>11 route + 3 payload + 2 pad = 16 bits = 2 bytes</code></div>
+  </div>
+
+  <figcaption><b>The general rule.</b> Every Sunken service record follows this
+  sequence: read the route, select its payload schema, decode that payload with
+  the same bit cursor, then consume zero padding through the next byte
+  boundary.</figcaption>
 </figure>

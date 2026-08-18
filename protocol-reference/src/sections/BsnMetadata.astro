@@ -145,16 +145,18 @@ type ModuleData = Blob {
   <p>Use this binary layout to extract BSN metadata from an SC2 build. Network
   records contain values selected by the extracted schemas.</p>
 
-  <div class="metadata-container" aria-label="Five consecutive regions in a version seven BSN metadata block">
-    <div><strong>Header</strong><span>5 × big-endian <code>u32</code></span></div>
-    <i aria-hidden="true">→</i>
-    <div><strong>Shape offsets</strong><span>one <code>u32</code> per type ID</span></div>
-    <i aria-hidden="true">→</i>
-    <div><strong>Shape records</strong><span><code>dump_size</code> bytes</span></div>
-    <i aria-hidden="true">→</i>
-    <div><strong>Name offsets</strong><span>one <code>u32</code> per type ID</span></div>
-    <i aria-hidden="true">→</i>
-    <div><strong>Name records</strong><span><code>string_size</code> bytes</span></div>
+  <div class="packet-diagram-scroll">
+    <div class="metadata-container" aria-label="Five consecutive regions in a version seven BSN metadata block">
+      <div><strong>Header</strong><span>5 × big-endian <code>u32</code></span></div>
+      <i aria-hidden="true">→</i>
+      <div><strong>Shape offsets</strong><span>one <code>u32</code> per type ID</span></div>
+      <i aria-hidden="true">→</i>
+      <div><strong>Shape records</strong><span><code>dump_size</code> bytes</span></div>
+      <i aria-hidden="true">→</i>
+      <div><strong>Name offsets</strong><span>one <code>u32</code> per type ID</span></div>
+      <i aria-hidden="true">→</i>
+      <div><strong>Name records</strong><span><code>string_size</code> bytes</span></div>
+    </div>
   </div>
 
   <p>Type ID <code>n</code> selects element <code>n</code> in both offset tables. The

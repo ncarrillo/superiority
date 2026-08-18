@@ -20,6 +20,9 @@ const changedLayouts: RecoveredLayout[] = [
   { name: "Battlenet::Club::InviteAction", fields: [[2, 0], [1, 0], [0, 0], [3, 11]] },
   { name: "Battlenet::Client::Chat::ModifyChannelListRequest", fields: [[0, 0], [3, 0], [2, 4], [1, 0]] },
   { name: "Battlenet::Client::Chat::CategoryDescriptions", fields: [[1, 0], [0, 0]] },
+  { name: "Battlenet::Client::Chat::CreateAndInviteRequest", fields: [[0, 0], [3, 0], [1, 0], [2, 0]] },
+  { name: "Battlenet::Client::Party::ModifyNonLobbyAttributeList", fields: [[0, 20]] },
+  { name: "Battlenet::MatchMaker::Filter", fields: [[1, 0], [0, 17], [2, 0]] },
   { name: "Battlenet::Conference::ClubName", fields: [[0, 16]] },
   { name: "Battlenet::Toon::Handle", fields: [[1, 0], [0, 0], [2, 0], [3, 0]] },
   { name: "Battlenet::Session::BillingInfo", fields: [[2, 0], [1, 19], [0, 28], [3, 0]] },
@@ -58,6 +61,7 @@ const metadataOrderNames = [
   "Battlenet::Client::Profile::SendStatsUIEvent",
   "Battlenet::Client::S2Master::MMQGetInfoRequest",
   "Battlenet::Client::S2Master::MMQGetListResponse",
+  "Battlenet::Client::S2Master::MMQSubscribe",
   "Battlenet::Client::Toon::InitialNotifiesComplete",
 ];
 

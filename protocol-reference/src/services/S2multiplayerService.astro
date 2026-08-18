@@ -16,6 +16,7 @@ import RustSchema from "../components/RustSchema.astro";
     <p class="endpoint-index">
       <a href="#s2map-game-groups">S2Map/11 and S2Map/12</a><a href="#s2map-favorites">S2Map/13 favorites</a>
       <a href="#s2multiplayer-get-toon-clubs">S2Mp/46 GetToonClubs</a><a href="#s2multiplayer-get-toon-clubs-response">S2Mp/46 response</a>
+      <a href="#s2multiplayer-club-subscribe">S2Mp/47 ClubSubscribe</a><a href="#s2multiplayer-club-change">S2Mp/49 ClubChange</a>
       <a href="#s2multiplayer-search-clubs">S2Mp/51 SearchClubs</a><a href="#s2multiplayer-search-clubs-response">S2Mp/51 response</a>
       <a href="#s2multiplayer-member-clan-tags">S2Mp/53 MemberClanTags</a><a href="#s2multiplayer-invite-action">S2Mp/54 InviteAction</a>
       <a href="#s2multiplayer-get-club-info">S2Mp/55 GetClubInfo</a><a href="#s2multiplayer-get-club-info-response">S2Mp/55 response</a>
@@ -119,6 +120,52 @@ struct ClubSummaryInfo {
 }`} />
       <p class="endpoint-note">Start positional decoding at bit 0 of the record.
       The name length is an eight-bit count. The maximum name length is 32 bytes.</p>
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-club-subscribe" direction="client → server" phase="protected bootstrap" structure="generated order" status="capture verified">
+      <Fragment slot="title"><code>S2Mp/47</code> Club::ClubSubscribeRequest</Fragment>
+      <p>Subscribes to one or more club event streams. Each subscription names the
+      club, the event class, and the last event stamp already held by the client.</p>
+      <RustSchema code={`record ClubSubscribeRecord {
+    command_id: u6 = 47,
+    service_present: u1 = 1,
+    service_slot: u4 = 13,
+    payload: ClubSubscribeRequest,
+    final_alignment: byte,
+}
+
+struct ClubSubscribeRequest {
+    subscriptions: SubscriptionList,
+}
+
+type SubscriptionList = Array<SubscriptionSyncInfo> {
+    count_bits: 8,
+    count_range: 0..=200,
+}
+
+struct SubscriptionSyncInfo {
+    filler_before_stamp: Reserved<11>,
+    stamp: i32,
+    club_id: u32,
+    type: u3,
+}`} />
+    </Endpoint>
+
+    <Endpoint id="s2multiplayer-club-change" direction="server → client" phase="protected" structure="generated order" status="capture verified">
+      <Fragment slot="title"><code>S2Mp/49</code> Club::ClubChangeNotification</Fragment>
+      <p>Delivers subscribed club changes. The change kind selects summary,
+      membership, status, announcement, event, description, or message-board data.</p>
+      <RustSchema code={`record ClubChangeRecord {
+    command_id: u6 = 49,
+    service_present: u1 = 1,
+    service_slot: u4 = 13,
+    payload: ClubChangeNotification,
+    final_alignment: byte,
+}
+
+struct ClubChangeNotification {
+    deltas: ClubChangeInfoList,
+}`} />
     </Endpoint>
 
     <Endpoint id="s2multiplayer-search-clubs" direction="client → server" phase="protected" structure="generated order" status="defined">

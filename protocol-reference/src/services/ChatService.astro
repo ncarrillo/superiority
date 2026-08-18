@@ -21,7 +21,8 @@ import RustSchema from "../components/RustSchema.astro";
       <a href="#chat-whisper-send">Chat/19 send</a><a href="#chat-whisper-recv">Chat/19 receive</a>
       <a href="#chat-whisper-echo">Chat/30</a><a href="#chat-whisper-undeliverable">Chat/20</a>
       <a href="#chat-invite-notify">Chat/4</a><a href="#chat-invite-answer">Chat/5 and Chat/6</a>
-      <a href="#chat-status-change">Chat/9</a><a href="#chat-datagram-update">Chat/13</a>
+      <a href="#chat-status-change">Chat/9</a><a href="#chat-create-and-invite">Chat/10</a>
+      <a href="#chat-datagram-update">Chat/13</a>
       <a href="#chat-modify-channel-list">Chat/32 and Chat/33</a>
     </p>
 
@@ -245,10 +246,24 @@ enum StatusChange {
       six-bit command value. It carries a nine-bit result.</p>
     </Endpoint>
 
-    <Endpoint id="chat-datagram-update" direction="server → client" phase="protected" structure="verified reflected order" status="decoded">
+    <Endpoint id="chat-create-and-invite" direction="client → server" phase="protected" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>Chat/10</code> Chat::CreateAndInviteRequest</Fragment>
+      <p>Creates a party channel and invites one player target. The two tokens
+      correlate the create and invite operations.</p>
+      <RustSchema code={`struct CreateAndInviteRequest {
+    create_token: u32,
+    target: PlayerTarget,
+    invite_token: u32,
+    channel_type: ChannelType,
+}`} />
+      <p class="endpoint-note">The captured generated order places the target
+      between the two tokens. A live party request targeted the player's full toon
+      name and used channel type 3.</p>
+    </Endpoint>
+
+    <Endpoint id="chat-datagram-update" direction="bidirectional" phase="protected" structure="verified reflected order" status="capture decoded">
       <Fragment slot="title"><code>Chat/13</code> Chat::DatagramConnectionUpdate</Fragment>
-      <p>Supplies a datagram target and connection information. The record is
-      decoded and reported as generic activity.</p>
+      <p>Supplies a datagram target and connection information.</p>
       <RustSchema code={`struct DatagramConnectionUpdate {
     target: PlayerTarget,
     info: DatagramConnectionInfo,

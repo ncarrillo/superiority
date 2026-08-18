@@ -11,7 +11,7 @@ import BsnRecordWalkthrough from "../components/BsnRecordWalkthrough.astro";
   </div>
 
   <div class="message-format-groups">
-    <details class="reference-group message-format-group" id="bgs-packet">
+    <details class="reference-group message-format-group" id="bgs-packet" open>
       <summary><span><b>Front</b></span></summary>
       <div class="reference-body message-format-body">
         <article>
@@ -41,19 +41,23 @@ import BsnRecordWalkthrough from "../components/BsnRecordWalkthrough.astro";
       </div>
     </details>
 
-    <details class="reference-group message-format-group" id="bsn-packet">
+    <details class="reference-group message-format-group" id="bsn-packet" open>
       <summary><span><b>Sunken</b></span></summary>
       <div class="reference-body message-format-body">
         <article>
-          <p>The route, payload, and padding share one continuous bit cursor. The
-          following verified record shows how those parts occupy actual bytes.</p>
+          <p class="cursor-lede">The route, payload, and padding share <b>one
+          continuous bit cursor</b>. The worked example below shows how those
+          parts occupy actual bytes.</p>
 
           <BsnRecordWalkthrough />
 
-          <h4>Command responses</h4>
-          <p>A record whose service flag is zero has a fixed two-byte form: six command
-          bits, the zero service flag, and a nine-bit result. It has no service slot or
-          typed payload.</p>
+          <div class="walkthrough-step">
+            <h5>Command responses</h5>
+            <span class="step-note">the one record shape with no payload</span>
+          </div>
+          <p class="cursor-note">A record whose service flag is zero has a fixed
+          two-byte form: six command bits, the zero service flag, and a nine-bit
+          result. It has no service slot or typed payload.</p>
           <p class="packet-example"><b>Command-response boundary</b><code>6 command + 1 service flag + 9 result = 16 bits</code></p>
         </article>
       </div>

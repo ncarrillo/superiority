@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
+    "prebuild": "node scripts/sync-protocol.mjs",
     "build": "astro build",
     "check": "astro check",
     "preview": "astro preview",
