@@ -164,7 +164,7 @@ impl ProtectedDirection {
                             "native decoder returned an invalid record length".to_owned(),
                         ));
                     }
-                    let candidate = candidate_reflection(protocol, &record);
+                    let candidate = candidate_layout(protocol, &record);
                     if candidate {
                         let remaining = &self.plaintext[consumed..];
                         if remaining.len() < 2 {
@@ -182,7 +182,7 @@ impl ProtectedDirection {
                                 stream_offset: self.stream_offset,
                                 route,
                                 reason: format!(
-                                    "generic reflection candidate {} consumed {consumed} bytes, but the following stream does not begin with a decodable record: {error}",
+                                    "candidate wire layout {} consumed {consumed} bytes, but the following stream does not begin with a decodable record: {error}",
                                     record.type_name
                                 ),
                                 plaintext: self.plaintext.clone(),
@@ -207,7 +207,7 @@ impl ProtectedDirection {
                     }
                     if candidate {
                         updates.push(SweepUpdate::Status(format!(
-                            "generic reflection candidate accepted for {}; its {consumed}-byte boundary is consistent with the following record, but the generated wire layout remains unverified",
+                            "candidate wire layout accepted for {}; its {consumed}-byte boundary is consistent with the following record",
                             record.type_name
                         )));
                     }
@@ -233,47 +233,77 @@ impl ProtectedDirection {
         Ok(updates)
     }
 
-    fn finish(&self, protocol: &Protocol, flow: &FlowKey, direction: Direction) -> Result<()> {
+    fn finish(
+        &self,
+        protocol: &Protocol,
+        flow: &FlowKey,
+        direction: Direction,
+    ) -> Result<Option<SweepUpdate>> {
         if self.plaintext.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
         let route = read_routing_header(&self.plaintext)
             .ok()
             .map(|(header, _)| (header.service_slot, header.command_id));
-        let reason = match inspect_native_record(protocol, direction, &self.plaintext) {
-            Ok(record) if candidate_reflection(protocol, &record) => format!(
-                "capture ended immediately after the generic reflection candidate {} decoded {} bytes; another record is required to corroborate that boundary",
-                record.type_name,
-                record.bytes.len()
-            ),
-            Ok(record) => format!(
-                "capture ended with a complete {} record still buffered unexpectedly",
-                record.type_name
-            ),
-            Err(ProtocolError::IncompleteFrame(error)) => {
-                format!("capture ended with an incomplete native record: {error}")
+        match inspect_native_record(protocol, direction, &self.plaintext) {
+            Ok(record) if candidate_layout(protocol, &record) => {
+                return Ok(Some(SweepUpdate::Status(format!(
+                    "capture ended after candidate wire layout {} decoded {} bytes; a following record is needed to corroborate its boundary",
+                    record.type_name,
+                    record.bytes.len()
+                ))));
             }
-            Err(error) => error.to_string(),
-        };
-        Err(Error::UnknownPacket(Box::new(UnknownPacket {
-            flow: flow.clone(),
-            direction,
-            stream_offset: self.stream_offset,
-            route,
-            reason,
-            plaintext: self.plaintext.clone(),
-            ciphertext: self.ciphertext.clone(),
-        })))
+            Err(ProtocolError::IncompleteFrame(_)) => {
+                let route = route.map_or_else(
+                    || "an unreadable route".to_owned(),
+                    |(slot, command)| match slot {
+                        Some(slot) => format!("slot {slot}, command {command}"),
+                        None => format!("service-less command {command}"),
+                    },
+                );
+                return Ok(Some(SweepUpdate::Status(format!(
+                    "capture ended partway through {route}; {} decrypted bytes remain buffered",
+                    self.plaintext.len()
+                ))));
+            }
+            Ok(record) => {
+                let reason = format!(
+                    "capture ended with a complete {} record still buffered unexpectedly",
+                    record.type_name
+                );
+                return Err(Error::UnknownPacket(Box::new(UnknownPacket {
+                    flow: flow.clone(),
+                    direction,
+                    stream_offset: self.stream_offset,
+                    route,
+                    reason,
+                    plaintext: self.plaintext.clone(),
+                    ciphertext: self.ciphertext.clone(),
+                })));
+            }
+            Err(error) => {
+                let reason = error.to_string();
+                return Err(Error::UnknownPacket(Box::new(UnknownPacket {
+                    flow: flow.clone(),
+                    direction,
+                    stream_offset: self.stream_offset,
+                    route,
+                    reason,
+                    plaintext: self.plaintext.clone(),
+                    ciphertext: self.ciphertext.clone(),
+                })));
+            }
+        }
     }
 }
 
-fn candidate_reflection(protocol: &Protocol, record: &Record) -> bool {
+fn candidate_layout(protocol: &Protocol, record: &Record) -> bool {
     protocol
         .codec()
         .schema()
         .unique_type_id(&record.type_name)
         .and_then(|type_id| protocol.codec().wire_layout_support(type_id))
-        .is_ok_and(|support| support == WireLayoutSupport::CandidateReflected)
+        .is_ok_and(|support| support == WireLayoutSupport::Candidate)
 }
 
 struct ActiveFlow {
@@ -355,16 +385,26 @@ impl Sweep {
         Ok(updates)
     }
 
-    pub fn finish(&self) -> Result<()> {
+    pub fn finish(&self) -> Result<Vec<SweepUpdate>> {
         let Some(active) = self.active.as_ref() else {
-            return Ok(());
+            return Ok(Vec::new());
         };
-        active
-            .outgoing
-            .finish(&self.protocol, &active.key, Direction::Outgoing)?;
-        active
-            .incoming
-            .finish(&self.protocol, &active.key, Direction::Incoming)
+        let mut updates = Vec::new();
+        if let Some(update) =
+            active
+                .outgoing
+                .finish(&self.protocol, &active.key, Direction::Outgoing)?
+        {
+            updates.push(update);
+        }
+        if let Some(update) =
+            active
+                .incoming
+                .finish(&self.protocol, &active.key, Direction::Incoming)?
+        {
+            updates.push(update);
+        }
+        Ok(updates)
     }
 
     fn try_activate(&mut self) -> Result<Vec<SweepUpdate>> {

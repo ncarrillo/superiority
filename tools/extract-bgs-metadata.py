@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Extract embedded BGS protobuf metadata from the SC2 executable.
+"""Extract embedded BGS protobuf metadata from a Blizzard client binary.
 
 The generated Blizzard protobuf implementation embeds ordinary serialized
 ``google.protobuf.FileDescriptorProto`` messages. This tool needs no protobuf
 runtime: it recognizes the descriptor wire schema, writes a standard
 ``FileDescriptorSet``, and emits a compact JSON service/method manifest.
+
+SC2's descriptor names begin with ``bgs/low/pb/client/``. Newer Client SDK
+builds, including the one shipped with Warcraft III: Reforged, use ``bnet/``;
+select those with ``--path-prefix bnet/``.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import os
 from pathlib import Path
 
 
-BGS_PATH_PREFIX = b"bgs/low/pb/client/"
+DEFAULT_PATH_PREFIX = "bgs/low/pb/client/"
 FIELD_TYPES = {
     1: "double",
     2: "float",
@@ -134,7 +138,9 @@ def _candidate_start(data: bytes, name_offset: int) -> int | None:
     return None
 
 
-def _descriptor_at(data: bytes, start: int) -> tuple[bytes, list[tuple]] | None:
+def _descriptor_at(
+    data: bytes, start: int, path_prefix: bytes
+) -> tuple[bytes, list[tuple]] | None:
     fields = []
     position = start
     while position < len(data):
@@ -157,23 +163,24 @@ def _descriptor_at(data: bytes, start: int) -> tuple[bytes, list[tuple]] | None:
         name = fields[0][2].decode("utf-8")
     except UnicodeDecodeError:
         return None
-    if not name.startswith(BGS_PATH_PREFIX.decode()) or not name.endswith(".proto"):
+    if not name.startswith(path_prefix.decode()) or not name.endswith(".proto"):
         return None
     return data[start:position], fields
 
 
-def find_descriptors(data: bytes) -> dict[str, bytes]:
+def find_descriptors(data: bytes, path_prefix: str = DEFAULT_PATH_PREFIX) -> dict[str, bytes]:
+    encoded_prefix = path_prefix.encode("utf-8")
     descriptors: dict[str, bytes] = {}
     position = 0
     while True:
-        name_offset = data.find(BGS_PATH_PREFIX, position)
+        name_offset = data.find(encoded_prefix, position)
         if name_offset < 0:
             break
         position = name_offset + 1
         start = _candidate_start(data, name_offset)
         if start is None:
             continue
-        candidate = _descriptor_at(data, start)
+        candidate = _descriptor_at(data, start, encoded_prefix)
         if candidate is None:
             continue
         descriptor, fields = candidate
@@ -324,6 +331,8 @@ def descriptor_summary(descriptor: bytes) -> dict:
                 b"",
             )
             method_id = _custom_option_id(method_options, 90000)
+            if method_id is None:
+                method_id = _custom_option_id(method_options, 91000)
             if method_id is not None:
                 method["method_id"] = method_id
             methods.append(method)
@@ -338,6 +347,8 @@ def descriptor_summary(descriptor: bytes) -> dict:
             b"",
         )
         full_name = _custom_option_name(service_options, 90000)
+        if not full_name:
+            full_name = _custom_option_name(service_options, 91000)
         if full_name:
             service["full_name"] = full_name
         services.append(service)
@@ -398,12 +409,17 @@ def write_outputs(descriptors: dict[str, bytes], output_directory: Path) -> None
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("executable", type=Path, help="SC2 executable or analysis copy")
+    parser.add_argument("executable", type=Path, help="client binary or analysis copy")
     parser.add_argument("output_directory", type=Path)
+    parser.add_argument(
+        "--path-prefix",
+        default=DEFAULT_PATH_PREFIX,
+        help=f"embedded .proto path prefix (default: {DEFAULT_PATH_PREFIX})",
+    )
     args = parser.parse_args()
 
     data = args.executable.read_bytes()
-    descriptors = find_descriptors(data)
+    descriptors = find_descriptors(data, args.path_prefix)
     if not descriptors:
         parser.error("no embedded BGS descriptors found")
     write_outputs(descriptors, args.output_directory)

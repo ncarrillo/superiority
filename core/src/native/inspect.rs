@@ -18,24 +18,29 @@ use super::{
         ACHIEVEMENT_LISTEN_COMMAND, ACHIEVEMENT_SLOT, AUTH_GENERATE_WEB_TOKEN_COMMAND,
         AUTH_LOGON_COMMAND, AUTH_PROOF_COMMAND, AUTH_RESUME_COMMAND, AUTH_SINGLE_SIGN_ON_COMMAND,
         AUTHENTICATION_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND, CACHE_SLOT,
-        CHAT_CHANNEL_LIST_REQUEST_COMMAND, CHAT_ENUM_CATEGORIES_COMMAND,
+        CHAT_CHANNEL_LIST_REQUEST_COMMAND, CHAT_CREATE_AND_INVITE_COMMAND,
+        CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND, CHAT_ENUM_CATEGORIES_COMMAND,
         CHAT_ENUM_CONFERENCES_COMMAND, CHAT_INVITE_ACCEPT_COMMAND, CHAT_INVITE_DECLINE_COMMAND,
         CHAT_JOIN_REQUEST_COMMAND, CHAT_LEAVE_REQUEST_COMMAND, CHAT_MESSAGE_COMMAND,
         CHAT_MODIFY_CHANNEL_LIST_COMMAND, CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND,
-        CHAT_WHISPER_SEND_COMMAND, CONNECTION_ENABLE_ENCRYPTION_COMMAND,
+        CHAT_WHISPER_SEND_COMMAND, CONNECTION_ENABLE_ENCRYPTION_COMMAND, CONNECTION_LOGOUT_COMMAND,
         CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_PING_COMMAND, CONNECTION_PONG_COMMAND,
-        CONNECTION_SLOT, FRIENDS_SLOT, FRIENDS_TOONS_COMMAND, PRESENCE_SLOT,
+        CONNECTION_SLOT, FRIENDS_SLOT, FRIENDS_TOONS_COMMAND, PARTY_BEGIN_READY_PROCESS_COMMAND,
+        PARTY_MODIFY_MAP_OPTIONS_COMMAND, PARTY_MODIFY_NON_LOBBY_ATTRIBUTE_LIST_COMMAND,
+        PARTY_READY_PROCESS_UPDATE_COMMAND, PARTY_SLOT, PRESENCE_SLOT,
         PRESENCE_STATISTICS_SUBSCRIBE_COMMAND, PRESENCE_TEMPORARY_COMMAND, PRESENCE_UPDATE_COMMAND,
         PROFILE_ADDRESS_QUERY_COMMAND, PROFILE_CHANGE_SETTINGS_COMMAND, PROFILE_READ_COMMAND,
-        PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND, PROFILE_SEND_STATS_UI_EVENTS_COMMAND,
-        PROFILE_SLOT, S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND, S2_MAP_GAME_GROUP_UPDATE_COMMAND,
-        S2_MAP_LIST_FAVORITES_COMMAND, S2_MASTER_CURRENT_SEASON_COMMAND,
-        S2_MASTER_MMQ_GET_INFO_COMMAND, S2_MASTER_MMQ_GET_LIST_COMMAND,
-        S2_MASTER_SITE_LATENCY_INFO_COMMAND, S2_MASTER_SLOT, S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND,
-        S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND, S2_MULTIPLAYER_INVITE_ACTION_COMMAND,
-        S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND, S2_MULTIPLAYER_SLOT, TOON_BILLING_UPDATE_COMMAND,
-        TOON_CAIS_TIME_UPDATE_COMMAND, TOON_CREATE_CANCEL_COMMAND, TOON_CREATE_FINAL_COMMAND,
-        TOON_CREATE_INIT_COMMAND, TOON_SELECT_COMMAND, TOON_SLOT,
+        PROFILE_RESOLVE_TOON_HANDLE_REQUEST_COMMAND, PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND,
+        PROFILE_SEND_STATS_UI_EVENTS_COMMAND, PROFILE_SLOT, S2_MAP_GAME_GROUP_SUBSCRIBE_COMMAND,
+        S2_MAP_GAME_GROUP_UPDATE_COMMAND, S2_MAP_LIST_FAVORITES_COMMAND,
+        S2_MASTER_CURRENT_SEASON_COMMAND, S2_MASTER_MMQ_GET_INFO_COMMAND,
+        S2_MASTER_MMQ_GET_LIST_COMMAND, S2_MASTER_MMQ_SUBSCRIBE_COMMAND,
+        S2_MASTER_SITE_LATENCY_INFO_COMMAND, S2_MASTER_SLOT, S2_MULTIPLAYER_CLUB_SUBSCRIBE_COMMAND,
+        S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND,
+        S2_MULTIPLAYER_INVITE_ACTION_COMMAND, S2_MULTIPLAYER_SEARCH_CLUBS_COMMAND,
+        S2_MULTIPLAYER_SLOT, TOON_BILLING_UPDATE_COMMAND, TOON_CAIS_TIME_UPDATE_COMMAND,
+        TOON_CREATE_CANCEL_COMMAND, TOON_CREATE_FINAL_COMMAND, TOON_CREATE_INIT_COMMAND,
+        TOON_SELECT_COMMAND, TOON_SLOT,
     },
 };
 
@@ -893,7 +898,7 @@ fn inspect_outgoing_strict(protocol: &Protocol, bytes: &[u8]) -> Result<Record> 
         0,
         FieldRole::Payload,
     ));
-    decode_manual_outgoing(route, &mut reader, &mut fields)?;
+    decode_manual_outgoing(protocol, route, &mut reader, &mut fields)?;
     let logical_bits = reader.position();
     let byte_count = checked_record_byte_count(bytes, logical_bits)?;
     fields[payload_index].end_bit = logical_bits;
@@ -1068,7 +1073,7 @@ fn inspect_outgoing(protocol: &Protocol, bytes: &[u8]) -> Result<Record> {
         0,
         FieldRole::Payload,
     ));
-    let decoded = decode_manual_outgoing(route, &mut reader, &mut fields);
+    let decoded = decode_manual_outgoing(protocol, route, &mut reader, &mut fields);
     let logical_bits = if decoded.is_ok() {
         reader.position()
     } else {
@@ -1803,20 +1808,44 @@ fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
         (CONNECTION_SLOT, CONNECTION_ENABLE_ENCRYPTION_COMMAND) => {
             "Battlenet::Client::Connection::EnableEncryption"
         }
+        (CONNECTION_SLOT, CONNECTION_LOGOUT_COMMAND) => {
+            "Battlenet::Client::Connection::LogoutRequest"
+        }
         (CONNECTION_SLOT, CONNECTION_PING_COMMAND) => "Battlenet::Client::Connection::Ping",
         (CONNECTION_SLOT, CONNECTION_PONG_COMMAND) => "Battlenet::Client::Connection::Pong",
         (CONNECTION_SLOT, CONNECTION_MESSAGE_FRAME_COMMAND) => {
             "Battlenet::Client::Connection::MessageFrame"
         }
         (CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND) => "Battlenet::Client::Chat::StatusChangeRequest",
+        (CHAT_SLOT, CHAT_CREATE_AND_INVITE_COMMAND) => {
+            "Battlenet::Client::Chat::CreateAndInviteRequest"
+        }
+        (CHAT_SLOT, CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND) => {
+            "Battlenet::Client::Chat::DatagramConnectionUpdate"
+        }
         (FRIENDS_SLOT, FRIENDS_TOONS_COMMAND) => {
             "Battlenet::Client::Friends::ToonsOfFriendsRequest"
         }
         (PRESENCE_SLOT, PRESENCE_TEMPORARY_COMMAND) => {
             "Battlenet::Client::Presence::TemporaryPresenceRequest"
         }
+        (PARTY_SLOT, PARTY_MODIFY_MAP_OPTIONS_COMMAND) => {
+            "Battlenet::Client::Party::ModifyMapOptions"
+        }
+        (PARTY_SLOT, PARTY_BEGIN_READY_PROCESS_COMMAND) => {
+            "Battlenet::Client::Party::BeginReadyProcess"
+        }
+        (PARTY_SLOT, PARTY_READY_PROCESS_UPDATE_COMMAND) => {
+            "Battlenet::Client::Party::ReadyProcessUpdate"
+        }
+        (PARTY_SLOT, PARTY_MODIFY_NON_LOBBY_ATTRIBUTE_LIST_COMMAND) => {
+            "Battlenet::Client::Party::ModifyNonLobbyAttributeList"
+        }
         (PROFILE_SLOT, PROFILE_ADDRESS_QUERY_COMMAND) => {
             "Battlenet::Client::Profile::AddressQueryRequest"
+        }
+        (PROFILE_SLOT, PROFILE_RESOLVE_TOON_HANDLE_REQUEST_COMMAND) => {
+            "Battlenet::Client::Profile::ResolveToonHandleToNameRequest"
         }
         (PROFILE_SLOT, PROFILE_RESOLVE_TOON_NAME_REQUEST_COMMAND) => {
             "Battlenet::Client::Profile::ResolveToonNameToHandleRequest"
@@ -1830,8 +1859,14 @@ fn reflected_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
         (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_GET_CLUB_INFO_COMMAND) => {
             "Battlenet::Client::Club::GetClubInfoRequest"
         }
+        (S2_MULTIPLAYER_SLOT, S2_MULTIPLAYER_CLUB_SUBSCRIBE_COMMAND) => {
+            "Battlenet::Client::Club::ClubSubscribeRequest"
+        }
         (S2_MASTER_SLOT, S2_MASTER_MMQ_GET_INFO_COMMAND) => {
             "Battlenet::Client::S2Master::MMQGetInfoRequest"
+        }
+        (S2_MASTER_SLOT, S2_MASTER_MMQ_SUBSCRIBE_COMMAND) => {
+            "Battlenet::Client::S2Master::MMQSubscribe"
         }
         (S2_MULTIPLAYER_SLOT, S2_MAP_LIST_FAVORITES_COMMAND) => {
             "Battlenet::Client::S2Map::S2ListMapFavoritesRequest"
@@ -1916,6 +1951,7 @@ fn service_name(slot: u8) -> &'static str {
 }
 
 fn decode_manual_outgoing(
+    protocol: &Protocol,
     route: (u8, u8),
     reader: &mut BitReader<'_>,
     fields: &mut Vec<Field>,
@@ -1996,7 +2032,9 @@ fn decode_manual_outgoing(
             read_number(reader, fields, "payload.realm", "uint32", 32, 1)?;
             Ok(())
         }
-        (PROFILE_SLOT, PROFILE_READ_COMMAND) => decode_profile_read_request(reader, fields),
+        (PROFILE_SLOT, PROFILE_READ_COMMAND) => {
+            decode_profile_read_request(protocol, reader, fields)
+        }
         _ => Err(crate::Error::Native(
             "outgoing route has no structured decoder".to_owned(),
         )),
@@ -2274,17 +2312,37 @@ fn decode_presence_update_request(
     Ok(())
 }
 
-fn decode_profile_read_request(reader: &mut BitReader<'_>, fields: &mut Vec<Field>) -> Result<()> {
+fn decode_profile_read_request(
+    protocol: &Protocol,
+    reader: &mut BitReader<'_>,
+    fields: &mut Vec<Field>,
+) -> Result<()> {
     read_number(reader, fields, "payload.client_hash", "uint32", 32, 1)?;
     read_number(reader, fields, "payload.request_id", "uint32", 32, 1)?;
     read_number(reader, fields, "payload.address.label", "uint32", 32, 2)?;
     read_number(reader, fields, "payload.address.id", "uint64", 64, 2)?;
+    read_number(
+        reader,
+        fields,
+        "payload.specification.generated_reserved",
+        "reserved bit",
+        1,
+        2,
+    )?;
     let selector = read_number(
         reader,
         fields,
-        "payload.specification.generated_selector",
-        "uint5",
-        5,
+        "payload.specification.selection",
+        "uint3 choice",
+        3,
+        2,
+    )?;
+    let reader_present = read_number(
+        reader,
+        fields,
+        "payload.specification.reader.present",
+        "bool",
+        1,
         2,
     )?;
     match selector {
@@ -2304,9 +2362,21 @@ fn decode_profile_read_request(reader: &mut BitReader<'_>, fields: &mut Vec<Fiel
                 usize::try_from(path_length).unwrap_or(usize::MAX),
                 2,
             )?;
-            Ok(())
         }
-        6 => {
+        1 => {
+            let type_id = protocol
+                .codec()
+                .schema()
+                .unique_type_id("Battlenet::Profile::ReadSelection::Slice")?;
+            let decoded = protocol.codec().decode_reflected_traced_from(
+                reader,
+                type_id,
+                "payload.specification.selection.slice",
+                3,
+            )?;
+            append_provenance(fields, &decoded.fields);
+        }
+        3 => {
             let count = read_number(
                 reader,
                 fields,
@@ -2332,12 +2402,27 @@ fn decode_profile_read_request(reader: &mut BitReader<'_>, fields: &mut Vec<Fiel
                     3,
                 )?;
             }
-            Ok(())
         }
-        _ => Err(crate::Error::Native(format!(
-            "unsupported profile read generated selector {selector}"
-        ))),
+        _ => {
+            return Err(crate::Error::Native(format!(
+                "unsupported profile read selection {selector}"
+            )));
+        }
     }
+    if reader_present != 0 {
+        let type_id = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Profile::ReaderList")?;
+        let decoded = protocol.codec().decode_reflected_traced_from(
+            reader,
+            type_id,
+            "payload.specification.reader",
+            3,
+        )?;
+        append_provenance(fields, &decoded.fields);
+    }
+    Ok(())
 }
 
 fn decode_profile_change_settings(
@@ -2710,11 +2795,11 @@ fn append_decode_audit(
     fields: &mut Vec<Field>,
 ) {
     let support = protocol.codec().wire_layout_support(type_id).ok();
-    if support == Some(crate::bsn::codec::WireLayoutSupport::CandidateReflected) {
+    if support == Some(crate::bsn::codec::WireLayoutSupport::Candidate) {
         fields.push(Field::leaf(
             "audit.wire_layout",
-            "unverified generic layout",
-            "reflection order is a candidate; the generated SC2 wire layout has not been recovered",
+            "unverified wire layout",
+            "the captured field order has not been verified with distinct values for every field",
             route_end,
             route_end,
             0,
@@ -3041,7 +3126,10 @@ fn bsn_scalar(value: &BsnValue) -> (&'static str, String) {
         BsnValue::Void => ("void", "void".to_owned()),
         BsnValue::Bool(value) => ("bool", value.to_string()),
         BsnValue::Integer(value) => ("integer", value.to_string()),
-        BsnValue::FourCc(value) => ("fourcc", format!("0x{value:08x}")),
+        BsnValue::FourCc(value) => (
+            "fourcc",
+            String::from_utf8_lossy(&value.to_be_bytes()).into_owned(),
+        ),
         BsnValue::Float32(value) => ("float32", value.to_string()),
         BsnValue::Float64(value) => ("float64", value.to_string()),
         BsnValue::Bytes(value) => ("bytes", format!("{} bytes", value.len())),
@@ -3107,6 +3195,139 @@ mod tests {
     use super::*;
 
     #[test]
+    fn chat_create_and_invite_uses_the_captured_generated_order() {
+        let protocol = Protocol::current().unwrap();
+        let bytes =
+            hex::decode("4a150001930d0100014c32000000010b6e63617272696c6c6f2336373510000c9d03")
+                .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Chat");
+        assert_eq!(record.command, "CreateAndInviteRequest");
+        assert_eq!(record.command_id, CHAT_CREATE_AND_INVITE_COMMAND);
+        assert_eq!(record.bytes, bytes);
+        assert_eq!(record.logical_bits, 268);
+        assert!(
+            record
+                .fields
+                .iter()
+                .any(|field| { field.path.ends_with("m_name") && field.value == "ncarrillo#675" })
+        );
+        assert!(record.fields.iter().any(|field| {
+            field.path == "audit.wire_layout" && field.kind == "unverified wire layout"
+        }));
+    }
+
+    #[test]
+    fn outgoing_chat_datagram_update_stops_before_the_command_response() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(
+            "4d0d0100014c32000000010b6e63617272696c6c6f2336373500000000000000e00000000000000001000000000101",
+        )
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Chat");
+        assert_eq!(record.command, "DatagramConnectionUpdate");
+        assert_eq!(record.command_id, CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND);
+        assert_eq!(record.bytes.len(), 45);
+        assert_eq!(record.bytes, bytes[..45]);
+    }
+
+    #[test]
+    fn outgoing_logout_request_is_an_empty_record() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("4601").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Connection");
+        assert_eq!(record.command, "LogoutRequest");
+        assert_eq!(record.command_id, CONNECTION_LOGOUT_COMMAND);
+        assert_eq!(record.logical_bits, 11);
+        assert_eq!(record.bytes, bytes);
+    }
+
+    #[test]
+    fn party_non_lobby_attribute_list_uses_the_captured_prefix() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(concat!(
+            "d10ca4001000000f2700002e3c00000003e7000013ec00000000f90300051400",
+            "0000003e070000bc0b0000000f2700002f0501000003e700000bc600000000f9",
+            "030002f3000000003e0700014b040000000f2700002f0800000003e700000bc9",
+            "00000000f9030004e2000000003e07000138090000000f2700004e0a00000003",
+            "e70000138b00000000f9030004e3000000003e070001380d00"
+        ))
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Party");
+        assert_eq!(record.command, "ModifyNonLobbyAttributeList");
+        assert_eq!(
+            record.command_id,
+            PARTY_MODIFY_NON_LOBBY_ATTRIBUTE_LIST_COMMAND
+        );
+        assert_eq!(record.bytes, bytes);
+        assert_eq!(record.logical_bits, 1222);
+        assert!(
+            record.fields.iter().any(|field| {
+                field.path.ends_with("m_attrSelection") && field.value == "16 items"
+            })
+        );
+    }
+
+    #[test]
+    fn begin_ready_process_is_bidirectional() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode(concat!(
+            "cc0401000299120000090205097332716800005553f9da4b8c897218058a871f",
+            "4fbbf7f2dddbdc08fe0f00cf93a19072379ffb8d4bcafebabe7e5b880c000000",
+            "000000"
+        ))
+        .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Party");
+        assert_eq!(record.command, "BeginReadyProcess");
+        assert_eq!(record.command_id, PARTY_BEGIN_READY_PROCESS_COMMAND);
+        assert_eq!(record.bytes, bytes);
+    }
+
+    #[test]
+    fn ready_process_update_is_bidirectional() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("ce040000").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Party");
+        assert_eq!(record.command, "ReadyProcessUpdate");
+        assert_eq!(record.command_id, PARTY_READY_PROCESS_UPDATE_COMMAND);
+        assert_eq!(record.logical_bits, 28);
+        assert_eq!(record.bytes, bytes);
+        assert!(
+            record
+                .fields
+                .iter()
+                .any(|field| { field.path == "payload.m_memberHandle" && field.value == "none" })
+        );
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_reason" && field.value == "ERROR_OK (Battle.net error 0)"
+        }));
+    }
+
+    #[test]
+    fn party_modify_map_options_uses_the_metadata_payload() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("d30c00000000").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Party");
+        assert_eq!(record.command, "ModifyMapOptions");
+        assert_eq!(record.command_id, PARTY_MODIFY_MAP_OPTIONS_COMMAND);
+        assert_eq!(record.bytes, bytes);
+        assert_eq!(record.logical_bits, 47);
+    }
+
+    #[test]
     fn profile_change_settings_uses_verified_generated_layout() {
         assert_eq!(
             manual_outgoing_type((PROFILE_SLOT, PROFILE_CHANGE_SETTINGS_COMMAND)),
@@ -3152,6 +3373,39 @@ mod tests {
                 && field.value == "135 bytes"
                 && field.end_bit == record.logical_bits
         }));
+    }
+
+    #[test]
+    fn club_subscribe_request_uses_the_generated_subscription_layout() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("ef054180000000000020b04f01").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Club");
+        assert_eq!(record.command, "ClubSubscribeRequest");
+        assert_eq!(record.command_id, S2_MULTIPLAYER_CLUB_SUBSCRIBE_COMMAND);
+        assert_eq!(record.logical_bits, 97);
+        assert_eq!(record.bytes, bytes);
+        assert!(
+            record.fields.iter().any(|field| {
+                field.path == "payload.m_subscriptions" && field.value == "1 items"
+            })
+        );
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_subscriptions[0].m_stamp" && field.value == "0"
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_subscriptions[0].m_clubId" && field.value == "535567"
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_subscriptions[0].m_type" && field.value == "3"
+        }));
+        assert!(
+            record
+                .fields
+                .iter()
+                .all(|field| field.path != "audit.wire_layout")
+        );
     }
 
     #[test]
@@ -3204,7 +3458,7 @@ mod tests {
         assert_eq!(record.bytes.len(), 10);
         assert!(record.fields.iter().any(|field| {
             field.path == "audit.wire_layout"
-                && field.kind == "unverified generic layout"
+                && field.kind == "unverified wire layout"
                 && field.role == FieldRole::Control
         }));
     }
@@ -3380,6 +3634,93 @@ mod tests {
                     .any(|field| { field.path == "payload.program_id" && field.value == "\0\0S2" })
             );
         }
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_empty_mmq_subscription() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("cb623800").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        for end in 1..bytes.len() {
+            assert!(matches!(
+                inspect_native_record(&protocol, Direction::Outgoing, &bytes[..end]),
+                Err(crate::Error::IncompleteFrame(_))
+            ));
+        }
+        assert_eq!(record.service, "S2Master");
+        assert_eq!(record.command_id, S2_MASTER_MMQ_SUBSCRIBE_COMMAND);
+        assert_eq!(record.command, "MMQSubscribe");
+        assert_eq!(record.logical_bits, 32);
+        assert_eq!(record.bytes, bytes);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_enabled" && field.kind == "bool" && field.value == "false"
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_tagged_mmq_subscription() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("cb6a38404236f43641c6f74506").unwrap();
+        for end in 1..bytes.len() {
+            assert!(matches!(
+                inspect_native_record(&protocol, Direction::Outgoing, &bytes[..end]),
+                Err(crate::Error::IncompleteFrame(_))
+            ));
+        }
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "S2Master");
+        assert_eq!(record.command_id, S2_MASTER_MMQ_SUBSCRIBE_COMMAND);
+        assert_eq!(record.command, "MMQSubscribe");
+        assert_eq!(record.logical_bits, 101);
+        assert_eq!(record.bytes, bytes);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_enabled" && field.kind == "bool" && field.value == "true"
+        }));
+        assert_eq!(
+            record
+                .fields
+                .iter()
+                .filter(|field| {
+                    field.path.starts_with("payload.m_filter.m_tags.value[")
+                        && field.kind == "fourcc"
+                })
+                .map(|field| field.value.as_str())
+                .collect::<Vec<_>>(),
+            ["CoCa", "LotV"]
+        );
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_frames_full_mmq_subscription() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("cb6a38404236f43641c6f7451600000902").unwrap();
+        for end in 1..bytes.len() {
+            assert!(matches!(
+                inspect_native_record(&protocol, Direction::Outgoing, &bytes[..end]),
+                Err(crate::Error::IncompleteFrame(_))
+            ));
+        }
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "S2Master");
+        assert_eq!(record.command_id, S2_MASTER_MMQ_SUBSCRIBE_COMMAND);
+        assert_eq!(record.command, "MMQSubscribe");
+        assert_eq!(record.logical_bits, 133);
+        assert_eq!(record.bytes, bytes);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_filter.m_mmqId.value" && field.value == "290"
+        }));
+        assert_eq!(
+            record
+                .fields
+                .iter()
+                .filter(|field| {
+                    field.path.starts_with("payload.m_filter.m_tags.value[")
+                        && field.kind == "fourcc"
+                })
+                .map(|field| field.value.as_str())
+                .collect::<Vec<_>>(),
+            ["CoCa", "LotV"]
+        );
     }
 
     #[test]
@@ -3609,6 +3950,49 @@ mod tests {
         }));
         assert!(generated_path.fields.iter().any(|field| {
             field.path == "payload.specification.generated_path[1]" && field.value == "16"
+        }));
+    }
+
+    #[test]
+    fn strict_outgoing_inspection_decodes_profile_slice_selection() {
+        let protocol = Protocol::current().unwrap();
+        let bytes =
+            hex::decode("c00600000000000005cc5fd757ce1aab22a00000001001027ffffffffffffe0c00")
+                .unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Profile");
+        assert_eq!(record.command_id, PROFILE_READ_COMMAND);
+        assert_eq!(record.logical_bits, 260);
+        assert_eq!(record.bytes, bytes);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.specification.selection" && field.value == "1"
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.specification.selection.slice.m_sliceStart.value"
+                && field.value == "-1000"
+        }));
+    }
+
+    #[test]
+    fn profile_handle_resolution_uses_the_captured_generated_order() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = hex::decode("c20601002999000100000001000000006acf9300").unwrap();
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+
+        assert_eq!(record.service, "Profile");
+        assert_eq!(record.command, "ResolveToonHandleToNameRequest");
+        assert_eq!(
+            record.command_id,
+            PROFILE_RESOLVE_TOON_HANDLE_REQUEST_COMMAND
+        );
+        assert_eq!(record.logical_bits, 153);
+        assert_eq!(record.bytes, bytes);
+        assert!(record.fields.iter().any(|field| {
+            field.path == "payload.m_handles[0].m_id" && field.value == "13999910"
+        }));
+        assert!(record.fields.iter().any(|field| {
+            field.path == "audit.wire_layout" && field.kind == "unverified wire layout"
         }));
     }
 

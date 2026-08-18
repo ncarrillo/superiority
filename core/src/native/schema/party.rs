@@ -18,6 +18,18 @@ pub struct ClientPartyMapOptionsChange {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientPartyModifyMapOptions {
+    #[bsn(name = "m_mapOptions")]
+    pub map_options: super::matchmaker::MatchMakerMapOptions,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientPartyModifyNonLobbyAttributeList {
+    #[bsn(name = "m_attrSelection")]
+    pub attr_selection: Vec<super::attribute::AttributeNonLobbyAttribute>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientPartyReadyProcessUpdate {
     #[bsn(name = "m_memberHandle")]
     pub member_handle: Option<u32>,

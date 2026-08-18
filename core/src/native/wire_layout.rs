@@ -16,6 +16,7 @@ const VERIFIED_REFLECTED: &[&str] = &[
     "Battlenet::Client::Connection::ServerVersion",
     "Battlenet::Client::Connection::RegulatorUpdate",
     "Battlenet::Client::Party::BeginReadyProcess",
+    "Battlenet::Client::Party::ModifyMapOptions",
     "Battlenet::Client::Party::MapOptionsChange",
     "Battlenet::Client::Party::ReadyProcessUpdate",
     "Battlenet::Client::Presence::StatisticsUpdate",
@@ -26,7 +27,14 @@ const VERIFIED_REFLECTED: &[&str] = &[
     "Battlenet::Client::Toon::InitialNotifiesComplete",
 ];
 
-const CANDIDATE_REFLECTED: &[&str] = &["Battlenet::Client::Toon::CaisTimeUpdate"];
+const CANDIDATE_REFLECTED: &[&str] = &[
+    "Battlenet::Client::Toon::CaisTimeUpdate",
+    "Battlenet::Client::S2Master::MMQAnnounce",
+    "Battlenet::MatchMaker::Announce",
+    "Battlenet::MatchMaker::StaticInfo",
+    "Battlenet::MatchMaker::HistogramSet",
+    "Battlenet::MatchMaker::PerGameQueueInfo",
+];
 
 const IDENTITY_0: &[WireField] = &[];
 const IDENTITY_1: &[WireField] = &[WireField::new(0, 0)];
@@ -73,15 +81,103 @@ const ACHIEVEMENT_PERSISTENT_RECORD: &[WireField] = &[
     WireField::new(1, 0),
 ];
 const CHAT_CATEGORY_DESCRIPTIONS: &[WireField] = &[WireField::new(1, 0), WireField::new(0, 0)];
+const CHAT_CREATE_AND_INVITE: &[WireField] = &[
+    WireField::new(0, 0),
+    WireField::new(3, 0),
+    WireField::new(1, 0),
+    WireField::new(2, 0),
+];
+const PARTY_MODIFY_NON_LOBBY_ATTRIBUTE_LIST: &[WireField] = &[WireField::new(0, 20)];
+const MATCHMAKER_FILTER: &[WireField] = &[
+    WireField::new(1, 0),
+    WireField::new(0, 17),
+    WireField::new(2, 0),
+];
 const CLUB_NAME: &[WireField] = &[WireField::new(0, 16)];
+const CLUB_SUBSCRIPTION_SYNC_INFO: &[WireField] = &[
+    WireField::new(2, 11),
+    WireField::new(0, 0),
+    WireField::new(1, 0),
+];
+const CLUB_CHANGE_INFO: &[WireField] = &[
+    WireField::new(0, 6),
+    WireField::new(3, 0),
+    WireField::new(1, 0),
+    WireField::new(2, 0),
+];
 const BILLING_INFO: &[WireField] = &[
     WireField::new(2, 0),
     WireField::new(1, 19),
     WireField::new(0, 28),
     WireField::new(3, 0),
 ];
-
 pub(super) fn register(codec: &mut Codec) -> Result<()> {
+    codec.register_candidate_struct_wire_layout(
+        "Battlenet::Client::Club::ClubChangeNotification",
+        StructWireLayout::new("captured Club::ClubChangeNotification", IDENTITY_1),
+    )?;
+    codec.register_candidate_struct_wire_layout(
+        "Battlenet::Club::ClubChangeInfo",
+        StructWireLayout::new("captured Club::ClubChangeInfo", CLUB_CHANGE_INFO),
+    )?;
+    codec.register_wire_layout(
+        "Battlenet::Club::ClubSummaryInfo",
+        WireLayout::new_traced(
+            "generated Club::ClubSummaryInfo",
+            decode_club_summary_info,
+            decode_club_summary_info_traced,
+            encode_club_summary_info,
+        ),
+    )?;
+    codec.register_wire_layout(
+        "Battlenet::Club::ClubUserText",
+        WireLayout::new_traced(
+            "generated Club::ClubUserText",
+            decode_club_user_text,
+            decode_club_user_text_traced,
+            encode_club_user_text,
+        ),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::Club::ClubSubscribeRequest",
+        StructWireLayout::new("generated Club::ClubSubscribeRequest", IDENTITY_1),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Club::SubscriptionSyncInfo",
+        StructWireLayout::new(
+            "generated Club::SubscriptionSyncInfo",
+            CLUB_SUBSCRIPTION_SYNC_INFO,
+        ),
+    )?;
+    codec.register_candidate_struct_wire_layout(
+        "Battlenet::Client::Chat::CreateAndInviteRequest",
+        StructWireLayout::new(
+            "captured Chat::CreateAndInviteRequest",
+            CHAT_CREATE_AND_INVITE,
+        ),
+    )?;
+    codec.register_candidate_struct_wire_layout(
+        "Battlenet::Client::Party::ModifyNonLobbyAttributeList",
+        StructWireLayout::new(
+            "captured Party::ModifyNonLobbyAttributeList",
+            PARTY_MODIFY_NON_LOBBY_ATTRIBUTE_LIST,
+        ),
+    )?;
+    codec.register_candidate_struct_wire_layout(
+        "Battlenet::Client::Profile::ResolveToonHandleToNameRequest",
+        StructWireLayout::new(
+            "captured Profile::ResolveToonHandleToNameRequest",
+            IDENTITY_2,
+        ),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::Profile::ResolveToonHandleToName",
+        StructWireLayout::new("empty Profile::ResolveToonHandleToName", IDENTITY_0),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::Connection::LogoutRequest",
+        StructWireLayout::new("empty Connection::LogoutRequest", IDENTITY_0),
+    )?;
     codec.register_struct_wire_layout(
         "Battlenet::Client::S2Map::S2ListMapFavorites",
         StructWireLayout::new("empty S2Map::S2ListMapFavorites", IDENTITY_0),
@@ -145,6 +241,14 @@ pub(super) fn register(codec: &mut Codec) -> Result<()> {
     codec.register_struct_wire_layout(
         "Battlenet::Client::S2Map::S2ListMapFavoritesResponse",
         StructWireLayout::new("identity S2Map::S2ListMapFavoritesResponse", IDENTITY_2),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::S2Master::MMQSubscribe",
+        StructWireLayout::new("identity S2Master::MMQSubscribe", IDENTITY_2),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::MatchMaker::Filter",
+        StructWireLayout::new("generated MatchMaker::Filter", MATCHMAKER_FILTER),
     )?;
     codec.register_wire_layout(
         "Battlenet::Conference::CategoryDescription",
@@ -215,6 +319,249 @@ fn register_session_and_toon_layouts(codec: &mut Codec) -> Result<()> {
         StructWireLayout::new("identity Toon::Failure", IDENTITY_1),
     )?;
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct ClubSummaryValues {
+    start_bit: usize,
+    end_bit: usize,
+    fields: Vec<(usize, BsnValue, usize, usize)>,
+}
+
+fn decode_club_summary_info(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<BsnValue> {
+    let values = read_club_summary_info(codec, root_type, reader)?;
+    build_struct(codec, root_type, values.fields)
+}
+
+fn decode_club_summary_info_traced(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+) -> Result<(BsnValue, Vec<DecodedField>)> {
+    let values = read_club_summary_info(codec, root_type, reader)?;
+    let shape = codec.schema().shape(root_type)?;
+    let mut traced = vec![DecodedField {
+        path: path.to_owned(),
+        kind: "struct",
+        value: format!("{} fields", values.fields.len()),
+        start_bit: values.start_bit,
+        end_bit: values.end_bit,
+        depth,
+    }];
+    for (position, value, start_bit, end_bit) in &values.fields {
+        let name = shape.member_names[*position].as_deref().unwrap_or("field");
+        traced.push(DecodedField {
+            path: format!("{path}.{name}"),
+            kind: "value",
+            value: display_value(value),
+            start_bit: *start_bit,
+            end_bit: *end_bit,
+            depth: depth + 1,
+        });
+    }
+    Ok((build_struct(codec, root_type, values.fields)?, traced))
+}
+
+fn read_club_summary_info(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<ClubSummaryValues> {
+    let start_bit = reader.position();
+    let mut fields = Vec::with_capacity(12);
+    read_club_field(codec, root_type, reader, 6, &mut fields)?;
+    read_club_field(codec, root_type, reader, 10, &mut fields)?;
+    read_club_field(codec, root_type, reader, 0, &mut fields)?;
+    read_club_field(codec, root_type, reader, 5, &mut fields)?;
+
+    let name_start = reader.position();
+    let name = read_generated_string(reader, 8, 32)?;
+    fields.push((2, BsnValue::String(name), name_start, reader.position()));
+
+    reader.read(6)?;
+    read_club_field(codec, root_type, reader, 9, &mut fields)?;
+    read_club_field(codec, root_type, reader, 7, &mut fields)?;
+    read_club_field(codec, root_type, reader, 4, &mut fields)?;
+    read_club_field(codec, root_type, reader, 1, &mut fields)?;
+    read_club_field(codec, root_type, reader, 11, &mut fields)?;
+
+    let tag_start = reader.position();
+    let tag = if reader.read(1)? == 0 {
+        BsnValue::none()
+    } else {
+        BsnValue::some(BsnValue::String(read_generated_string(reader, 5, 24)?))
+    };
+    fields.push((3, tag, tag_start, reader.position()));
+
+    reader.read(25)?;
+    read_club_field(codec, root_type, reader, 8, &mut fields)?;
+    Ok(ClubSummaryValues {
+        start_bit,
+        end_bit: reader.position(),
+        fields,
+    })
+}
+
+fn read_club_field(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+    position: usize,
+    fields: &mut Vec<(usize, BsnValue, usize, usize)>,
+) -> Result<()> {
+    let shape = codec.schema().shape(root_type)?;
+    let member_type = *shape
+        .member_types
+        .get(position)
+        .ok_or_else(|| wire_error(format!("club summary metadata omits field {position}")))?;
+    let start_bit = reader.position();
+    let value = codec.decode_from(reader, member_type)?;
+    fields.push((position, value, start_bit, reader.position()));
+    Ok(())
+}
+
+fn read_generated_string(
+    reader: &mut BitReader<'_>,
+    count_width: usize,
+    maximum: usize,
+) -> Result<String> {
+    let length = usize::try_from(reader.read(count_width)?)
+        .map_err(|_| wire_error("generated string length exceeds usize"))?;
+    if length > maximum {
+        return Err(wire_error(format!(
+            "generated string length {length} exceeds {maximum}"
+        )));
+    }
+    Ok(String::from_utf8_lossy(&reader.read_bytes(length, true)?).into_owned())
+}
+
+fn build_struct(
+    codec: &Codec,
+    root_type: u32,
+    values: Vec<(usize, BsnValue, usize, usize)>,
+) -> Result<BsnValue> {
+    let shape = codec.schema().shape(root_type)?;
+    let mut values = values
+        .into_iter()
+        .map(|(position, value, _, _)| (position, value))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let fields = (0..shape.member_types.len())
+        .map(|position| {
+            Ok(BsnField {
+                index: shape.index_values[position],
+                name: shape.member_names[position].clone(),
+                value: values.remove(&position).ok_or_else(|| {
+                    wire_error(format!("generated layout omits field {position}"))
+                })?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(BsnValue::Struct(BsnStruct::new(root_type, fields)))
+}
+
+fn display_value(value: &BsnValue) -> String {
+    match value {
+        BsnValue::Integer(value) => value.to_string(),
+        BsnValue::FourCc(value) => String::from_utf8_lossy(&value.to_be_bytes()).into_owned(),
+        BsnValue::String(value) => value.clone(),
+        BsnValue::Bool(value) => value.to_string(),
+        BsnValue::Optional(Some(value)) => display_value(value),
+        BsnValue::Optional(None) => "none".to_owned(),
+        BsnValue::Array(values) => format!("{} items", values.len()),
+        BsnValue::Struct(value) => format!("{} fields", value.fields.len()),
+        BsnValue::Bytes(value) => format!("{} bytes", value.len()),
+        BsnValue::Choice { index, .. } => format!("variant {index}"),
+        BsnValue::BitArray(value) => format!("{} bits", value.bit_count),
+        BsnValue::Float32(value) => value.to_string(),
+        BsnValue::Float64(value) => value.to_string(),
+        BsnValue::Void => "void".to_owned(),
+    }
+}
+
+fn encode_club_summary_info(
+    _codec: &Codec,
+    _root_type: u32,
+    _writer: &mut BitWriter,
+    _value: &BsnValue,
+) -> Result<()> {
+    Err(wire_error("club summary information is inbound-only"))
+}
+
+fn decode_club_user_text(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<BsnValue> {
+    let values = read_club_user_text(codec, root_type, reader)?;
+    build_struct(codec, root_type, values.fields)
+}
+
+fn decode_club_user_text_traced(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+    path: &str,
+    depth: usize,
+) -> Result<(BsnValue, Vec<DecodedField>)> {
+    let values = read_club_user_text(codec, root_type, reader)?;
+    let shape = codec.schema().shape(root_type)?;
+    let mut traced = vec![DecodedField {
+        path: path.to_owned(),
+        kind: "struct",
+        value: format!("{} fields", values.fields.len()),
+        start_bit: values.start_bit,
+        end_bit: values.end_bit,
+        depth,
+    }];
+    for (position, value, start_bit, end_bit) in &values.fields {
+        let name = shape.member_names[*position].as_deref().unwrap_or("field");
+        traced.push(DecodedField {
+            path: format!("{path}.{name}"),
+            kind: "value",
+            value: display_value(value),
+            start_bit: *start_bit,
+            end_bit: *end_bit,
+            depth: depth + 1,
+        });
+    }
+    Ok((build_struct(codec, root_type, values.fields)?, traced))
+}
+
+fn read_club_user_text(
+    codec: &Codec,
+    root_type: u32,
+    reader: &mut BitReader<'_>,
+) -> Result<ClubSummaryValues> {
+    let start_bit = reader.position();
+    let mut fields = Vec::with_capacity(4);
+    read_club_field(codec, root_type, reader, 0, &mut fields)?;
+    read_club_field(codec, root_type, reader, 3, &mut fields)?;
+
+    let text_start = reader.position();
+    let text = read_generated_string(reader, 13, 4096)?;
+    fields.push((2, BsnValue::String(text), text_start, reader.position()));
+
+    read_club_field(codec, root_type, reader, 1, &mut fields)?;
+    Ok(ClubSummaryValues {
+        start_bit,
+        end_bit: reader.position(),
+        fields,
+    })
+}
+
+fn encode_club_user_text(
+    _codec: &Codec,
+    _root_type: u32,
+    _writer: &mut BitWriter,
+    _value: &BsnValue,
+) -> Result<()> {
+    Err(wire_error("club user text is inbound-only"))
 }
 
 #[derive(Clone, Debug)]
