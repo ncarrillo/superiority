@@ -434,7 +434,7 @@ fn replay(
     for packet in packets {
         update(sweep.ingest(&packet)?);
     }
-    sweep.finish()?;
+    update(sweep.finish()?);
     Ok(())
 }
 

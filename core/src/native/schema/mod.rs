@@ -5,6 +5,7 @@
 
 pub mod account;
 pub mod achievement;
+pub mod attribute;
 pub mod authentication;
 pub mod cache;
 pub mod chat;
@@ -14,6 +15,7 @@ pub mod conference;
 pub mod connection;
 pub mod datagramconnection;
 pub mod defines;
+pub mod flagdelta;
 pub mod frame;
 pub mod friends;
 pub mod gameaccount;
@@ -21,6 +23,7 @@ pub mod ip4;
 pub mod league;
 pub mod matchmaker;
 pub mod party;
+pub mod permission;
 pub mod presence;
 pub mod profile;
 pub mod realm;

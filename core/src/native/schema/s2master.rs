@@ -46,6 +46,12 @@ pub struct ClientS2MasterCurrentSeasonResponseResultSuccess {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientS2MasterMMQAnnounce {
+    #[bsn(name = "m_announcements")]
+    pub announcements: Vec<super::matchmaker::MatchMakerAnnounce>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientS2MasterMMQGetInfo {}
 
 #[derive(Clone, Debug, FromBsn)]
@@ -98,6 +104,14 @@ impl sc2_core::bsn::FromBsn for ClientS2MasterMMQGetListResponseResult {
 pub struct ClientS2MasterMMQGetListResponseResultSuccess {
     #[bsn(name = "m_mmqList")]
     pub mmq_list: Vec<super::matchmaker::MatchMakerHandle>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientS2MasterMMQSubscribe {
+    #[bsn(name = "m_enabled")]
+    pub enabled: bool,
+    #[bsn(name = "m_filter")]
+    pub filter: super::matchmaker::MatchMakerFilter,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

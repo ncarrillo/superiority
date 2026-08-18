@@ -29,6 +29,7 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Chat::ChannelListResponse",
     "Battlenet::Client::Chat::CategoryDescriptions",
     "Battlenet::Client::Chat::ConferenceDescriptions",
+    "Battlenet::Client::Chat::CreateAndInviteRequest",
     "Battlenet::Client::Chat::DatagramConnectionUpdate",
     "Battlenet::Client::Chat::EnumCategoryDescriptions",
     "Battlenet::Client::Chat::EnumConferenceDescriptions",
@@ -47,6 +48,8 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Chat::WhisperEchoRecv",
     "Battlenet::Client::Chat::WhisperRecv",
     "Battlenet::Client::Club::ClubSettings",
+    "Battlenet::Client::Club::ClubChangeNotification",
+    "Battlenet::Client::Club::ClubSubscribeRequest",
     "Battlenet::Client::Club::GetClubInfoRequest",
     "Battlenet::Client::Club::GetClubInfoResponse",
     "Battlenet::Client::Club::GetMemberClanTagsResponse",
@@ -59,6 +62,7 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Connection::Boom",
     "Battlenet::Client::Connection::EnableEncryption",
     "Battlenet::Client::Connection::GameSiteInfo",
+    "Battlenet::Client::Connection::LogoutRequest",
     "Battlenet::Client::Connection::MessageFrame",
     "Battlenet::Client::Connection::Ping",
     "Battlenet::Client::Connection::Pong",
@@ -70,6 +74,8 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Friends::ToonsOfFriendsNotify",
     "Battlenet::Client::Friends::ToonsOfFriendsRequest",
     "Battlenet::Client::Party::BeginReadyProcess",
+    "Battlenet::Client::Party::ModifyNonLobbyAttributeList",
+    "Battlenet::Client::Party::ModifyMapOptions",
     "Battlenet::Client::Party::MapOptionsChange",
     "Battlenet::Client::Party::ReadyProcessUpdate",
     "Battlenet::Client::Presence::FieldSpecAnnounce",
@@ -80,7 +86,10 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Presence::UpdateNotify",
     "Battlenet::Client::Profile::AddressQueryRequest",
     "Battlenet::Client::Profile::AddressQueryResponse",
+    "Battlenet::Client::Profile::ReadRequest",
     "Battlenet::Client::Profile::ReadResponse",
+    "Battlenet::Client::Profile::ResolveToonHandleToNameRequest",
+    "Battlenet::Client::Profile::ResolveToonHandleToNameResponse",
     "Battlenet::Client::Profile::ResolveToonNameToHandleRequest",
     "Battlenet::Client::Profile::ResolveToonNameToHandleResponse",
     "Battlenet::Client::Profile::SettingsAvailable",
@@ -90,6 +99,8 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::S2Master::CurrentSeasonResponse",
     "Battlenet::Client::S2Master::MMQGetInfoRequest",
     "Battlenet::Client::S2Master::MMQGetListResponse",
+    "Battlenet::Client::S2Master::MMQAnnounce",
+    "Battlenet::Client::S2Master::MMQSubscribe",
     "Battlenet::Client::Toon::InitialNotifiesComplete",
     "Battlenet::Client::Toon::BillingUpdateNotify",
     "Battlenet::Client::Toon::CaisTimeUpdate",
@@ -127,7 +138,6 @@ fn main() {
             input.display()
         )
     });
-
     let mut queue: VecDeque<u32> = ROOTS
         .iter()
         .map(|name| meta.unique_type_id(name).unwrap())

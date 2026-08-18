@@ -129,6 +129,7 @@ impl std::fmt::Debug for WireLayout {
 enum RegisteredWireLayout {
     CandidateReflected,
     VerifiedReflected,
+    CandidateStruct(StructWireLayout),
     Struct(StructWireLayout),
     Custom(WireLayout),
 }
@@ -136,7 +137,7 @@ enum RegisteredWireLayout {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WireLayoutSupport {
     Reflected,
-    CandidateReflected,
+    Candidate,
     VerifiedReflected,
     Custom(&'static str),
     UnsupportedObfuscated,
@@ -187,6 +188,23 @@ impl Codec {
         exact_name: &str,
         layout: StructWireLayout,
     ) -> Result<()> {
+        self.register_struct(exact_name, layout, false)
+    }
+
+    pub fn register_candidate_struct_wire_layout(
+        &mut self,
+        exact_name: &str,
+        layout: StructWireLayout,
+    ) -> Result<()> {
+        self.register_struct(exact_name, layout, true)
+    }
+
+    fn register_struct(
+        &mut self,
+        exact_name: &str,
+        layout: StructWireLayout,
+        candidate: bool,
+    ) -> Result<()> {
         let type_id = self.schema.unique_type_id(exact_name)?;
         let shape = self.schema.shape(type_id)?;
         if shape.kind != TypeKind::Struct {
@@ -227,15 +245,23 @@ impl Codec {
                 self.type_name(type_id)
             )));
         }
-        self.wire_layouts
-            .insert(type_id, RegisteredWireLayout::Struct(layout));
+        self.wire_layouts.insert(
+            type_id,
+            if candidate {
+                RegisteredWireLayout::CandidateStruct(layout)
+            } else {
+                RegisteredWireLayout::Struct(layout)
+            },
+        );
         Ok(())
     }
 
     pub fn wire_layout_support(&self, type_id: u32) -> Result<WireLayoutSupport> {
         let shape = self.schema.shape(type_id)?;
         Ok(match self.wire_layouts.get(&type_id) {
-            Some(RegisteredWireLayout::CandidateReflected) => WireLayoutSupport::CandidateReflected,
+            Some(
+                RegisteredWireLayout::CandidateReflected | RegisteredWireLayout::CandidateStruct(_),
+            ) => WireLayoutSupport::Candidate,
             Some(RegisteredWireLayout::VerifiedReflected) => WireLayoutSupport::VerifiedReflected,
             Some(RegisteredWireLayout::Struct(layout)) => WireLayoutSupport::Custom(layout.name),
             Some(RegisteredWireLayout::Custom(layout)) => WireLayoutSupport::Custom(layout.name),
@@ -316,7 +342,10 @@ impl Codec {
         reflected_scope: bool,
     ) -> Result<()> {
         let shape = self.schema.shape(type_id)?;
-        if let Some(RegisteredWireLayout::Struct(layout)) = self.wire_layouts.get(&type_id) {
+        if let Some(
+            RegisteredWireLayout::Struct(layout) | RegisteredWireLayout::CandidateStruct(layout),
+        ) = self.wire_layouts.get(&type_id)
+        {
             return self.encode_struct_layout(writer, type_id, &shape, value, *layout);
         }
         if let Some(RegisteredWireLayout::Custom(layout)) = self.wire_layouts.get(&type_id) {
@@ -563,7 +592,10 @@ impl Codec {
         fields: &mut Option<Vec<DecodedField>>,
     ) -> Result<BsnValue> {
         let shape = self.schema.shape(type_id)?;
-        if let Some(RegisteredWireLayout::Struct(layout)) = self.wire_layouts.get(&type_id) {
+        if let Some(
+            RegisteredWireLayout::Struct(layout) | RegisteredWireLayout::CandidateStruct(layout),
+        ) = self.wire_layouts.get(&type_id)
+        {
             return self
                 .decode_struct_layout(reader, type_id, &shape, *layout, path, depth, fields);
         }
@@ -736,7 +768,7 @@ impl Codec {
             Some(
                 RegisteredWireLayout::CandidateReflected | RegisteredWireLayout::VerifiedReflected,
             ) => Ok(true),
-            Some(RegisteredWireLayout::Struct(_)) => {
+            Some(RegisteredWireLayout::Struct(_) | RegisteredWireLayout::CandidateStruct(_)) => {
                 unreachable!("struct layouts are dispatched before reflected_scope")
             }
             Some(RegisteredWireLayout::Custom(_)) => {
@@ -967,7 +999,7 @@ fn decoded_summary(value: &BsnValue) -> String {
         BsnValue::Void => "void".to_owned(),
         BsnValue::Bool(value) => value.to_string(),
         BsnValue::Integer(value) => value.to_string(),
-        BsnValue::FourCc(value) => format!("0x{value:08x}"),
+        BsnValue::FourCc(value) => String::from_utf8_lossy(&value.to_be_bytes()).into_owned(),
         BsnValue::Float32(value) => value.to_string(),
         BsnValue::Float64(value) => value.to_string(),
         BsnValue::Bytes(value) => format!("{} bytes", value.len()),

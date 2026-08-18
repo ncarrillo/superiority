@@ -326,6 +326,18 @@ pub struct ClientChatConferenceDescriptions {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatCreateAndInviteRequest {
+    #[bsn(name = "m_createToken")]
+    pub create_token: u32,
+    #[bsn(name = "m_inviteToken")]
+    pub invite_token: u32,
+    #[bsn(name = "m_channelType")]
+    pub channel_type: super::chat::ChatChannelType2Enum,
+    #[bsn(name = "m_target")]
+    pub target: super::defines::ClientDefinesPlayerTarget,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatDatagramConnectionUpdate {
     #[bsn(name = "m_target")]
     pub target: super::defines::ClientDefinesPlayerTarget,

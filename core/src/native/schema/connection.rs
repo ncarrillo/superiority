@@ -21,6 +21,9 @@ pub struct ClientConnectionGameSiteInfo {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientConnectionLogoutRequest {}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientConnectionMessageFrame {
     #[bsn(name = "m_frameType")]
     pub frame_type: super::frame::FrameTypeEnum,

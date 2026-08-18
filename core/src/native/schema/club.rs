@@ -4,6 +4,12 @@ use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClientClubClubChangeNotification {
+    #[bsn(name = "m_deltas")]
+    pub deltas: Vec<super::club::ClubClubChangeInfo>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClientClubClubSettings {
     #[bsn(name = "m_cacheSettings")]
     pub cache_settings: super::club::ClientClubClubSettingsCacheSettings,
@@ -25,6 +31,12 @@ pub struct ClientClubClubSettingsCacheSettings {
     pub info_cache_expiry_sec: i32,
     #[bsn(name = "m_onlineStatusExpirySec")]
     pub online_status_expiry_sec: i32,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientClubClubSubscribeRequest {
+    #[bsn(name = "m_subscriptions")]
+    pub subscriptions: Vec<super::club::ClubSubscriptionSyncInfo>,
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -260,6 +272,27 @@ pub struct ClientClubSearchClubsResponseResultSuccess {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClubChangeTypeEnum {
+    INSERT,
+    UPDATE,
+    REMOVE,
+    SYNC,
+}
+impl sc2_core::bsn::FromBsn for ClubChangeTypeEnum {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        match sc2_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::INSERT),
+            1i128 => Ok(Self::UPDATE),
+            2i128 => Ok(Self::REMOVE),
+            3i128 => Ok(Self::SYNC),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a valid ClubChangeTypeEnum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClubClubCategoryEnum {
     UNSPECIFIED,
     COMMUNITY,
@@ -299,11 +332,135 @@ impl sc2_core::bsn::FromBsn for ClubClubCategoryEnum {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubChangeInfo {
+    #[bsn(name = "m_clubId")]
+    pub club_id: u32,
+    #[bsn(name = "m_changeType")]
+    pub change_type: super::club::ClubChangeTypeEnum,
+    #[bsn(name = "m_syncStamp")]
+    pub sync_stamp: u64,
+    #[bsn(name = "m_info")]
+    pub info: super::club::ClubClubChangeInfoInfo,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClubClubChangeInfoInfo {
+    SummaryInfoDeltaList(Vec<super::club::ClubClubSummaryChangeRequest>),
+    SummaryInfoFull(super::club::ClubClubSummaryInfo),
+    OnlineStatus(()),
+    Announcement(super::club::ClubClubUserText),
+    AnnouncementSimple(super::club::ClubClubUserTextSimple),
+    Event(super::club::ClubClubEvent),
+    EventSimple(super::club::ClubClubEventSimple),
+    Description(super::club::ClubClubUserText),
+    MessageBoard(super::club::ClubClubUserText),
+}
+impl sc2_core::bsn::FromBsn for ClubClubChangeInfoInfo {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        let (index, inner) = match value {
+            sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
+            other => {
+                return Err(sc2_core::Error::BsnWire(format!(
+                    "expected a choice for ClubClubChangeInfoInfo, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::SummaryInfoDeltaList(<Vec<
+                super::club::ClubClubSummaryChangeRequest,
+            > as sc2_core::bsn::FromBsn>::from_bsn(
+                inner
+            )?)),
+            1i128 => Ok(Self::SummaryInfoFull(
+                <super::club::ClubClubSummaryInfo as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            2i128 => Ok(Self::OnlineStatus(
+                <() as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            3i128 => Ok(Self::Announcement(
+                <super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            4i128 => Ok(Self::AnnouncementSimple(
+                <super::club::ClubClubUserTextSimple as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            5i128 => Ok(Self::Event(
+                <super::club::ClubClubEvent as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            6i128 => Ok(Self::EventSimple(
+                <super::club::ClubClubEventSimple as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            7i128 => Ok(Self::Description(
+                <super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            8i128 => Ok(Self::MessageBoard(
+                <super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a ClubClubChangeInfoInfo variant"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubEvent {
+    #[bsn(name = "m_created")]
+    pub created: i32,
+    #[bsn(name = "m_author")]
+    pub author: u64,
+    #[bsn(name = "m_text")]
+    pub text: String,
+    #[bsn(name = "m_links")]
+    pub links: Vec<super::club::ClubClubLinkField>,
+    #[bsn(name = "m_eventStartTime")]
+    pub event_start_time: i32,
+    #[bsn(name = "m_eventEndTime")]
+    pub event_end_time: i32,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubEventSimple {
+    #[bsn(name = "m_created")]
+    pub created: i32,
+    #[bsn(name = "m_title")]
+    pub title: String,
+    #[bsn(name = "m_eventStartTime")]
+    pub event_start_time: i32,
+    #[bsn(name = "m_eventEndTime")]
+    pub event_end_time: i32,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct ClubClubInfo {
     #[bsn(name = "m_summary")]
     pub summary: super::club::ClubClubSummaryInfo,
     #[bsn(name = "m_status")]
     pub status: super::club::ClubClubOnlineStatus,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClubClubLinkField {
+    Shortlink(super::s2map::S2MapShortLink),
+}
+impl sc2_core::bsn::FromBsn for ClubClubLinkField {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        let (index, inner) = match value {
+            sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
+            other => {
+                return Err(sc2_core::Error::BsnWire(format!(
+                    "expected a choice for ClubClubLinkField, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Shortlink(
+                <super::s2map::S2MapShortLink as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a ClubClubLinkField variant"
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -314,6 +471,57 @@ pub struct ClubClubOnlineStatus {
     pub ingame: u32,
     #[bsn(name = "m_inchat")]
     pub inchat: u32,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClubClubSummaryChangeRequest {
+    Name(String),
+    Tag(String),
+    Type(super::club::ClubClubTypeEnum),
+    Category(super::club::ClubClubCategoryEnum),
+    Locale(FourCc),
+    Flag(super::club::ClubClubSummaryChangeRequestFlag),
+    MemberCount(u32),
+    ClubFile(super::club::ClubClubSummaryChangeRequestClubFile),
+}
+impl sc2_core::bsn::FromBsn for ClubClubSummaryChangeRequest {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        let (index, inner) = match value {
+            sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
+            other => {
+                return Err(sc2_core::Error::BsnWire(format!(
+                    "expected a choice for ClubClubSummaryChangeRequest, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Name(<String as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Tag(<String as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::Type(<super::club::ClubClubTypeEnum as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            3i128 => Ok(Self::Category(<super::club::ClubClubCategoryEnum as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            4i128 => Ok(Self::Locale(<FourCc as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            5i128 => Ok(Self::Flag(<super::club::ClubClubSummaryChangeRequestFlag as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            6i128 => Ok(Self::MemberCount(<u32 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            7i128 => Ok(Self::ClubFile(<super::club::ClubClubSummaryChangeRequestClubFile as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ClubClubSummaryChangeRequest variant"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubSummaryChangeRequestClubFile {
+    #[bsn(name = "m_fileHandle")]
+    pub file_handle: Option<Bytes>,
+    #[bsn(name = "m_fileType")]
+    pub file_type: super::club::ClubFileTypeEnum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubSummaryChangeRequestFlag {
+    #[bsn(name = "m_flagValue")]
+    pub flag_value: u32,
+    #[bsn(name = "m_operation")]
+    pub operation: super::flagdelta::FlagDeltaEnum,
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -360,6 +568,41 @@ impl sc2_core::bsn::FromBsn for ClubClubTypeEnum {
             3i128 => Ok(Self::TEAM),
             other => Err(sc2_core::Error::BsnWire(format!(
                 "{other} is not a valid ClubClubTypeEnum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubUserText {
+    #[bsn(name = "m_created")]
+    pub created: i32,
+    #[bsn(name = "m_author")]
+    pub author: u64,
+    #[bsn(name = "m_text")]
+    pub text: String,
+    #[bsn(name = "m_links")]
+    pub links: Vec<super::club::ClubClubLinkField>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubClubUserTextSimple {
+    #[bsn(name = "m_created")]
+    pub created: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClubFileTypeEnum {
+    ICON,
+    DECAL,
+}
+impl sc2_core::bsn::FromBsn for ClubFileTypeEnum {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        match sc2_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::ICON),
+            1i128 => Ok(Self::DECAL),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a valid ClubFileTypeEnum"
             ))),
         }
     }
@@ -430,6 +673,45 @@ impl sc2_core::bsn::FromBsn for ClubMemberRankEnum {
             50i128 => Ok(Self::OWNER),
             other => Err(sc2_core::Error::BsnWire(format!(
                 "{other} is not a valid ClubMemberRankEnum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClubSubscriptionSyncInfo {
+    #[bsn(name = "m_clubId")]
+    pub club_id: u32,
+    #[bsn(name = "m_type")]
+    pub type_: super::club::ClubSubscriptionTypeEnum,
+    #[bsn(name = "m_stamp")]
+    pub stamp: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClubSubscriptionTypeEnum {
+    INVALID,
+    ALL,
+    EVENTS,
+    EVENTSIMPLE,
+    ANNOUNCEMENTS,
+    ANNOUNCEMENTSIMPLE,
+    MESSAGEBOARD,
+    ROSTER,
+}
+impl sc2_core::bsn::FromBsn for ClubSubscriptionTypeEnum {
+    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
+        match sc2_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::INVALID),
+            1i128 => Ok(Self::ALL),
+            2i128 => Ok(Self::EVENTS),
+            3i128 => Ok(Self::EVENTSIMPLE),
+            4i128 => Ok(Self::ANNOUNCEMENTS),
+            5i128 => Ok(Self::ANNOUNCEMENTSIMPLE),
+            6i128 => Ok(Self::MESSAGEBOARD),
+            7i128 => Ok(Self::ROSTER),
+            other => Err(sc2_core::Error::BsnWire(format!(
+                "{other} is not a valid ClubSubscriptionTypeEnum"
             ))),
         }
     }

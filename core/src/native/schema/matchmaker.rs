@@ -3,6 +3,18 @@
 use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
+#[derive(Clone, Debug, FromBsn)]
+pub struct MatchMakerAnnounce {
+    #[bsn(name = "m_handle")]
+    pub handle: super::matchmaker::MatchMakerHandle,
+    #[bsn(name = "m_info")]
+    pub info: super::matchmaker::MatchMakerStaticInfo,
+    #[bsn(name = "m_stats")]
+    pub stats: super::matchmaker::MatchMakerHistogramSet,
+    #[bsn(name = "m_allowingAgents")]
+    pub allowing_agents: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatchMakerCoopModeEnum {
     WITHAI,
@@ -21,6 +33,16 @@ impl sc2_core::bsn::FromBsn for MatchMakerCoopModeEnum {
 }
 
 #[derive(Clone, Debug, FromBsn)]
+pub struct MatchMakerFilter {
+    #[bsn(name = "m_tags")]
+    pub tags: Option<Vec<FourCc>>,
+    #[bsn(name = "m_active")]
+    pub active: Option<bool>,
+    #[bsn(name = "m_mmqId")]
+    pub mmq_id: Option<u32>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
 pub struct MatchMakerHandle {
     #[bsn(name = "m_region")]
     pub region: u8,
@@ -30,6 +52,16 @@ pub struct MatchMakerHandle {
     pub id: u32,
     #[bsn(name = "m_version")]
     pub version: u16,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct MatchMakerHistogramSet {
+    #[bsn(name = "m_avgWaitTime")]
+    pub avg_wait_time: Vec<Option<u32>>,
+    #[bsn(name = "m_playerMatchRate")]
+    pub player_match_rate: Vec<Option<u32>>,
+    #[bsn(name = "m_playersInQueue")]
+    pub players_in_queue: Option<u32>,
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -93,6 +125,12 @@ impl sc2_core::bsn::FromBsn for MatchMakerMapOptions {
 pub struct MatchMakerMapPreferences {
     #[bsn(name = "m_vetoedMapIds")]
     pub vetoed_map_ids: Vec<u32>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct MatchMakerPerGameQueueInfo {
+    #[bsn(name = "m_minCommanderLevel")]
+    pub min_commander_level: u32,
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -180,4 +218,22 @@ impl sc2_core::bsn::FromBsn for MatchMakerSeasonStateEnum {
             ))),
         }
     }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct MatchMakerStaticInfo {
+    #[bsn(name = "m_cacheHandle")]
+    pub cache_handle: Bytes,
+    #[bsn(name = "m_profileAddress")]
+    pub profile_address: super::profile::ProfileRecordAddress,
+    #[bsn(name = "m_tags")]
+    pub tags: Vec<FourCc>,
+    #[bsn(name = "m_active")]
+    pub active: bool,
+    #[bsn(name = "m_teamSize")]
+    pub team_size: u8,
+    #[bsn(name = "m_requiredPermissions")]
+    pub required_permissions: Vec<super::permission::PermissionHandle>,
+    #[bsn(name = "m_gameSpecific")]
+    pub game_specific: super::matchmaker::MatchMakerPerGameQueueInfo,
 }
