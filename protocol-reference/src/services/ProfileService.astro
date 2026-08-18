@@ -10,6 +10,7 @@ import RustSchema from "../components/RustSchema.astro";
     <code>Profile</code> namespace.</p>
     <p class="endpoint-index">
       <a href="#profile-read">Prfl/0 Read</a><a href="#profile-address-query">Prfl/1 AddressQuery</a>
+      <a href="#profile-resolve-handle">Prfl/2 ResolveToonHandleToName</a>
       <a href="#profile-resolve-toon">Prfl/3 ResolveToonNameToHandle</a><a href="#profile-settings-available">Prfl/4 SettingsAvailable</a>
       <a href="#profile-change-settings">Prfl/5 ChangeSettings</a><a href="#profile-stats-event">Prfl/8 SendStatsUIEvent</a>
     </p>
@@ -24,8 +25,27 @@ struct ReadRequest {
     client_hash: u32,
     request_id: u32,
     record_address: RecordAddress,
-    read_flags: Bits<5>,
-    path: Vec<u8>, // byte count: u8
+    specification: FullReadSpecification,
+}
+
+struct FullReadSpecification {
+    selection: ReadSelection,
+    reader: Option<ReaderList>,
+}
+
+enum ReadSelection {
+    All { prefix_path: Vec<u8> },
+    Slice {
+        prefix_path: Vec<u8>,
+        slice_start: Option<i64>,
+        slice_end: Option<i64>,
+        row_limit: Option<u32>,
+        single_depth: Option<bool>,
+    },
+    Random,
+    MultiPath { paths: Vec<Vec<u8>> },
+    Range,
+    HeroStats,
 }
 
 // server → client
@@ -42,7 +62,44 @@ enum ReadResult {
 }`} />
       <p class="endpoint-note">Both directions differ from reflection member
       order. A returned avatar is an <code>ImageTableEntry</code> containing the
-      retail <code>ICON</code> atlas ID and row-major cell offset.</p>
+      retail <code>ICON</code> atlas ID and row-major cell offset. Captured
+      selection forms include <code>All</code>, <code>Slice</code>, and
+      <code>MultiPath</code>. Generated request code places one reserved bit
+      before the three-bit selection and the optional-reader presence bit before
+      the selected payload.</p>
+    </Endpoint>
+
+    <Endpoint id="profile-resolve-handle" direction="bidirectional" phase="protected" structure="generated order" status="request capture decoded">
+      <Fragment slot="title"><code>Prfl/2</code> Profile::ResolveToonHandleToName</Fragment>
+      <p>Looks up display names for up to 32 toon handles in one request.</p>
+      <RustSchema code={`// client → server
+record ResolveToonHandleToNameRequest {
+    operation: ResolveToonHandleToName,
+    handles: Array<ToonHandle> {
+        count_bits: 6,
+        count_range: 0..=32,
+    },
+}
+
+record ResolveToonHandleToName {}
+
+// server → client
+record ResolveToonHandleToNameResponse {
+    operation: ResolveToonHandleToName,
+    responses: Array<HandleToNameResponse> {
+        count_bits: 6,
+        count_range: 0..=32,
+    },
+}
+
+record HandleToNameResponse {
+    result: u16,
+    handle: ToonHandle,
+    name: Option<ToonFullName>,
+    tag: Option<String>,
+}`} />
+      <p class="endpoint-note">The operation field occupies zero bits. The
+      captured request uses metadata member order and contains one handle.</p>
     </Endpoint>
 
     <Endpoint id="profile-change-settings" direction="client → server" phase="protected" structure="generated order" status="capture decoded">

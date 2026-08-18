@@ -6,15 +6,17 @@ import RustSchema from "../components/RustSchema.astro";
 
 <ServiceSection id="service-party">
   <Fragment slot="title"><code>Prty</code> — party state</Fragment>
-  <p>Three metadata-backed Party notifications are decoded and reported as generic
-  activity records.</p>
+  <p>Metadata-backed Party requests and notifications are decoded and reported as
+  generic activity records.</p>
   <p class="endpoint-index">
     <a href="#party-begin-ready"><code>Prty/12</code> BeginReadyProcess</a>
     <a href="#party-ready-update"><code>Prty/14</code> ReadyProcessUpdate</a>
+    <a href="#party-modify-non-lobby-attributes"><code>Prty/17</code> ModifyNonLobbyAttributeList</a>
+    <a href="#party-modify-map-options"><code>Prty/19</code> ModifyMapOptions</a>
     <a href="#party-map-options"><code>Prty/20</code> MapOptionsChange</a>
   </p>
 
-  <Endpoint id="party-begin-ready" direction="server → client" phase="protected" structure="verified reflected order" status="decoded">
+  <Endpoint id="party-begin-ready" direction="bidirectional" phase="protected" structure="verified reflected order" status="capture decoded">
     <Fragment slot="title"><code>Prty/12</code> Party::BeginReadyProcess</Fragment>
     <p>Announces the start of one ready process.</p>
     <RustSchema code={`struct BeginReadyProcess {
@@ -36,12 +38,40 @@ enum ReadyProcess {
 }`} />
   </Endpoint>
 
-  <Endpoint id="party-ready-update" direction="server → client" phase="protected" structure="verified reflected order" status="capture decoded">
+  <Endpoint id="party-modify-non-lobby-attributes" direction="client → server" phase="protected" structure="generated order" status="capture decoded">
+    <Fragment slot="title"><code>Prty/17</code> Party::ModifyNonLobbyAttributeList</Fragment>
+    <p>Replaces the party's selected non-lobby attributes.</p>
+    <RustSchema code={`struct ModifyNonLobbyAttributeList {
+    filler: u20,
+    attributes: Array<NonLobbyAttribute> {
+        count_bits: 7,
+        count_range: 0..=64,
+    },
+}
+
+struct NonLobbyAttribute {
+    namespace: u32,
+    id: u32,
+    index: u10,
+}`} />
+    <p class="endpoint-note">Captured records with 16 and 17 attributes place a
+    20-bit generated run before the array.</p>
+  </Endpoint>
+
+  <Endpoint id="party-ready-update" direction="bidirectional" phase="protected" structure="verified reflected order" status="capture decoded">
     <Fragment slot="title"><code>Prty/14</code> Party::ReadyProcessUpdate</Fragment>
     <p>Reports the result of a party ready process, optionally for one member.</p>
     <RustSchema code={`struct ReadyProcessUpdate {
     member_handle: Option<u32>,
     reason: u16,
+}`} />
+  </Endpoint>
+
+  <Endpoint id="party-modify-map-options" direction="client → server" phase="protected" structure="verified reflected order" status="capture verified">
+    <Fragment slot="title"><code>Prty/19</code> Party::ModifyMapOptions</Fragment>
+    <p>Changes the party’s selected map or veto list.</p>
+    <RustSchema code={`struct ModifyMapOptions {
+    map_options: MapOptions,
 }`} />
   </Endpoint>
 

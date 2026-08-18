@@ -7,11 +7,34 @@ import RustSchema from "../components/RustSchema.astro";
 <ServiceSection id="service-s2master">
   <Fragment slot="title"><code>S2Ms</code> — SC2 master data</Fragment>
 <p class="endpoint-index">
+  <a href="#s2master-mmq-subscribe">S2Ms/11 MMQSubscribe</a>
   <a href="#s2master-mmq-info">S2Ms/17 MMQGetInfo</a>
   <a href="#s2master-current-season">S2Ms/27 CurrentSeasonResponse</a>
   <a href="#s2master-mmq-list">S2Ms/28 MMQGetList</a>
   <a href="#s2master-site-latency">S2Ms/35 SiteLatencyInfo</a>
+  <a href="#s2master-mmq-announce">S2Ms/36 MMQAnnounce</a>
 </p>
+    <Endpoint id="s2master-mmq-subscribe" direction="client → server" phase="protected bootstrap" structure="generated order" status="capture decoded">
+      <Fragment slot="title"><code>S2Ms/11</code> S2Master::MMQSubscribe</Fragment>
+      <p>Changes the client’s matchmaking subscription. Startup sends a disabled
+      subscription with an empty filter, followed by an enabled subscription whose
+      tag filter contains <code>CoCa</code> and <code>LotV</code>.</p>
+      <RustSchema code={`record MMQSubscribe {
+    enabled: bool,
+    filter: MatchMakerFilter,
+}
+
+struct MatchMakerFilter {
+    tags: Option<TagList>,
+    active: Option<bool>,
+    mmq_id: Option<u32>,
+}`} />
+      <p class="endpoint-note">The generated filter sequence is
+      <code>active</code>, 17 filler bits, <code>tags</code>, then
+      <code>mmq_id</code>. An enabled startup subscription carries the
+      <code>CoCa</code> and <code>LotV</code> tags with matchmaker ID 290.</p>
+    </Endpoint>
+
     <Endpoint id="s2master-mmq-info" direction="bidirectional" phase="protected" structure="mixed generated order" status="capture decoded">
       <Fragment slot="title"><code>S2Ms/17</code> S2Master::MMQGetInfo</Fragment>
       <p>Requests information for one matchmaker handle. The response correlates by
@@ -94,5 +117,27 @@ struct SiteLatency {
     latency_ms: u32,
     preferred: bool,
 }`} />
+    </Endpoint>
+
+    <Endpoint id="s2master-mmq-announce" direction="server → client" phase="protected" structure="candidate reflected order" status="metadata mapped, complete capture pending">
+      <Fragment slot="title"><code>S2Ms/36</code> S2Master::MMQAnnounce</Fragment>
+      <p>Publishes matchmaking queue state, including queue handles, static queue
+      information, wait-time histograms, and availability flags.</p>
+      <RustSchema code={`struct MMQAnnounce {
+    announcements: Array<Announce> {
+        count_bits: 5,
+        count_range: 0..=16,
+    },
+}
+
+struct Announce {
+    handle: MatchMakerHandle,
+    info: StaticInfo,
+    stats: HistogramSet,
+    allowing_agents: bool,
+}`} />
+      <p class="endpoint-note">The available capture ends partway through this
+      record. Its logical metadata is mapped; the generated layouts remain
+      candidates until a complete record establishes the boundary.</p>
     </Endpoint>
 </ServiceSection>
