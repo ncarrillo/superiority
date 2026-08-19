@@ -6,6 +6,8 @@ pub(in crate::app::client) struct UiGroupSummary {
     pub(in crate::app::client) private: bool,
     pub(in crate::app::client) kind: u8,
     pub(in crate::app::client) category: u8,
+    pub(in crate::app::client) member_count: Option<u32>,
+    pub(in crate::app::client) online: Option<u32>,
 }
 
 impl UiGroupSummary {
@@ -82,28 +84,57 @@ impl UiInvitation {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::app::client) enum JoinSource {
+    /// a clan or group you already belong to.
     Group,
     Public,
+    /// a group the directory answered with, which you are not in.
     Community,
-    Typed,
 }
 
 impl JoinSource {
-    pub(in crate::app::client) fn heading(self) -> &'static str {
+    /// the list ranks the groups you are in above the ones you merely found,
+    /// and both above channels; channels then rank by population.
+    pub(in crate::app::client) const fn rank(self) -> u8 {
         match self {
-            Self::Group => "Groups",
-            Self::Public => "Battle.net channels",
-            Self::Community => "Communities",
-            Self::Typed => "",
+            Self::Group => 0,
+            Self::Community => 1,
+            Self::Public => 2,
         }
     }
 }
 
+/// a room the dialog can offer. channels you are already in never appear —
+/// this list is only things you can act on.
 #[derive(Clone)]
 pub(in crate::app::client) struct JoinRow {
     pub(in crate::app::client) name: String,
+    /// the kind tag a row wears, e.g. `COMMUNITY`. channels wear none.
     pub(in crate::app::client) note: Option<String>,
     pub(in crate::app::client) source: JoinSource,
     pub(in crate::app::client) target: ChatChannel,
     pub(in crate::app::client) icon: &'static str,
+    /// how many people are in there now, when the service has told us.
+    pub(in crate::app::client) count: Option<usize>,
+}
+
+/// under this many people a room is effectively empty, and the count stops
+/// being an invitation and starts being a warning.
+const QUIET_ROOM: usize = 10;
+
+impl JoinRow {
+    /// nobody is in there. the room is still offered — joining is how it stops
+    /// being empty — but it reads and sorts below the ones with people in them.
+    /// a room whose population we have not been told is not dead, only unknown.
+    pub(in crate::app::client) fn dead(&self) -> bool {
+        self.count == Some(0)
+    }
+}
+
+#[must_use]
+pub(in crate::app::client) const fn count_color(count: usize) -> u32 {
+    if count >= QUIET_ROOM {
+        0x0047_d184
+    } else {
+        0x007d_8fa8
+    }
 }

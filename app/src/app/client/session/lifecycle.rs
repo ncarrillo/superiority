@@ -82,8 +82,6 @@ impl SuperiorityView {
         self.roster.roster.focused = false;
         self.composer.composer.clear();
         self.composer.composer_focused = false;
-        self.join.join_input.clear();
-        self.join.join_query.clear();
         self.social.friends_snapshot.clear();
         self.social.friends.clear();
         self.social.blocked_accounts.clear();

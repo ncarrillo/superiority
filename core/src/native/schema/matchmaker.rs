@@ -25,9 +25,7 @@ impl sc2_core::bsn::FromBsn for MatchMakerCoopModeEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             0i128 => Ok(Self::WITHAI),
             1i128 => Ok(Self::WITHMMPLAYERS),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid MatchMakerCoopModeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid MatchMakerCoopModeEnum"))),
         }
     }
 }
@@ -99,24 +97,12 @@ impl sc2_core::bsn::FromBsn for MatchMakerMapOptions {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for MatchMakerMapOptions, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for MatchMakerMapOptions, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::Vetoes(
-                <super::matchmaker::MatchMakerMapPreferences as sc2_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            1i128 => Ok(Self::Selection(<u32 as sc2_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a MatchMakerMapOptions variant"
-            ))),
+            0i128 => Ok(Self::Vetoes(<super::matchmaker::MatchMakerMapPreferences as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Selection(<u32 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a MatchMakerMapOptions variant"))),
         }
     }
 }
@@ -213,9 +199,7 @@ impl sc2_core::bsn::FromBsn for MatchMakerSeasonStateEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             0i128 => Ok(Self::ROLLINPROGRESS),
             1i128 => Ok(Self::ACTIVE),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid MatchMakerSeasonStateEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid MatchMakerSeasonStateEnum"))),
         }
     }
 }
@@ -237,3 +221,4 @@ pub struct MatchMakerStaticInfo {
     #[bsn(name = "m_gameSpecific")]
     pub game_specific: super::matchmaker::MatchMakerPerGameQueueInfo,
 }
+

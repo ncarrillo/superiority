@@ -38,6 +38,31 @@ const CANDIDATE_REFLECTED: &[&str] = &[
 
 const IDENTITY_0: &[WireField] = &[];
 const IDENTITY_1: &[WireField] = &[WireField::new(0, 0)];
+/// `ConferenceDescriptions {m_list, m_isLast}` — the flag leads the page.
+const CONFERENCE_DESCRIPTIONS: &[WireField] = &[WireField::new(1, 0), WireField::new(0, 0)];
+/// `FullConferenceDescription {m_parentCategory, m_name, m_sortOrder,
+/// m_configuration, m_id}` — the id leads, the category and sort order close.
+const FULL_CONFERENCE_DESCRIPTION: &[WireField] = &[
+    WireField::new(4, 0),
+    WireField::new(3, 0),
+    WireField::new(1, 0),
+    WireField::new(0, 0),
+    WireField::new(2, 0),
+];
+/// `ConferenceConfiguration {m_maxMembers, m_allowedPrograms, m_allowedRealms,
+/// m_flags, m_targetProportion}` — the fill target sits between the arrays,
+/// which is what makes this order impossible to guess.
+const CONFERENCE_CONFIGURATION: &[WireField] = &[
+    WireField::new(0, 8),
+    WireField::new(1, 0),
+    WireField::new(4, 0),
+    WireField::new(2, 0),
+    WireField::new(3, 0),
+];
+/// `ShardName {m_key, m_index}` — the index leads, then a reserved run, then
+/// the locator. that run is why the shard cannot be found by walking back from
+/// the locator's fields.
+const SHARD_NAME: &[WireField] = &[WireField::new(1, 0), WireField::new(0, 29)];
 const IDENTITY_2: &[WireField] = &[WireField::new(0, 0), WireField::new(1, 0)];
 const IDENTITY_3: &[WireField] = &[
     WireField::new(0, 0),
@@ -258,6 +283,31 @@ pub(super) fn register(codec: &mut Codec) -> Result<()> {
             decode_category_description_traced,
             encode_category_description,
         ),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::Chat::ConferenceDescriptions",
+        StructWireLayout::new(
+            "generated Chat::ConferenceDescriptions",
+            CONFERENCE_DESCRIPTIONS,
+        ),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Conference::FullConferenceDescription",
+        StructWireLayout::new(
+            "generated Conference::FullConferenceDescription",
+            FULL_CONFERENCE_DESCRIPTION,
+        ),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Conference::ConferenceConfiguration",
+        StructWireLayout::new(
+            "generated Conference::ConferenceConfiguration",
+            CONFERENCE_CONFIGURATION,
+        ),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Conference::ShardName",
+        StructWireLayout::new("generated Conference::ShardName", SHARD_NAME),
     )?;
     codec.register_struct_wire_layout(
         "Battlenet::Conference::PublicPartialName",

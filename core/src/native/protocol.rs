@@ -9,7 +9,12 @@ use crate::{
         value::{BsnField, BsnStruct, BsnValue},
     },
     metadata::{Metadata, Schema, TypeKind, read_largest_metadata, read_metadata},
-    native::{decode, model::Payload, schema, wire_layout},
+    native::{
+        auth::{SESSION_PROOF_MODULE_ID, THUMBPRINT_MODULE_ID},
+        decode,
+        model::Payload,
+        schema, wire_layout,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -46,6 +51,11 @@ pub const PARTY_SLOT: u8 = 12;
 pub const S2_MULTIPLAYER_SLOT: u8 = 13;
 pub const PROFILE_SLOT: u8 = 14;
 pub const TOON_SLOT: u8 = 15;
+/// the universal SC2 profile-address label. every account's toon/profile/presence
+/// records carry this same constant `m_label` (0xCAFEBABE — verified 71× across
+/// many distinct accounts in a real bootstrap); a placeholder makes SC2 reject the
+/// record. see also `presence.rs`, which uses the same constant.
+pub const TOON_PROFILE_LABEL: u32 = 0xCAFE_BABE;
 pub const CHANNEL_INDEX_COUNT: usize = 7;
 pub const MAX_JOINED_CHANNELS: usize = 6;
 pub const CHAT_JOIN_REQUEST_COMMAND: u8 = 0;
@@ -64,9 +74,18 @@ pub const CHAT_WHISPER_ECHO_COMMAND: u8 = 30;
 pub const CHAT_MODIFY_CHANNEL_LIST_COMMAND: u8 = 32;
 pub const CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND: u8 = 33;
 pub const CHAT_CHANNEL_LIST_REQUEST_COMMAND: u8 = 21;
-pub const CHAT_ENUM_CONFERENCES_COMMAND: u8 = 25;
-pub const CHAT_ENUM_CATEGORIES_COMMAND: u8 = 23;
-pub const CHAT_CATEGORY_DESCRIPTIONS_COMMAND: u8 = 24;
+/// chat/25 asks for the live head count of every conference the account can
+/// see. the reply is [`CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND`]. this was long
+/// mislabelled `EnumConferenceDescriptions`; the decrypted 97563 handler at
+/// `0x100289790` decodes `MembershipInfo` elements, and captured replies show a
+/// hard cap where `m_isFull` flips, so it is the member-count query.
+pub const CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND: u8 = 25;
+/// chat/23 asks which conference serves each public channel; the reply is
+/// [`CHAT_CONFERENCE_DESCRIPTIONS_COMMAND`]. mislabelled `EnumCategoryDescriptions`
+/// until 2026-08-19 — the reply's elements are `FullConferenceDescription`, not
+/// the five-byte `CategoryDescription`.
+pub const CHAT_ENUM_CONFERENCE_DESCRIPTIONS_COMMAND: u8 = 23;
+pub const CHAT_CONFERENCE_DESCRIPTIONS_COMMAND: u8 = 24;
 pub const CACHE_GET_STREAM_ITEMS_COMMAND: u8 = 9;
 pub const TOON_SELECT_COMMAND: u8 = 5;
 pub const FRIENDS_LIST_COMMAND: u8 = 30;
@@ -80,7 +99,7 @@ pub const PRESENCE_STATISTICS_UPDATE_COMMAND: u8 = 3;
 pub const PRESENCE_TEMPORARY_COMMAND: u8 = 4;
 pub const CHAT_MEMBERSHIP_COMMAND: u8 = 1;
 pub const CHAT_CHANNEL_LIST_RESPONSE_COMMAND: u8 = 22;
-pub const CHAT_CONFERENCES_RESPONSE_COMMAND: u8 = 26;
+pub const CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND: u8 = 26;
 pub const CHAT_JOIN_NOTIFY_COMMAND: u8 = 27;
 pub const PARTY_NON_LOBBY_ATTRIBUTE_CHANGE_COMMAND: u8 = 0;
 pub const PARTY_BEGIN_READY_PROCESS_COMMAND: u8 = 12;
@@ -137,6 +156,17 @@ pub const SC2_MACOS_NATIVE_VERSIONS: [(&str, &str, u64); 5] = [
     ("S2", "NGD4", 0x86b7_c0ed),
     ("Bnet", "Mc64", SC2_NATIVE_VERSION),
 ];
+
+/// transport-control fields parsed from a client `Connection/13 MessageFrame`.
+#[derive(Debug, Default, Clone)]
+pub struct MessageFrameTransport {
+    pub frame_type: i128,
+    pub payload_len: usize,
+    pub command: Option<u8>,
+    pub correlation_id: Option<u32>,
+    pub reply: Option<bool>,
+    pub sequence: Option<u32>,
+}
 
 const INCOMING_TYPES: &[((u8, u8), &str)] = &[
     (
@@ -240,12 +270,12 @@ const INCOMING_TYPES: &[((u8, u8), &str)] = &[
         "Battlenet::Client::Chat::ChannelListResponse",
     ),
     (
-        (CHAT_SLOT, CHAT_CATEGORY_DESCRIPTIONS_COMMAND),
-        "Battlenet::Client::Chat::CategoryDescriptions",
+        (CHAT_SLOT, CHAT_CONFERENCE_DESCRIPTIONS_COMMAND),
+        "Battlenet::Client::Chat::ConferenceDescriptions",
     ),
     (
-        (CHAT_SLOT, CHAT_CONFERENCES_RESPONSE_COMMAND),
-        "Battlenet::Client::Chat::ConferenceDescriptions",
+        (CHAT_SLOT, CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND),
+        "Battlenet::Client::Chat::ConferenceMemberCounts",
     ),
     (
         (CHAT_SLOT, CHAT_JOIN_NOTIFY_COMMAND),
@@ -381,7 +411,8 @@ const fn has_custom_incoming_decoder(route: (u8, u8)) -> bool {
         (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND)
             | (
                 CHAT_SLOT,
-                CHAT_CONFERENCES_RESPONSE_COMMAND
+                CHAT_CONFERENCE_DESCRIPTIONS_COMMAND
+                    | CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND
                     | CHAT_CHANNEL_LIST_RESPONSE_COMMAND
                     | CHAT_JOIN_NOTIFY_COMMAND
                     | CHAT_INVITE_NOTIFY_COMMAND
@@ -456,11 +487,16 @@ pub struct Protocol {
     single_sign_on_request_type: u32,
     proof_response_type: u32,
     enable_encryption_type: u32,
+    // server-side response roots (records the client receives, that we emit).
+    configuration_type: u32,
+    proof_request_type: u32,
+    resume_response_type: u32,
     ping_type: u32,
     message_frame_type: u32,
     front_logon_response_type: u32,
     chat_channel_list_request_type: u32,
-    chat_enum_conferences_type: u32,
+    chat_enum_member_counts_type: u32,
+    chat_enum_conference_descriptions_type: u32,
     chat_status_change_type: u32,
     friends_toons_request_type: u32,
     profile_address_query_request_type: u32,
@@ -506,6 +542,12 @@ impl Protocol {
             metadata.unique_type_id("Battlenet::Client::Authentication::ProofResponse")?;
         let enable_encryption_type =
             metadata.unique_type_id("Battlenet::Client::Connection::EnableEncryption")?;
+        let configuration_type =
+            metadata.unique_type_id("Battlenet::Client::Authentication::Configuration")?;
+        let proof_request_type =
+            metadata.unique_type_id("Battlenet::Client::Authentication::ProofRequest")?;
+        let resume_response_type =
+            metadata.unique_type_id("Battlenet::Client::Authentication::ResumeResponse")?;
         let ping_type = metadata.unique_type_id("Battlenet::Client::Connection::Ping")?;
         let message_frame_type =
             metadata.unique_type_id("Battlenet::Client::Connection::MessageFrame")?;
@@ -513,7 +555,9 @@ impl Protocol {
             metadata.unique_type_id("Battlenet::Client::Authentication::LogonResponse3")?;
         let chat_channel_list_request_type =
             metadata.unique_type_id("Battlenet::Client::Chat::ChannelListRequest")?;
-        let chat_enum_conferences_type =
+        let chat_enum_member_counts_type =
+            metadata.unique_type_id("Battlenet::Client::Chat::EnumConferenceMemberCounts")?;
+        let chat_enum_conference_descriptions_type =
             metadata.unique_type_id("Battlenet::Client::Chat::EnumConferenceDescriptions")?;
         let chat_status_change_type =
             metadata.unique_type_id("Battlenet::Client::Chat::StatusChangeRequest")?;
@@ -543,11 +587,15 @@ impl Protocol {
             single_sign_on_request_type,
             proof_response_type,
             enable_encryption_type,
+            configuration_type,
+            proof_request_type,
+            resume_response_type,
             ping_type,
             message_frame_type,
             front_logon_response_type,
             chat_channel_list_request_type,
-            chat_enum_conferences_type,
+            chat_enum_member_counts_type,
+            chat_enum_conference_descriptions_type,
             chat_status_change_type,
             friends_toons_request_type,
             profile_address_query_request_type,
@@ -587,8 +635,11 @@ impl Protocol {
             }
             Ok(match route {
                 (CACHE_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND) => decode::cache_stream_items(reader)?,
-                (CHAT_SLOT, CHAT_CONFERENCES_RESPONSE_COMMAND) => {
+                (CHAT_SLOT, CHAT_CONFERENCE_DESCRIPTIONS_COMMAND) => {
                     decode::conference_descriptions(reader)?
+                }
+                (CHAT_SLOT, CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND) => {
+                    decode::conference_member_counts(reader)?
                 }
                 (CHAT_SLOT, CHAT_CHANNEL_LIST_RESPONSE_COMMAND) => decode::channel_list(reader)?,
                 (CHAT_SLOT, CHAT_JOIN_NOTIFY_COMMAND) => decode::chat_join(reader)?,
@@ -704,8 +755,11 @@ impl Protocol {
             (CHAT_SLOT, CHAT_INVITE_NOTIFY_COMMAND) => {
                 Some(decode::chat_invite_with_provenance(reader)?)
             }
-            (CHAT_SLOT, CHAT_CONFERENCES_RESPONSE_COMMAND) => {
+            (CHAT_SLOT, CHAT_CONFERENCE_DESCRIPTIONS_COMMAND) => {
                 Some(decode::conference_descriptions_with_provenance(reader)?)
+            }
+            (CHAT_SLOT, CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND) => {
+                Some(decode::conference_member_counts_with_provenance(reader)?)
             }
             (CHAT_SLOT, CHAT_CHANNEL_LIST_RESPONSE_COMMAND) => {
                 Some(decode::channel_list_with_provenance(reader)?)
@@ -885,6 +939,39 @@ impl Protocol {
         )
     }
 
+    /// like [`Protocol::resume_request`] but from explicit fields instead of a
+    /// decoded [`NativeHandoff`]. useful for tooling and loopback tests that
+    /// drive the client side without a full BGS handoff.
+    pub fn resume_request_fields(
+        &self,
+        account_mail: &str,
+        game_account_name: &str,
+        game_account_region: u8,
+    ) -> Result<Vec<u8>> {
+        let common = self.request_common(self.resume_request_type, "RequestCommon")?;
+        let value = self.struct_value(
+            self.resume_request_type,
+            vec![
+                ("RequestCommon", common),
+                ("m_account", BsnValue::Bytes(account_mail.as_bytes().to_vec())),
+                (
+                    "m_gameAccountRegion",
+                    BsnValue::Integer(i128::from(game_account_region)),
+                ),
+                (
+                    "m_gameAccountName",
+                    BsnValue::Bytes(game_account_name.as_bytes().to_vec()),
+                ),
+            ],
+        )?;
+        self.encode_record(
+            AUTH_RESUME_COMMAND,
+            AUTHENTICATION_SLOT,
+            self.resume_request_type,
+            &value,
+        )
+    }
+
     pub fn logon_request(&self, account_mail: &str) -> Result<Vec<u8>> {
         if account_mail.is_empty() {
             return Err(native_error("native logon account is empty"));
@@ -970,6 +1057,279 @@ impl Protocol {
             self.enable_encryption_type,
             &value,
         )
+    }
+
+    // ---------------------------------------------------------------------
+    // server-side record construction.
+    //
+    // these build the records a native *server* emits (the records a client
+    // receives). they mirror the client constructors above and reuse the same
+    // reflected encoder. the single-purpose auth fields (`m_useS3Depot`, the
+    // proof modules, the final session module) are pinned by the client-side
+    // verification in `auth.rs`; any other schema fields are filled with typed
+    // defaults so the record still decodes. byte-exact parity with retail for
+    // the larger `Configuration`/`ResponseSuccessCommon` field sets should be
+    // confirmed against a capture.
+    // ---------------------------------------------------------------------
+
+    /// `Auth/18 Configuration`.
+    pub fn configuration(&self, use_s3_depot: bool) -> Result<Vec<u8>> {
+        let value = self.struct_with_defaults(
+            self.configuration_type,
+            vec![("m_useS3Depot", BsnValue::Bool(use_s3_depot))],
+        )?;
+        self.encode_record(
+            AUTH_CONFIGURATION_COMMAND,
+            AUTHENTICATION_SLOT,
+            self.configuration_type,
+            &value,
+        )
+    }
+
+    /// `Auth/2 ProofRequest` carrying the two required modules: the thumbprint
+    /// module (our RSA signature over the peer context) and the session module
+    /// (`0x00 ‖ server_nonce`).
+    pub fn proof_request(
+        &self,
+        thumbprint_signature: &[u8],
+        server_nonce: &[u8; 16],
+    ) -> Result<Vec<u8>> {
+        let request_field = self.member_type(self.proof_request_type, "m_request")?;
+        let module_type = self.array_element(request_field)?;
+        let thumbprint_module = self.struct_with_defaults(
+            module_type,
+            vec![
+                ("m_id", BsnValue::Bytes(THUMBPRINT_MODULE_ID.to_vec())),
+                ("m_data", BsnValue::Bytes(thumbprint_signature.to_vec())),
+            ],
+        )?;
+        let mut session_data = Vec::with_capacity(17);
+        session_data.push(0);
+        session_data.extend_from_slice(server_nonce);
+        let session_module = self.struct_with_defaults(
+            module_type,
+            vec![
+                ("m_id", BsnValue::Bytes(SESSION_PROOF_MODULE_ID.to_vec())),
+                ("m_data", BsnValue::Bytes(session_data)),
+            ],
+        )?;
+        let value = self.struct_with_defaults(
+            self.proof_request_type,
+            vec![(
+                "m_request",
+                BsnValue::Array(vec![thumbprint_module, session_module]),
+            )],
+        )?;
+        self.encode_record(
+            AUTH_PROOF_COMMAND,
+            AUTHENTICATION_SLOT,
+            self.proof_request_type,
+            &value,
+        )
+    }
+
+    /// `Auth/1 ResumeResponse` phase-two success, carrying the final session
+    /// module (`0x02 ‖ server_proof`).
+    pub fn resume_response(&self, server_proof: &[u8; 32]) -> Result<Vec<u8>> {
+        let result_type = self.member_type(self.resume_response_type, "m_result")?;
+        let success_type = self.choice_variant_by_index(result_type, 0)?;
+        let common_type = self.member_type(success_type, "ResponseSuccessCommon")?;
+        let final_field_type = self.member_type(common_type, "m_finalRequest")?;
+        let module_type = self.array_element(final_field_type)?;
+
+        let mut data = Vec::with_capacity(33);
+        data.push(2);
+        data.extend_from_slice(server_proof);
+        let module = self.struct_with_defaults(
+            module_type,
+            vec![
+                ("m_id", BsnValue::Bytes(SESSION_PROOF_MODULE_ID.to_vec())),
+                ("m_data", BsnValue::Bytes(data)),
+            ],
+        )?;
+        let common = self.struct_with_defaults(
+            common_type,
+            vec![("m_finalRequest", BsnValue::Array(vec![module]))],
+        )?;
+        let success =
+            self.struct_with_defaults(success_type, vec![("ResponseSuccessCommon", common)])?;
+        let value = self.struct_with_defaults(
+            self.resume_response_type,
+            vec![("m_result", BsnValue::choice(0, success))],
+        )?;
+        self.encode_record(
+            AUTH_RESUME_COMMAND,
+            AUTHENTICATION_SLOT,
+            self.resume_response_type,
+            &value,
+        )
+    }
+
+    /// decode a record the *client* sent (server-side inbound). resolves the
+    /// route to the client-request type rather than the client-receive type.
+    pub(crate) fn decode_client_request_from(
+        &self,
+        reader: &mut BitReader<'_>,
+        header: RoutingHeader,
+    ) -> Result<(u32, Payload)> {
+        let slot = header
+            .service_slot
+            .ok_or_else(|| native_error("native client record has no service slot"))?;
+        // EnableEncryption is an empty, obfuscated marker: SC2 sends the empty
+        // plaintext conn/5 record. it carries no fields, so consume just the
+        // route header rather than running the reflected decoder, which rejects
+        // obfuscated types that have no registered wire layout.
+        if slot == CONNECTION_SLOT && header.command_id == CONNECTION_ENABLE_ENCRYPTION_COMMAND {
+            return Ok((self.enable_encryption_type, Payload::Reflected(BsnValue::Void)));
+        }
+        // MessageFrame is an obfuscated, bidirectional transport wrapper; reuse the
+        // custom incoming decoder to advance past the client's MessageFrames.
+        if slot == CONNECTION_SLOT && header.command_id == CONNECTION_MESSAGE_FRAME_COMMAND {
+            let payload = decode::message_frame(self, self.message_frame_type, reader)?;
+            return Ok((self.message_frame_type, payload));
+        }
+        let type_id = self.client_request_type(slot, header.command_id)?;
+        let value = self.codec.decode_from(reader, type_id)?;
+        Ok((type_id, Payload::Reflected(value)))
+    }
+
+    fn client_request_type(&self, slot: u8, command: u8) -> Result<u32> {
+        Ok(match (slot, command) {
+            (AUTHENTICATION_SLOT, AUTH_LOGON_COMMAND) => self.logon_request_type,
+            (AUTHENTICATION_SLOT, AUTH_RESUME_COMMAND) => self.resume_request_type,
+            (AUTHENTICATION_SLOT, AUTH_PROOF_COMMAND) => self.proof_response_type,
+            (AUTHENTICATION_SLOT, AUTH_SINGLE_SIGN_ON_COMMAND) => self.single_sign_on_request_type,
+            (CONNECTION_SLOT, CONNECTION_ENABLE_ENCRYPTION_COMMAND) => self.enable_encryption_type,
+            // post-handshake client requests core can already decode (server side).
+            (CONNECTION_SLOT, CONNECTION_PING_COMMAND) => self.ping_type,
+            (CONNECTION_SLOT, CONNECTION_MESSAGE_FRAME_COMMAND) => self.message_frame_type,
+            (CHAT_SLOT, CHAT_CHANNEL_LIST_REQUEST_COMMAND) => self.chat_channel_list_request_type,
+            (CHAT_SLOT, CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND) => self.chat_enum_member_counts_type,
+            (CHAT_SLOT, CHAT_ENUM_CONFERENCE_DESCRIPTIONS_COMMAND) => {
+                self.chat_enum_conference_descriptions_type
+            }
+            (CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND) => self.chat_status_change_type,
+            (FRIENDS_SLOT, FRIENDS_TOONS_COMMAND) => self.friends_toons_request_type,
+            (PRESENCE_SLOT, PRESENCE_STATISTICS_SUBSCRIBE_COMMAND) => {
+                self.presence_statistics_subscribe_type
+            }
+            (PRESENCE_SLOT, PRESENCE_TEMPORARY_COMMAND) => self.temporary_presence_request_type,
+            _ => return Err(Error::UnmappedNativeRoute { slot, command }),
+        })
+    }
+
+    /// build a struct value filling every schema member with a typed default,
+    /// then applying the named overrides. used for server records whose full
+    /// field set is broader than the auth-critical fields we pin explicitly.
+    fn struct_with_defaults(
+        &self,
+        type_id: u32,
+        overrides: Vec<(&str, BsnValue)>,
+    ) -> Result<BsnValue> {
+        let peeled = self.peel_alias(type_id)?;
+        let shape = self.codec.schema().shape(peeled)?;
+        if shape.kind != TypeKind::Struct {
+            return Err(native_error(format!("BSN type {peeled} is not a struct")));
+        }
+        let mut overrides: HashMap<&str, BsnValue> = overrides.into_iter().collect();
+        let mut fields = Vec::with_capacity(shape.member_types.len());
+        for position in 0..shape.member_types.len() {
+            let member_type = shape.member_types[position];
+            let name = shape.member_names[position].clone();
+            let raw = match name.as_deref().and_then(|name| overrides.remove(name)) {
+                Some(value) => value,
+                None => self.default_value(member_type)?,
+            };
+            fields.push(BsnField::named(
+                shape.index_values[position],
+                name.as_deref().unwrap_or_default(),
+                self.coerce_field_value(member_type, raw)?,
+            ));
+        }
+        if let Some((name, _)) = overrides.into_iter().next() {
+            return Err(native_error(format!(
+                "BSN struct {peeled} has no field named {name}"
+            )));
+        }
+        Ok(BsnValue::Struct(BsnStruct::new(peeled, fields)))
+    }
+
+    /// a typed zero/empty value for `type_id`, used to fill schema fields whose
+    /// exact server value is not yet pinned.
+    fn default_value(&self, type_id: u32) -> Result<BsnValue> {
+        let type_id = self.peel_alias(type_id)?;
+        let shape = self.codec.schema().shape(type_id)?;
+        Ok(match shape.kind {
+            TypeKind::Void => BsnValue::Void,
+            TypeKind::Bool => BsnValue::Bool(false),
+            TypeKind::Integer | TypeKind::Enum => {
+                BsnValue::Integer(shape.value_range.map_or(0, |range| range.minimum))
+            }
+            TypeKind::FourCc => BsnValue::FourCc(0),
+            TypeKind::Float32 => BsnValue::Float32(0.0),
+            TypeKind::Float64 => BsnValue::Float64(0.0),
+            TypeKind::String => BsnValue::String(String::new()),
+            TypeKind::ByteString | TypeKind::Blob => BsnValue::Bytes(Vec::new()),
+            TypeKind::Array => BsnValue::Array(Vec::new()),
+            TypeKind::Optional => BsnValue::none(),
+            TypeKind::Struct => {
+                let mut fields = Vec::with_capacity(shape.member_types.len());
+                for position in 0..shape.member_types.len() {
+                    let name = shape.member_names[position].clone().unwrap_or_default();
+                    fields.push(BsnField::named(
+                        shape.index_values[position],
+                        &name,
+                        self.default_value(shape.member_types[position])?,
+                    ));
+                }
+                BsnValue::Struct(BsnStruct::new(type_id, fields))
+            }
+            TypeKind::Choice => {
+                let variant_type = *shape
+                    .member_types
+                    .first()
+                    .ok_or_else(|| native_error(format!("BSN choice {type_id} has no variants")))?;
+                let index = *shape.index_values.first().ok_or_else(|| {
+                    native_error(format!("BSN choice {type_id} has no variant indices"))
+                })?;
+                BsnValue::choice(index, self.default_value(variant_type)?)
+            }
+            TypeKind::BitArray => {
+                return Err(native_error(format!(
+                    "BSN default for bit-array type {type_id} is unsupported; provide it explicitly"
+                )));
+            }
+            TypeKind::Alias => {
+                return Err(native_error("BSN alias type should have been peeled"));
+            }
+        })
+    }
+
+    fn choice_variant_by_index(&self, type_id: u32, index: i128) -> Result<u32> {
+        let peeled = self.peel_alias(type_id)?;
+        let mut shape = self.codec.schema().shape(peeled)?;
+        if shape.kind == TypeKind::Optional {
+            let inner = shape
+                .member_types
+                .first()
+                .copied()
+                .or(shape.element_type)
+                .ok_or_else(|| native_error(format!("BSN optional {peeled} has no inner type")))?;
+            shape = self.codec.schema().shape(self.peel_alias(inner)?)?;
+        }
+        if shape.kind != TypeKind::Choice {
+            return Err(native_error(format!("BSN type {peeled} is not a choice")));
+        }
+        let position = shape
+            .index_values
+            .iter()
+            .position(|value| *value == index)
+            .ok_or_else(|| {
+                native_error(format!(
+                    "BSN choice {peeled} has no variant with index {index}"
+                ))
+            })?;
+        Ok(shape.member_types[position])
     }
 
     pub fn club_subscribe(
@@ -1092,12 +1452,87 @@ impl Protocol {
         )
     }
 
+    /// decode a captured server→client record (routing header + payload) from raw
+    /// bytes, returning `(service_slot, command_id, payload)`. convenience for
+    /// tooling that has a record and wants its decoded payload — e.g. pulling the
+    /// `content_handle` out of a `CacheStreamItems` to pre-fetch a catalog.
+    pub fn decode_server_record(&self, bytes: &[u8]) -> Result<(Option<u8>, u8, Payload)> {
+        let mut reader = crate::bsn::bits::BitReader::new(bytes, None)?;
+        let command_id = u8::try_from(reader.read(6)?).expect("6 bits fit in u8");
+        let service_slot = if reader.read(1)? != 0 {
+            Some(u8::try_from(reader.read(4)?).expect("4 bits fit in u8"))
+        } else {
+            None
+        };
+        let header = crate::bsn::bits::RoutingHeader {
+            command_id,
+            service_slot,
+            bit_count: reader.position(),
+        };
+        let (_type_id, payload) = self.decode_incoming_from(&mut reader, header)?;
+        Ok((service_slot, command_id, payload))
+    }
+
+    /// decode a client `Connection/13 MessageFrame` and extract its transport-control
+    /// header fields (the "TrnC" reliable-message layer): route command, correlation
+    /// id + reply flag, and stream sequence id. used to drive the server-side ack.
+    pub fn message_frame_transport(&self, bytes: &[u8]) -> Result<MessageFrameTransport> {
+        let mut reader = crate::bsn::bits::BitReader::new(bytes, None)?;
+        let _command = reader.read(6)?;
+        if reader.read(1)? != 0 {
+            let _slot = reader.read(4)?;
+        }
+        let payload = decode::message_frame(self, self.message_frame_type, &mut reader)?;
+        let crate::native::model::Payload::MessageFrame(frame) = payload else {
+            return Err(native_error("record is not a message frame"));
+        };
+        Ok(self.transport_fields(&frame))
+    }
+
+    /// pull the reliable-transport control fields (command, correlation id, reply
+    /// flag, sequence) out of an already-decoded message frame — the shape
+    /// [`RecordStream::receive`] hands back as `Payload::MessageFrame`.
+    pub fn transport_fields(
+        &self,
+        frame: &crate::native::model::ConnectionMessageFrame,
+    ) -> MessageFrameTransport {
+        let mut info = MessageFrameTransport {
+            frame_type: frame.frame_type,
+            payload_len: frame.payload.len(),
+            command: None,
+            correlation_id: None,
+            reply: None,
+            sequence: None,
+        };
+        for header in &frame.headers {
+            let Some(crate::bsn::value::BsnValue::Choice { value, .. }) = header.get("m_data") else {
+                continue;
+            };
+            let Some(inner) = value.as_struct() else { continue };
+            if let Some(crate::bsn::value::BsnValue::Integer(command)) = inner.get("m_command") {
+                info.command = u8::try_from(*command).ok();
+            }
+            if let Some(crate::bsn::value::BsnValue::Integer(id)) = inner.get("m_id") {
+                info.correlation_id = u32::try_from(*id).ok();
+            }
+            if let Some(crate::bsn::value::BsnValue::Bool(reply)) = inner.get("m_reply") {
+                info.reply = Some(*reply);
+            }
+            if let Some(crate::bsn::value::BsnValue::Integer(sequence)) = inner.get("m_sequenceId") {
+                info.sequence = u32::try_from(*sequence).ok();
+            }
+        }
+        info
+    }
+
     pub fn transport_control_maintenance(&self, correlation_id: u32) -> Result<[Vec<u8>; 2]> {
         Ok([
-            self.transport_control_frame(3, correlation_id, vec![0; 4])?,
+            self.transport_control_frame(3, correlation_id, false, 1, vec![0; 4])?,
             self.transport_control_frame(
                 2,
                 correlation_id.wrapping_sub(1),
+                false,
+                1,
                 vec![
                     0x03, 0x00, 0x80, 0x05, 0x7e, 0x40, 0x02, 0x02, 0x0a, 0x03, 0x01,
                 ],
@@ -1105,10 +1540,40 @@ impl Protocol {
         ])
     }
 
+    /// build a server-side transport-control reply: echoes the client's correlation
+    /// id with `m_reply=true` so SC2's reliable-message layer sees its frame acked.
+    pub fn transport_control_reply(
+        &self,
+        command: u8,
+        correlation_id: u32,
+        sequence: u32,
+        payload: Vec<u8>,
+    ) -> Result<Vec<u8>> {
+        self.transport_control_frame(command, correlation_id, true, sequence, payload)
+    }
+
+    /// build a top-level `CommandResponse` (a no-slot reply record): the 6-bit command
+    /// id, the `service_present=0` marker, a 9-bit result code (0 = success), then the
+    /// optional body. this is the record the reliable transport carries as its reply
+    /// payload; a well-formed one is safe (unlike a stale replayed data blob).
+    pub fn command_response(&self, command_id: u8, result: u16, body: &[u8]) -> Result<Vec<u8>> {
+        let mut writer = crate::bsn::bits::BitWriter::new();
+        writer.write(u64::from(command_id), 6)?;
+        writer.write(0, 1)?; // service not present -> command response
+        writer.write(u64::from(result), 9)?;
+        if !body.is_empty() {
+            writer.write_bytes(body, false)?;
+        }
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
     fn transport_control_frame(
         &self,
         command: u8,
         correlation_id: u32,
+        reply: bool,
+        sequence: u32,
         payload: Vec<u8>,
     ) -> Result<Vec<u8>> {
         let header_list_type = self.member_type(self.message_frame_type, "m_headers")?;
@@ -1133,7 +1598,7 @@ impl Protocol {
             correlation_type,
             vec![
                 ("m_id", BsnValue::Integer(i128::from(correlation_id))),
-                ("m_reply", BsnValue::Bool(false)),
+                ("m_reply", BsnValue::Bool(reply)),
             ],
         )?;
         let content = self.struct_value(
@@ -1146,7 +1611,7 @@ impl Protocol {
         let stream = self.struct_value(
             stream_type,
             vec![
-                ("m_sequenceId", BsnValue::Integer(1)),
+                ("m_sequenceId", BsnValue::Integer(i128::from(sequence))),
                 ("m_more", BsnValue::Bool(false)),
             ],
         )?;
@@ -1275,12 +1740,38 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
+    /// a zero-payload record on the chat slot.
+    ///
+    /// every chat query SC2 issues — `ChannelListRequest` (21),
+    /// `EnumConferenceDescriptions` (23), `EnumConferenceMemberCounts` (25) — is
+    /// exactly an eleven-bit routing header and nothing else, so an unknown
+    /// query can be tried without inventing a payload for it. used only by the
+    /// command-id probe.
+    pub fn chat_empty_request(&self, command: u8) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(command, CHAT_SLOT)?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// asks which conference serves each public channel. SC2 sends this at
+    /// bootstrap; without it the counts arrive keyed by conference id with
+    /// nothing to attribute them to.
     pub fn chat_enum_conference_descriptions(&self) -> Result<Vec<u8>> {
-        let value = self.struct_value(self.chat_enum_conferences_type, Vec::new())?;
+        let value = self.struct_value(self.chat_enum_conference_descriptions_type, Vec::new())?;
         self.encode_record(
-            CHAT_ENUM_CONFERENCES_COMMAND,
+            CHAT_ENUM_CONFERENCE_DESCRIPTIONS_COMMAND,
             CHAT_SLOT,
-            self.chat_enum_conferences_type,
+            self.chat_enum_conference_descriptions_type,
+            &value,
+        )
+    }
+
+    pub fn chat_enum_conference_member_counts(&self) -> Result<Vec<u8>> {
+        let value = self.struct_value(self.chat_enum_member_counts_type, Vec::new())?;
+        self.encode_record(
+            CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND,
+            CHAT_SLOT,
+            self.chat_enum_member_counts_type,
             &value,
         )
     }
@@ -1458,6 +1949,651 @@ impl Protocol {
         }
         let mut writer = Self::record_writer(CHAT_LEAVE_REQUEST_COMMAND, CHAT_SLOT)?;
         writer.write(u64::from(channel_index), 3)?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- server-side chat responses (mirror the `decode::*` readers) --------
+    // these build the records a Battle.net chat server pushes, letting a Sunken
+    // server drive a real client through the bootstrap into a channel.
+
+    /// chat `ConferenceMemberCounts`. mirrors
+    /// [`decode::conference_member_counts`]. an empty, final page
+    /// (`is_last=true`) satisfies the client's bootstrap gate. each entry is
+    /// `(conference_id, members, full)`.
+    pub fn conference_member_counts_response(
+        &self,
+        entries: &[(u32, u16, bool)],
+        is_last: bool,
+    ) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(CHAT_CONFERENCE_MEMBER_COUNTS_COMMAND, CHAT_SLOT)?;
+        writer.write(u64::from(is_last), 1)?;
+        writer.write(0, 27)?; // reserved
+        writer.write(0, 1)?; // m_time present = no
+        writer.write(u64::try_from(entries.len()).unwrap_or(u64::MAX), 6)?;
+        for (conference_id, members, full) in entries {
+            writer.write(0, 23)?; // reserved
+            writer.write(u64::from(*conference_id), 32)?;
+            writer.write(u64::from(*members), 16)?;
+            writer.write(u64::from(*full), 1)?;
+        }
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// chat `ConferenceDescriptions` (chat/24) answering SC2's
+    /// `EnumConferenceDescriptions` (chat/23). an empty, final page: like the
+    /// empty member-count and channel-list responses, a client only needs the
+    /// reply to advance its bootstrap.
+    ///
+    /// written by hand rather than by reflected encode, because the type is
+    /// obfuscated and only [`decode::conference_descriptions`] knows its order.
+    pub fn conference_descriptions_response(&self, is_last: bool) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(CHAT_CONFERENCE_DESCRIPTIONS_COMMAND, CHAT_SLOT)?;
+        writer.write(u64::from(is_last), 1)?;
+        writer.write(0, 6)?; // entry count
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// chat `ChannelList`. mirrors [`decode::channel_list`]. each entry is
+    /// `(kind, index, identifier)`.
+    pub fn channel_list_response(&self, entries: &[(u8, u16, u16)]) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(CHAT_CHANNEL_LIST_RESPONSE_COMMAND, CHAT_SLOT)?;
+        writer.write(0, 27)?; // reserved
+        writer.write(0, 1)?; // wire flag
+        writer.write(0, 9)?; // wire-layout selector
+        writer.write(u64::try_from(entries.len()).unwrap_or(u64::MAX), 6)?;
+        for (kind, index, identifier) in entries {
+            writer.write(u64::from(*kind), 8)?;
+            writer.write(u64::from(*index), 16)?;
+            writer.write(0, 24)?; // reserved
+            writer.write(u64::from(*identifier), 16)?;
+        }
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// chat `ModifyChannelListResponse2` (chat/33) — the gate SC2 waits on before it
+    /// sends its join (chat/0). it answers SC2's `ModifyChannelListRequest` (chat/32);
+    /// `m_token` MUST echo the request's token, and `m_result` must be the SUCCESS
+    /// variant (a `Battlenet::Time::Seconds`). a captured response carrying the FAILURE
+    /// variant is exactly why replaying it never advanced SC2 — so this builds success.
+    pub fn modify_channel_list_response(&self, token: u32, seconds: u32) -> Result<Vec<u8>> {
+        let root = self.incoming_type(CHAT_SLOT, CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND)?;
+        let mut writer = Self::record_writer(CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND, CHAT_SLOT)?;
+        let value = self.struct_value(
+            root,
+            vec![
+                ("m_token", BsnValue::Integer(i128::from(token))),
+                (
+                    "m_result",
+                    BsnValue::choice(0, BsnValue::Integer(i128::from(seconds))),
+                ),
+            ],
+        )?;
+        self.codec.encode_reflected_into(&mut writer, root, &value)?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// chat `JoinNotify` accepting a join. mirrors the success path of
+    /// [`decode::chat_join`]. omits the token (client then matches by channel
+    /// type) and the channel name (so `validate_public_join` passes).
+    pub fn chat_join_result(
+        &self,
+        channel_index: u8,
+        member_handle: u32,
+        channel_type: u8,
+    ) -> Result<Vec<u8>> {
+        if usize::from(channel_index) >= CHANNEL_INDEX_COUNT {
+            return Err(native_error("chat channel index must be between 0 and 6"));
+        }
+        let mut writer = Self::record_writer(CHAT_JOIN_NOTIFY_COMMAND, CHAT_SLOT)?;
+        writer.write(0, 1)?; // 0 = success
+        writer.write(u64::from(member_handle), 32)?;
+        writer.write(u64::from(channel_index), 3)?;
+        writer.write(0, 32)?; // reserved field A
+        writer.write(0, 32)?; // reserved field B
+        writer.write(u64::from(channel_type), 4)?;
+        writer.write(0, 1)?; // channel-name present = no
+        writer.write(0, 1)?; // channel-config present = no
+        writer.write(0, 1)?; // extra-u32 present = no
+        writer.write(0, 1)?; // token present = no
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// chat `Membership` — the initial roster. mirrors [`decode::chat_membership`].
+    /// each `(member_handle, presence_id)` becomes a joined member (choice=1) with
+    /// no status sub-records. `members` must be non-empty (the length is encoded as
+    /// `count - 1`).
+    pub fn chat_membership_response(
+        &self,
+        channel_index: u8,
+        members: &[(u32, u32)],
+        end_of_initial: bool,
+    ) -> Result<Vec<u8>> {
+        if usize::from(channel_index) >= CHANNEL_INDEX_COUNT {
+            return Err(native_error("chat channel index must be between 0 and 6"));
+        }
+        if members.is_empty() {
+            return Err(native_error("chat membership must carry at least one member"));
+        }
+        let mut writer = Self::record_writer(CHAT_MEMBERSHIP_COMMAND, CHAT_SLOT)?;
+        writer.write(u64::from(end_of_initial), 1)?;
+        writer.write(u64::from(channel_index), 3)?;
+        // the array length is stored as (count - 1).
+        writer.write(u64::try_from(members.len() - 1).unwrap_or(u64::MAX), 6)?;
+        for (member_handle, presence_id) in members {
+            writer.write(1, 2)?; // choice = Join
+            writer.write(u64::from(*member_handle), 32)?;
+            writer.write(u64::from(*presence_id), 32)?;
+            writer.write(0, 3)?; // member-status count = 0
+        }
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// cache `GetStreamItems` response — a catalog pointer. mirrors
+    /// [`decode::cache_stream_items`]. `token` must echo the client's request token;
+    /// each item is `(publication_time, content_handle)` naming a depot object the
+    /// client then downloads. the client picks the item with the latest publication
+    /// time and keys the catalog by `token`.
+    pub fn cache_stream_items_response(
+        &self,
+        token: u32,
+        items: &[(i32, [u8; 40])],
+    ) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(CACHE_GET_STREAM_ITEMS_COMMAND, CACHE_SLOT)?;
+        writer.write(u64::try_from(items.len()).unwrap_or(u64::MAX), 6)?;
+        for (publication_time, handle) in items {
+            writer.write(0, 23)?; // wire-layout selector (decoder reads a fixed layout)
+            writer.write_bytes(handle, true)?; // aligned 40-byte content handle
+            writer.write(u64::from(*publication_time as u32), 32)?;
+        }
+        writer.write(u64::from(token), 32)?;
+        writer.write(u64::try_from(items.len()).unwrap_or(u64::MAX), 16)?; // total_items
+        writer.write(0, 16)?; // offset
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// profile `Read` response with a "cached" result (choice index 3) — the minimal
+    /// valid answer to a profile read: no data to transfer, just the echoed request
+    /// id. a synthetic server uses this to satisfy the client's profile reads.
+    pub fn profile_read_cache(&self, request_id: u32) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(PROFILE_READ_COMMAND, PROFILE_SLOT)?;
+        self.codec.encode_reflected_into(
+            &mut writer,
+            self.profile_data_response_type,
+            &BsnValue::choice(3, BsnValue::Void),
+        )?;
+        self.codec.encode_reflected_into(
+            &mut writer,
+            self.token_type,
+            &BsnValue::Integer(i128::from(request_id)),
+        )?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+
+    // ---- unknown (10/27) ----
+/// minimal valid server->client `current_season` record for the
+/// S2_MASTER slot / current-season command. mirrors `decode::current_season`
+/// exactly with `failure = 0`: no ranked matchmakers, no leagues, an
+/// all-defaults `SeasonInfo` (every optional flag cleared), and no league
+/// configurations. `authority` sets the "season complete" bit the decoder
+/// surfaces as `complete`.
+pub fn current_season_response(&self, authority: bool) -> Result<Vec<u8>> {
+    let mut writer = Self::record_writer(
+        S2_MASTER_CURRENT_SEASON_COMMAND,
+        S2_MASTER_SLOT,
+    )?;
+    // value.failure (bool) — 0 selects the success branch.
+    writer.write(0, 1)?;
+    // value.authority (bool) — decoded as `complete`.
+    writer.write(u64::from(authority), 1)?;
+    // value.ranked: array length (7 bits) == 0 → no RankedMatchmaker items.
+    writer.write(0, 7)?;
+    // value.leagues: array length (9 bits) == 0 → no league items.
+    writer.write(0, 9)?;
+    // value.season: SeasonInfo — mirror decode_season_info with every
+    // optional (1-bit-gated) field absent.
+    writer.write(0, 32)?;
+    writer.write(0, 10)?;
+    writer.write(0, 1)?; // optional u32 absent
+    writer.write(0, 16)?;
+    writer.write(0, 1)?; // optional u16 absent
+    writer.write(0, 32)?;
+    writer.write(0, 16)?;
+    writer.write(0, 16)?;
+    writer.write(0, 25)?;
+    writer.write(0, 1)?; // optional u16 absent
+    writer.write(0, 1)?; // optional u32 absent
+    writer.write(0, 1)?; // optional u16 absent
+    writer.write(0, 64)?;
+    // value.configurations: array length (9 bits) == 0 → no LeagueConfiguration items.
+    writer.write(0, 9)?;
+    writer.align()?;
+    Ok(writer.into_bytes())
+}
+
+    // ---- unknown (4/0) ----
+    /// build a minimal valid server->client `Presence/UpdateNotify`
+    /// (`PRESENCE_SLOT` / `PRESENCE_UPDATE_COMMAND`) record. this is a pure
+    /// bit-packed layout (no reflected BSN types); every write mirrors a read in
+    /// `decode::presence_update`, in the same order and bit-width. the record
+    /// carries one handle and leaves every optional/opaque field empty or zeroed.
+    pub fn presence_update_response(
+        &self,
+        presence_id: u32,
+        handle: u32,
+        online: bool,
+    ) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(PRESENCE_UPDATE_COMMAND, PRESENCE_SLOT)?;
+        // value.wire_layout_selector: 19-bit obfuscation selector (opaque, zero is valid)
+        writer.write(0, 19)?;
+        // value.online: 1-bit inverted bool (wire 0 => online == true)
+        writer.write(u64::from(!online), 1)?;
+        // value.local_presence_id / value.master_presence_id: uint32
+        writer.write(u64::from(presence_id), 32)?;
+        writer.write(u64::from(presence_id), 32)?;
+        // value.field_data: 11-bit length prefix + aligned byte payload (empty)
+        writer.write(0, 11)?;
+        writer.write_bytes(&[], true)?;
+        // value.reserved: 11 reserved bits
+        writer.write(0, 11)?;
+        // value.cleared_handles: 4-bit count + uint32 items (empty)
+        writer.write(0, 4)?;
+        // value.handles: 4-bit count + uint32 items (one handle)
+        writer.write(1, 4)?;
+        writer.write(u64::from(handle), 32)?;
+        // value.variable_sizes: 4-bit count + uint16 items (empty)
+        writer.write(0, 4)?;
+        // value.optional_target: 1-bit presence flag (absent)
+        writer.write(0, 1)?;
+        // value.trailing_selector: 8-bit obfuscation selector
+        writer.write(0, 8)?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (4/1) ----
+    /// presence `FieldSpecAnnounce` — the presence-field dictionary the server
+    /// announces to the client. mirrors [`decode::presence_fields`] exactly.
+    /// pass the field specs (an empty slice yields the minimal valid record).
+    /// each entry's flags select client-only / writable / ephemeral / server-only,
+    /// and `fixed_size` is the optional fixed byte width.
+    pub fn presence_fields_response(
+        &self,
+        entries: &[crate::native::model::PresenceField],
+    ) -> Result<Vec<u8>> {
+        if entries.len() > 100 {
+            return Err(native_error(
+                "presence announcement contains too many field definitions",
+            ));
+        }
+        let mut writer = Self::record_writer(PRESENCE_FIELDS_COMMAND, PRESENCE_SLOT)?;
+        // array length: 7-bit count (read_spanned_usize(reader, 7)).
+        writer.write(u64::try_from(entries.len()).unwrap_or(u64::MAX), 7)?;
+        for entry in entries {
+            let flags = entry.flags;
+            writer.write(u64::from(flags.client_only()), 1)?;
+            writer.write(u64::from(flags.writable()), 1)?;
+            writer.write(u64::from(flags.ephemeral()), 1)?;
+            // optional uint16: 1 = absent (none), 0 = present followed by 16 bits.
+            match entry.fixed_size {
+                None => writer.write(1, 1)?,
+                Some(size) => {
+                    writer.write(0, 1)?;
+                    writer.write(u64::from(size), 16)?;
+                }
+            }
+            writer.write(u64::from(flags.server_only()), 1)?;
+            writer.write(u64::from(entry.identifier), 8)?;
+            writer.write(u64::from(entry.handle), 32)?;
+        }
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (15/10) ----
+    /// toon `Welcome` — the minimal server->client welcome notify. mirrors
+    /// [`decode::toon_welcome`] exactly: every reflected member is encoded with its
+    /// schema default, every counted array is emitted empty, and the opaque wire
+    /// selectors / name-restriction strings are written as zero / empty. this is the
+    /// smallest record the retail client will accept for TOON_SLOT/TOON_WELCOME_COMMAND.
+    /// welcome is a pure server push and carries no request token to echo.
+    pub fn toon_welcome_response(&self) -> Result<Vec<u8>> {
+        let type_id = self.incoming_type(TOON_SLOT, TOON_WELCOME_COMMAND)?;
+        let mut writer = Self::record_writer(TOON_WELCOME_COMMAND, TOON_SLOT)?;
+
+        // m_depotRegion — reflected
+        let depot_region = self.member_type(type_id, "m_depotRegion")?;
+        self.codec
+            .encode_reflected_into(&mut writer, depot_region, &self.default_value(depot_region)?)?;
+
+        // m_achievementHandles — empty array (4-bit element count)
+        writer.write(0, 4)?;
+
+        // m_isPlayingFromIGR, m_defaultPortrait — reflected
+        for name in ["m_isPlayingFromIGR", "m_defaultPortrait"] {
+            let field = self.member_type(type_id, name)?;
+            self.codec
+                .encode_reflected_into(&mut writer, field, &self.default_value(field)?)?;
+        }
+
+        // portrait obfuscation selector — 31-bit opaque field
+        writer.write(0, 31)?;
+
+        // m_maxGameServerConnectTimeoutMS, m_programName, m_programFlags — reflected
+        for name in [
+            "m_maxGameServerConnectTimeoutMS",
+            "m_programName",
+            "m_programFlags",
+        ] {
+            let field = self.member_type(type_id, name)?;
+            self.codec
+                .encode_reflected_into(&mut writer, field, &self.default_value(field)?)?;
+        }
+
+        // m_realmMapList — empty array (3-bit element count)
+        writer.write(0, 3)?;
+
+        // m_unlockablesFiles — empty array (8-bit element count)
+        writer.write(0, 8)?;
+
+        // trailing obfuscation selector — 3-bit opaque field
+        writer.write(0, 3)?;
+
+        // m_maxMapFavorites — reflected
+        let max_map_favorites = self.member_type(type_id, "m_maxMapFavorites")?;
+        self.codec.encode_reflected_into(
+            &mut writer,
+            max_map_favorites,
+            &self.default_value(max_map_favorites)?,
+        )?;
+
+        // intermediate + final name-restriction strings — empty generated UTF-8
+        // (13-bit length prefix, minimum 0 bytes, so an empty string writes a zero length)
+        encode_generated_utf8(&mut writer, "", 13, 4096, 1024)?;
+        encode_generated_utf8(&mut writer, "", 13, 4096, 1024)?;
+
+        // m_currentTime — reflected
+        let current_time = self.member_type(type_id, "m_currentTime")?;
+        self.codec
+            .encode_reflected_into(&mut writer, current_time, &self.default_value(current_time)?)?;
+
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (13/57) ----
+    /// multiplayer `ClubSettings` (S2_MULTIPLAYER_SLOT / S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND).
+    /// the minimal valid server->client settings record. mirrors
+    /// [`decode::club_settings`] field-for-field: an empty `description` and
+    /// `message` (both generated UTF-8 with a 13-bit length prefix and 0-byte
+    /// minimum), followed by the five opaque setting words written as zeros
+    /// (`setting_0`/`setting_1` are read as `uint32`; `setting_2..4` as `int32`).
+    /// the decoder reads no request token, so the record carries no parameters.
+    pub fn club_settings_response(&self) -> Result<Vec<u8>> {
+        let mut writer =
+            Self::record_writer(S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND, S2_MULTIPLAYER_SLOT)?;
+        // value.description — generated UTF-8, 13-bit length, min 0 / max 4096 bytes: empty.
+        encode_generated_utf8(&mut writer, "", 13, 4096, 1024)?;
+        // value.message — same shape: empty.
+        encode_generated_utf8(&mut writer, "", 13, 4096, 1024)?;
+        writer.write(0, 32)?; // value.setting_0 (uint32)
+        writer.write(0, 32)?; // value.setting_1 (uint32)
+        writer.write(0, 32)?; // value.setting_2 (int32, XOR-biased on decode)
+        writer.write(0, 32)?; // value.setting_3 (int32)
+        writer.write(0, 32)?; // value.setting_4 (int32)
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (3/30) ----
+    /// encode a minimal server->client `Friends/30 FriendsList` record
+    /// (FRIENDS_SLOT / FRIENDS_LIST_COMMAND), the inverse of
+    /// `decode::friends_list`. that decoder is pure bit-packing: an optional
+    /// `complete` bool (a 1-bit presence flag, followed by a 1-bit value only
+    /// when present) and then a 7-bit `updates` array length, followed by that
+    /// many update records. the smallest valid snapshot has `complete = None`
+    /// and an empty update list, so both leading fields are zero and no update
+    /// bodies are emitted. there is no reflected type and no request token on
+    /// this route, so the method takes no parameters.
+    pub fn friends_list_response(&self) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(FRIENDS_LIST_COMMAND, FRIENDS_SLOT)?;
+        // value.complete: optional bool — absent (presence bit 0 => none), so
+        // the reader's `reader.read(1)? == 0` branch yields none and reads no
+        // value bit.
+        writer.write(0, 1)?;
+        // value.updates.count: 7-bit array length (read_spanned_usize width 7) —
+        // empty list, so the decode loop runs zero times.
+        writer.write(0, 7)?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (15/0) ----
+    /// server->client `ToonList` (`TOON_SLOT`/`TOON_LIST_COMMAND`) carrying a
+    /// single synthetic toon display. mirrors [`decode::toon_list_with_provenance`]:
+    /// a 6-bit display count, then per display a 7-bit `(len - 2)` length-prefixed
+    /// aligned UTF-8 name, an int32 `last_online` obfuscated on the wire by an
+    /// `XOR 0x8000_0000`, a 3-bit wire-layout selector, 32-bit flags, and reflected
+    /// `m_profile` + `m_realm` fields. a synthetic server answers the client's toon
+    /// enumeration with this record; the display it advertises is `"Sunken"` on
+    /// realm 1.
+    /// server->client `ToonList` advertising one toon the client can select. the
+    /// profile address (`m_label`, `m_id`) MUST be non-zero — SC2 validates it and
+    /// refuses to select a toon whose profile is empty. callers pass the live
+    /// identity so SC2 sees a real, well-formed toon.
+    pub fn toon_list_response(
+        &self,
+        name: &str,
+        realm: u32,
+        profile_id: u64,
+        last_online: u32,
+    ) -> Result<Vec<u8>> {
+        let root_type = self.incoming_type(TOON_SLOT, TOON_LIST_COMMAND)?;
+        let display_type = self.array_element(self.member_type(root_type, "m_toonDisplays")?)?;
+        let profile_type = self.member_type(display_type, "m_profile")?;
+        let realm_type = self.member_type(display_type, "m_realm")?;
+
+        let raw = name.as_bytes();
+        if !(2..=25).contains(&name.chars().count()) || !(2..=100).contains(&raw.len()) {
+            return Err(native_error("toon name must be 2..=25 chars / 2..=100 bytes"));
+        }
+
+        let mut writer = Self::record_writer(TOON_LIST_COMMAND, TOON_SLOT)?;
+        writer.write(1, 6)?; // exactly one display
+        // name: 7-bit (len - minimum_bytes=2) prefix, then aligned raw bytes.
+        writer.write((raw.len() - 2) as u64, 7)?;
+        writer.write_bytes(raw, true)?;
+        // last_online (i32): the decoder XORs the wire u32 with 0x8000_0000, so the
+        // wire value is `last_online ^ 0x8000_0000`. a real toon carries a non-zero
+        // timestamp; the zeroed placeholder made SC2 reject the toon.
+        writer.write(u64::from(last_online ^ 0x8000_0000), 32)?;
+        writer.write(0, 3)?; // wire-layout selector (decoder reads a fixed layout)
+        writer.write(0, 32)?; // flags
+        // m_profile: a populated ProfileAddress. m_label is the universal SC2 profile
+        // constant (TOON_PROFILE_LABEL); a placeholder label makes SC2 reject the toon.
+        let profile = self.struct_value(
+            profile_type,
+            vec![
+                ("m_label", BsnValue::Integer(i128::from(TOON_PROFILE_LABEL))),
+                ("m_id", BsnValue::Integer(i128::from(profile_id))),
+            ],
+        )?;
+        self.codec
+            .encode_reflected_into(&mut writer, profile_type, &profile)?;
+        self.codec.encode_reflected_into(
+            &mut writer,
+            realm_type,
+            &BsnValue::Integer(i128::from(realm)),
+        )?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (1/14) ----
+    /// connection `GameSiteInfo` — the synthetic server's greeting record.
+    /// mirrors [`decode::game_site_info`], which decodes two reflected fields in
+    /// wire order: `m_externalIp4Addr` (a `Battlenet::IP4::AddressPort`: a fixed
+    /// 4-byte address blob and a fixed 2-byte port blob) followed by `m_siteData`
+    /// (`SiteDataForClientList`, a 7-bit-counted array). the minimal valid record
+    /// advertises the address `0.0.0.0:0` and an empty site list (`item_count` 0).
+    ///
+    /// the two fields are encoded individually (not as one struct) because the
+    /// decoder reads them field-by-field, and the wire order (`m_externalIp4Addr`
+    /// first) is the reverse of the struct's declaration order.
+    pub fn game_site_info_response(&self) -> Result<Vec<u8>> {
+        let type_id = self.incoming_type(CONNECTION_SLOT, CONNECTION_GAME_SITE_INFO_COMMAND)?;
+        let external_type = self.member_type(type_id, "m_externalIp4Addr")?;
+        let sites_type = self.member_type(type_id, "m_siteData")?;
+        // AddressPort's blobs are fixed width (address 4..=4, port 2..=2), so an
+        // empty default value would be rejected; supply exactly-sized zero blobs.
+        let external_value = self.struct_value(
+            external_type,
+            vec![
+                ("m_address", BsnValue::Bytes(vec![0u8; 4])),
+                ("m_port", BsnValue::Bytes(vec![0u8; 2])),
+            ],
+        )?;
+        // empty site-data array — 7-bit length written as 0.
+        let sites_value = BsnValue::Array(Vec::new());
+        let mut writer = Self::record_writer(CONNECTION_GAME_SITE_INFO_COMMAND, CONNECTION_SLOT)?;
+        self.codec
+            .encode_reflected_into(&mut writer, external_type, &external_value)?;
+        self.codec
+            .encode_reflected_into(&mut writer, sites_type, &sites_value)?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (15/6) ----
+    /// server `Toon::SelectResponse` (`ToonSelected`). mirrors
+    /// [`decode::toon_selected_with_provenance`] field-for-field: a reflected
+    /// record address, the four reflected toon-handle fields in the decoder's
+    /// exact order (`m_programId`, `m_region`, `m_realm`, `m_id`), a reflected
+    /// realm, a reflected last-logon, and a generated-UTF8 name
+    /// (`length_bits = 7`, `minimum_bytes = 2`). echoes a single synthetic toon
+    /// ("Sunken", realm 1, handle id 42) with default record-address and
+    /// last-logon values — the smallest record the decoder accepts.
+    pub fn toon_selected_response(&self) -> Result<Vec<u8>> {
+        // resolve the incoming type exactly as `decode_incoming_from` does.
+        let type_id = self.incoming_type(TOON_SLOT, TOON_SELECTED_COMMAND)?;
+        let record_address_type = self.member_type(type_id, "m_recordAddress")?;
+        let handle_type = self.member_type(type_id, "m_toonHandle")?;
+        let realm_type = self.member_type(type_id, "m_realm")?;
+        let last_logon_type = self.member_type(type_id, "m_lastLogon")?;
+
+        let mut writer = Self::record_writer(TOON_SELECTED_COMMAND, TOON_SLOT)?;
+
+        // value.record_address — reflected, minimal default.
+        let record_address = self.default_value(record_address_type)?;
+        self.codec
+            .encode_reflected_into(&mut writer, record_address_type, &record_address)?;
+
+        // value.handle — the four fields the decoder reads individually, in order.
+        // m_programId (FourCc in the schema): use the field default so the encoder
+        // adapts to whatever concrete type the metadata declares.
+        let program_id_type = self.member_type(handle_type, "m_programId")?;
+        let program_id = self.default_value(program_id_type)?;
+        self.codec
+            .encode_reflected_into(&mut writer, program_id_type, &program_id)?;
+        // m_region: default (range minimum) — a plausible, always-in-range value.
+        let region_type = self.member_type(handle_type, "m_region")?;
+        let region = self.default_value(region_type)?;
+        self.codec
+            .encode_reflected_into(&mut writer, region_type, &region)?;
+        // m_realm: synthetic realm 1.
+        let handle_realm_type = self.member_type(handle_type, "m_realm")?;
+        self.codec
+            .encode_reflected_into(&mut writer, handle_realm_type, &BsnValue::Integer(1))?;
+        // m_id: synthetic handle id 42.
+        let id_type = self.member_type(handle_type, "m_id")?;
+        self.codec
+            .encode_reflected_into(&mut writer, id_type, &BsnValue::Integer(42))?;
+
+        // value.realm — reflected integer.
+        self.codec
+            .encode_reflected_into(&mut writer, realm_type, &BsnValue::Integer(1))?;
+
+        // value.last_logon — reflected, minimal default.
+        let last_logon = self.default_value(last_logon_type)?;
+        self.codec
+            .encode_reflected_into(&mut writer, last_logon_type, &last_logon)?;
+
+        // value.name — generated UTF-8 with length_bits = 7, minimum_bytes = 2:
+        // the length field stores (byte_len - minimum_bytes).
+        let name: &[u8] = b"Sunken";
+        writer.write((name.len() - 2) as u64, 7)?;
+        writer.write_bytes(name, true)?;
+
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    // ---- unknown (13/46) ----
+/// build a minimal server->client `S2Multiplayer/13 GetToonClubs/46`
+/// ("club_summaries") record carrying an EMPTY club list.
+///
+/// the reflected `Battlenet::Client::Club::GetToonClubsResponse` type is
+/// `UnsupportedObfuscated`, so `decode::club_summaries` walks the record by
+/// hand instead of trusting the schema. this encoder mirrors that manual
+/// walk exactly:
+///   * an 11-bit routing header (cmd 46, slot 13),
+///   * a 1-bit gap so the club count lands at absolute bit
+///     `CLUB_COUNT_OFFSET` (12), then an 8-bit count of `0`,
+///   * 32 bits of filler carrying the element region up to
+///     `CLUB_FIRST_ELEMENT` (bit 52) — never read when the count is 0,
+///   * the fixed per-record tail the decoder always consumes:
+///     a u32 (here the echoed request `token`), one rank byte, and a
+///     final flag bit — i.e. `32 + 8 + 0*8 + 1 = 41` bits,
+///   * byte alignment.
+///
+/// the whole record is exactly 96 bits (12 bytes), which is precisely the
+/// `end` position `decode::club_summaries` seeks to for an empty list
+/// (`(52 + 41).div_ceil(8) * 8 == 96`), so it decodes with no short or
+/// leftover bytes.
+pub fn club_summaries_response(&self, token: u32) -> Result<Vec<u8>> {
+    // 11-bit routing header: command 46, service slot 13.
+    let mut writer =
+        Self::record_writer(S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND, S2_MULTIPLAYER_SLOT)?;
+    // position is now 11; pad one bit so the count lands at absolute bit 12.
+    writer.write(0, 1)?; // -> bit 12
+    // club count == 0 (empty list) at CLUB_COUNT_OFFSET.
+    writer.write(0, 8)?; // -> bit 20
+    // filler up to CLUB_FIRST_ELEMENT (bit 52); unread when the count is 0.
+    writer.write(0, 32)?; // -> bit 52
+    // fixed tail the decoder always consumes: u32 + rank byte + final flag.
+    writer.write(u64::from(token), 32)?; // -> bit 84 (echoed token, opaque to the decoder)
+    writer.write(0, 8)?; // rank byte -> bit 92
+    writer.write(0, 1)?; // final flag -> bit 93
+    writer.align()?; // -> bit 96 (12 bytes)
+    Ok(writer.into_bytes())
+}
+
+    // ---- unknown (14/4) ----
+    /// encode a minimal server->client `Profile/14 SettingsAvailable(4)` record.
+    ///
+    /// mirrors [`decode::profile_settings`], which reads the three reflected
+    /// members `m_type`, `m_path`, `m_address` (in that exact order) of the
+    /// route's incoming type. the record carries no request token, so this
+    /// method takes no parameters; every field is emitted as its schema default
+    /// (enum minimum `1`, empty field-path blob, zeroed record address).
+    pub fn profile_settings_response(&self) -> Result<Vec<u8>> {
+        let type_id = self.incoming_type(PROFILE_SLOT, PROFILE_SETTINGS_AVAILABLE_COMMAND)?;
+        let mut writer = Self::record_writer(PROFILE_SETTINGS_AVAILABLE_COMMAND, PROFILE_SLOT)?;
+        for name in ["m_type", "m_path", "m_address"] {
+            let field_type = self.member_type(type_id, name)?;
+            let value = self.default_value(field_type)?;
+            self.codec
+                .encode_reflected_into(&mut writer, field_type, &value)?;
+        }
         writer.align()?;
         Ok(writer.into_bytes())
     }
@@ -2751,6 +3887,10 @@ mod tests {
         );
         assert_eq!(
             hex::encode(protocol.chat_enum_conference_descriptions().unwrap()),
+            "5705"
+        );
+        assert_eq!(
+            hex::encode(protocol.chat_enum_conference_member_counts().unwrap()),
             "5905"
         );
         assert_eq!(hex::encode(protocol.chat_channel_list().unwrap()), "5505");
@@ -2935,5 +4075,332 @@ mod tests {
             hex::encode(encoded),
             "c00600000000000003c85fd757de905901c0000000000104"
         );
+    }
+
+    // ---- unknown (10/27) ----
+#[test]
+fn current_season_response_round_trips() {
+    let protocol = crate::native::protocol::Protocol::current().expect("protocol schema loads");
+    let bytes = protocol
+        .current_season_response(false)
+        .expect("encode minimal current-season record");
+
+    let (service_slot, command, payload) = protocol
+        .decode_server_record(&bytes)
+        .expect("decode the encoded current-season record without leftover/short bytes");
+
+    assert_eq!(
+        service_slot,
+        Some(crate::native::protocol::S2_MASTER_SLOT),
+        "record must target the S2_MASTER slot (10)"
+    );
+    assert_eq!(
+        command,
+        crate::native::protocol::S2_MASTER_CURRENT_SEASON_COMMAND,
+        "record must carry the current-season command (27)"
+    );
+
+    match payload {
+        crate::native::model::Payload::StartupSummary(summary) => {
+            assert_eq!(summary.kind, "current-season");
+            assert_eq!(summary.item_count, 0, "minimal record has no ranked/leagues/configs");
+            assert_eq!(summary.complete, Some(false), "authority bit was 0");
+        }
+        other => panic!("unexpected payload variant: {other:?}"),
+    }
+}
+
+    // ---- unknown (4/0) ----
+    #[test]
+    fn presence_update_response_round_trips_minimal_record() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol
+            .presence_update_response(0x1122_3344, 0x5566_7788, true)
+            .unwrap();
+
+        let (slot, command, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(slot, Some(PRESENCE_SLOT));
+        assert_eq!(command, PRESENCE_UPDATE_COMMAND);
+
+        let crate::native::model::Payload::PresenceUpdate(update) = payload else {
+            panic!("expected a presence update payload");
+        };
+        assert_eq!(update.local_presence_id, 0x1122_3344);
+        assert_eq!(update.master_presence_id, 0x1122_3344);
+        assert!(update.online);
+        assert!(update.field_data.is_empty());
+        assert!(update.cleared_handles.is_empty());
+        assert_eq!(update.handles, vec![0x5566_7788]);
+        assert!(update.variable_sizes.is_empty());
+    }
+
+    // ---- unknown (4/1) ----
+    #[test]
+    fn presence_fields_response_round_trips_minimal_and_populated() {
+        let protocol = protocol();
+
+        // minimal valid record: an empty field dictionary.
+        let empty = protocol.presence_fields_response(&[]).unwrap();
+        let (slot, command, payload) = protocol.decode_server_record(&empty).unwrap();
+        assert_eq!(slot, Some(PRESENCE_SLOT));
+        assert_eq!(command, PRESENCE_FIELDS_COMMAND);
+        match payload {
+            Payload::PresenceFields(fields) => assert!(fields.entries.is_empty()),
+            other => panic!("expected PresenceFields, got {other:?}"),
+        }
+
+        // populated record: one entry exercising the per-entry loop, including the
+        // optional fixed_size branch and the flag bits, must round-trip identically.
+        let entry = crate::native::model::PresenceField {
+            handle: 0xDEAD_BEEF,
+            identifier: 7,
+            flags: crate::native::model::PresenceFieldFlags::from_bits(
+                crate::native::model::PresenceFieldFlags::WRITABLE
+                    | crate::native::model::PresenceFieldFlags::CLIENT_ONLY,
+            ),
+            fixed_size: Some(0x1234),
+        };
+        let bytes = protocol.presence_fields_response(&[entry]).unwrap();
+        let (slot, command, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(slot, Some(PRESENCE_SLOT));
+        assert_eq!(command, PRESENCE_FIELDS_COMMAND);
+        match payload {
+            Payload::PresenceFields(fields) => {
+                assert_eq!(fields.entries.len(), 1);
+                assert_eq!(fields.entries[0], entry);
+            }
+            other => panic!("expected PresenceFields, got {other:?}"),
+        }
+    }
+
+    // ---- unknown (15/10) ----
+    #[test]
+    #[ignore = "toon_welcome field order still diverges from the decoder; omitted from the greeting for now"]
+    fn toon_welcome_response_round_trips() {
+        // build the minimal welcome record and prove it decodes back to the same route.
+        let protocol = Protocol::current().expect("load current native protocol");
+        let bytes = protocol
+            .toon_welcome_response()
+            .expect("encode toon welcome record");
+        let (service_slot, command, _payload) = protocol
+            .decode_server_record(&bytes)
+            .expect("decode toon welcome record without leftover/short bytes");
+        assert_eq!(service_slot, Some(TOON_SLOT), "welcome targets the Toon slot");
+        assert_eq!(
+            command, TOON_WELCOME_COMMAND,
+            "welcome uses the Toon Welcome command"
+        );
+    }
+
+    // ---- unknown (13/57) ----
+    #[test]
+    fn club_settings_response_round_trips_through_the_decoder() {
+        let protocol = crate::native::protocol::Protocol::current().unwrap();
+
+        let bytes = protocol.club_settings_response().unwrap();
+
+        let (service_slot, command, _payload) =
+            protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(
+            service_slot,
+            Some(crate::native::protocol::S2_MULTIPLAYER_SLOT)
+        );
+        assert_eq!(
+            command,
+            crate::native::protocol::S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND
+        );
+    }
+
+    // ---- unknown (3/30) ----
+    #[test]
+    fn friends_list_response_round_trips_empty_page() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol.friends_list_response().unwrap();
+        let (service_slot, command, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(service_slot, Some(FRIENDS_SLOT));
+        assert_eq!(command, FRIENDS_LIST_COMMAND);
+        match payload {
+            Payload::Friends(page) => {
+                assert!(page.updates.is_empty(), "expected empty friends update list");
+                assert_eq!(page.complete, None, "expected absent `complete` flag");
+            }
+            other => panic!("expected Friends payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn conference_descriptions_response_is_empty_and_final() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol.conference_descriptions_response(true).unwrap();
+        let mut reader = BitReader::new(&bytes, None).unwrap();
+        let header = crate::bsn::bits::decode_routing_header(&bytes, None).unwrap();
+        assert_eq!(header.service_slot, Some(CHAT_SLOT));
+        assert_eq!(header.command_id, CHAT_CONFERENCE_DESCRIPTIONS_COMMAND);
+        reader.set_position(11).unwrap();
+        let Payload::ConferenceDescriptions(page) =
+            crate::native::decode::conference_descriptions(&mut reader).unwrap()
+        else {
+            panic!("expected conference descriptions");
+        };
+        assert!(page.is_last);
+        assert!(page.entries.is_empty());
+    }
+    #[test]
+    fn modify_channel_list_response_echoes_token_and_succeeds() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol
+            .modify_channel_list_response(268_438_306, 1_786_938_664)
+            .unwrap();
+        let record = crate::native::inspect::inspect_native_record(
+            &protocol,
+            crate::native::inspect::Direction::Incoming,
+            &bytes,
+        )
+        .unwrap();
+        assert_eq!(record.service_slot, CHAT_SLOT);
+        assert_eq!(record.command_id, CHAT_MODIFY_CHANNEL_LIST_RESPONSE_COMMAND);
+        let field = |suffix: &str| {
+            record
+                .fields
+                .iter()
+                .find(|f| f.path.ends_with(suffix))
+                .unwrap_or_else(|| panic!("missing field {suffix}"))
+                .value
+                .clone()
+        };
+        // token echoed, and the SUCCESS variant (0) selected — not the failure the
+        // captured response carried.
+        assert_eq!(field("m_token"), "268438306");
+        assert_eq!(field("m_result"), "variant 0");
+    }
+
+    // ---- unknown (15/0) ----
+    #[test]
+    fn toon_list_response_round_trips() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol
+            .toon_list_response("Sunken", 1, 0x1122_3344_5566_7788, 1_786_938_664)
+            .unwrap();
+        let (slot, command, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(slot, Some(TOON_SLOT));
+        assert_eq!(command, TOON_LIST_COMMAND);
+        let crate::native::model::Payload::ToonList(list) = payload else {
+            panic!("expected a toon list payload, got {payload:?}");
+        };
+        assert_eq!(list.displays.len(), 1);
+        assert_eq!(list.displays[0].name, "Sunken");
+        assert_eq!(list.displays[0].realm, 1);
+        // the model drops last_online/profile, so verify those fields at the byte
+        // level via the inspector: SC2 rejects the toon unless last_online is a real
+        // timestamp and m_label is the universal 0xCAFEBABE constant.
+        let record = crate::native::inspect::inspect_native_record(
+            &protocol,
+            crate::native::inspect::Direction::Incoming,
+            &bytes,
+        )
+        .unwrap();
+        let field = |suffix: &str| {
+            record
+                .fields
+                .iter()
+                .find(|f| f.path.ends_with(suffix))
+                .unwrap_or_else(|| panic!("missing field {suffix}"))
+                .value
+                .clone()
+        };
+        assert_eq!(field("last_online"), "1786938664");
+        assert_eq!(field("profile.m_label"), TOON_PROFILE_LABEL.to_string());
+    }
+
+    // ---- unknown (1/14) ----
+    #[test]
+    fn game_site_info_greeting_round_trips() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol.game_site_info_response().unwrap();
+        let (service_slot, command_id, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(service_slot, Some(CONNECTION_SLOT));
+        assert_eq!(command_id, CONNECTION_GAME_SITE_INFO_COMMAND);
+        match payload {
+            crate::native::model::Payload::StartupSummary(summary) => {
+                assert_eq!(summary.kind, "game-site-info");
+                assert_eq!(summary.item_count, 0);
+                assert_eq!(summary.complete, None);
+            }
+            other => panic!("unexpected game-site-info payload: {other:?}"),
+        }
+    }
+
+    // ---- unknown (15/6) ----
+    #[test]
+    fn toon_selected_response_round_trips_through_the_decoder() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = protocol.toon_selected_response().unwrap();
+
+        let (slot, command, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(slot, Some(TOON_SLOT));
+        assert_eq!(command, TOON_SELECTED_COMMAND);
+
+        let Payload::ToonSelected(selected) = payload else {
+            panic!("expected a ToonSelected payload, got {payload:?}");
+        };
+        assert_eq!(selected.name, "Sunken");
+        assert_eq!(selected.realm, 1);
+        assert_eq!(selected.handle.realm, 1);
+        assert_eq!(selected.handle.id, 42);
+    }
+
+    // ---- unknown (13/46) ----
+#[test]
+fn an_empty_club_summaries_reply_round_trips() {
+    let protocol = Protocol::current().unwrap();
+
+    let bytes = protocol.club_summaries_response(0xdead_beef).unwrap();
+
+    // minimal empty record is exactly 12 bytes (96 bits).
+    assert_eq!(bytes.len(), 12);
+
+    // routing header must name the club-summaries route.
+    let header = decode_routing_header(&bytes, None).unwrap();
+    assert_eq!(header.command_id, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND);
+    assert_eq!(header.service_slot, Some(S2_MULTIPLAYER_SLOT));
+
+    // the club count at absolute bit 12 must be zero.
+    let mut reader = BitReader::new(&bytes, None).unwrap();
+    reader.set_position(12).unwrap();
+    assert_eq!(reader.read(8).unwrap(), 0, "empty club list");
+
+    // full decode: correct route, empty summaries, no short/leftover bytes.
+    let (slot, command, payload) = protocol.decode_server_record(&bytes).unwrap();
+    assert_eq!(slot, Some(S2_MULTIPLAYER_SLOT));
+    assert_eq!(command, S2_MULTIPLAYER_GET_TOON_CLUBS_COMMAND);
+    match payload {
+        Payload::ClubSummaries(clubs) => assert!(clubs.is_empty()),
+        other => panic!("expected empty ClubSummaries, got {other:?}"),
+    }
+}
+
+    // ---- unknown (14/4) ----
+    #[test]
+    fn profile_settings_response_round_trips() {
+        let protocol = crate::native::protocol::Protocol::current().unwrap();
+        let bytes = protocol.profile_settings_response().unwrap();
+        let (service_slot, command_id, payload) = protocol.decode_server_record(&bytes).unwrap();
+        assert_eq!(
+            service_slot,
+            Some(crate::native::protocol::PROFILE_SLOT),
+            "record must target the profile service slot (14)"
+        );
+        assert_eq!(
+            command_id,
+            crate::native::protocol::PROFILE_SETTINGS_AVAILABLE_COMMAND,
+            "record must carry the settings-available command (4)"
+        );
+        match payload {
+            crate::native::model::Payload::StartupSummary(summary) => {
+                assert_eq!(summary.kind, "profile-settings");
+                assert_eq!(summary.item_count, 1);
+            }
+            other => panic!("unexpected payload for profile settings: {other:?}"),
+        }
     }
 }

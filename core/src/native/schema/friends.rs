@@ -28,7 +28,8 @@ pub struct ClientFriendsToonBlockNotify {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientFriendsToonsOfFriendPacket {}
+pub struct ClientFriendsToonsOfFriendPacket {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientFriendsToonsOfFriendsNotify {
@@ -70,11 +71,7 @@ impl sc2_core::bsn::FromBsn for FriendsFriendContainer5 {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for FriendsFriendContainer5, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for FriendsFriendContainer5, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Character(<super::friends::FriendsFriendContainer5Character as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -143,11 +140,7 @@ impl sc2_core::bsn::FromBsn for FriendsFriendshipUpdate5Update {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for FriendsFriendshipUpdate5Update, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for FriendsFriendshipUpdate5Update, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Add(<super::friends::FriendsFriendshipUpdate5UpdateAdd as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -185,22 +178,12 @@ impl sc2_core::bsn::FromBsn for FriendsPriorFriendId {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for FriendsPriorFriendId, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for FriendsPriorFriendId, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::AccountId(<u32 as sc2_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            1i128 => Ok(Self::ToonHandle(
-                <super::toon::ToonHandle as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a FriendsPriorFriendId variant"
-            ))),
+            0i128 => Ok(Self::AccountId(<u32 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::ToonHandle(<super::toon::ToonHandle as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a FriendsPriorFriendId variant"))),
         }
     }
 }
@@ -222,11 +205,7 @@ impl sc2_core::bsn::FromBsn for FriendsToonBlockContainerUpdate {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for FriendsToonBlockContainerUpdate, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for FriendsToonBlockContainerUpdate, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Add(<super::friends::FriendsToonBlockContainerUpdateAdd as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -237,10 +216,12 @@ impl sc2_core::bsn::FromBsn for FriendsToonBlockContainerUpdate {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct FriendsToonBlockContainerUpdateAdd {}
+pub struct FriendsToonBlockContainerUpdateAdd {
+}
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct FriendsToonBlockContainerUpdateRemove {}
+pub struct FriendsToonBlockContainerUpdateRemove {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct FriendsToonOfFriend {
@@ -251,3 +232,4 @@ pub struct FriendsToonOfFriend {
     #[bsn(name = "m_profile")]
     pub profile: super::profile::ProfileRecordAddress,
 }
+

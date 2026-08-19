@@ -28,7 +28,9 @@ use crate::{
         PresenceState, ProfileAddress, ProfileReadResponse, ProfileReadResult, Protocol, Record,
         Session, SocialOperation, ToonFullName, WhisperTarget,
         model::{
-            ChatJoin, ConferenceDescriptions, MembershipKind, PartyMemberStatus, ToonHandle,
+            ChatJoin, ConferenceDescription, ConferenceDescriptions, ConferenceMemberCount,
+            ConferenceMemberCounts, MembershipKind,
+            PartyMemberStatus, ToonHandle,
             ToonList,
         },
         presence::PresenceDirectory,
@@ -131,11 +133,25 @@ pub struct BlockedAccount {
     pub full_name: Option<String>,
 }
 
+/// the locale every public join is made with. conferences exist per locale, so
+/// this is also the set of rooms a count should be summed over.
+pub const JOIN_LOCALE: &str = "enUS";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChatEvent {
     PublicChannelCatalog(Vec<public_channels::PublicChannel>),
-    ConferenceDirectory {
-        identifiers: Vec<u32>,
+    /// which channel each conference serves. a public channel is served by one
+    /// or more conferences, per locale; this is the only thing that ties a
+    /// conference id back to a catalogue channel.
+    ConferenceDescriptions {
+        conferences: Vec<ConferenceDescription>,
+        complete: bool,
+    },
+    /// live head counts, one entry per conference. a public chat channel is
+    /// served by one or more conferences, and nothing SC2 requests maps a
+    /// conference back to the channel it serves, so these arrive unattributed.
+    ConferenceMemberCounts {
+        counts: Vec<ConferenceMemberCount>,
         complete: bool,
     },
     Joined {
@@ -195,6 +211,12 @@ pub enum ChatEvent {
         category: u8,
         private: bool,
         member: bool,
+        /// everyone on the roster. a plain summary carries this.
+        member_count: Option<u32>,
+        /// members online right now. only the club-info response carries this,
+        /// so a group is announced without it and filled in when the lookup
+        /// comes back.
+        online: Option<u32>,
     },
     GroupSearch {
         club_ids: Vec<u32>,
@@ -271,6 +293,7 @@ pub struct LiveChat {
     party_online_channels: BTreeSet<u8>,
     pending_club_subscription: Option<ToonHandle>,
     pending_club_lookups: Vec<Vec<u32>>,
+    probe: CommandProbe,
     announced_friends: Vec<ChatFriend>,
     local_toon: Option<ToonHandle>,
     requested_whisper_friend_accounts: BTreeSet<u32>,
@@ -319,7 +342,7 @@ impl LiveChat {
         let mut toon_selected = false;
         let mut local_toon_realm = None;
         let mut local_toon_handle = None;
-        let mut directory_complete = false;
+        let mut member_counts_complete = false;
         let mut public_catalog_loaded = false;
         let mut general_channel_id = None;
         let mut channel_list_received = false;
@@ -392,9 +415,12 @@ impl LiveChat {
                     local_toon_handle = Some(selected.handle);
                     toon_selected = true;
                 }
-                Payload::ConferenceDescriptions(directory) => {
-                    directory_complete |= directory.is_last;
-                    events.push(conference_event(directory));
+                Payload::ConferenceDescriptions(page) => {
+                    events.push(description_event(page));
+                }
+                Payload::ConferenceMemberCounts(counts) => {
+                    member_counts_complete |= counts.is_last;
+                    events.push(conference_event(counts));
                 }
                 Payload::ChannelList(_) => {
                     channel_list_received = true;
@@ -443,7 +469,7 @@ impl LiveChat {
                         session.records_mut().send(&protocol.chat_join_public(
                             general_channel_id,
                             token,
-                            "enUS",
+                            JOIN_LOCALE,
                         )?)?;
                         continue;
                     }
@@ -528,12 +554,15 @@ impl LiveChat {
                 session
                     .records_mut()
                     .send(&protocol.chat_enum_conference_descriptions()?)?;
+                session
+                    .records_mut()
+                    .send(&protocol.chat_enum_conference_member_counts()?)?;
                 session.records_mut().send(&protocol.chat_channel_list()?)?;
                 queries_sent = true;
             }
             let catalog_ready =
                 !matches!(initial_channel, ChatChannel::Public(_)) || public_catalog_loaded;
-            if directory_complete && channel_list_received && catalog_ready && !join_sent {
+            if member_counts_complete && channel_list_received && catalog_ready && !join_sent {
                 let token = random();
                 let request = match &initial_channel {
                     ChatChannel::Public(channel_name_id) => {
@@ -542,7 +571,7 @@ impl LiveChat {
                                 "superiority: joining public channel id={channel_name_id} locale=enUS"
                             );
                         }
-                        protocol.chat_join_public(*channel_name_id, token, "enUS")?
+                        protocol.chat_join_public(*channel_name_id, token, JOIN_LOCALE)?
                     }
                     ChatChannel::Private(name) => protocol.chat_join_private(name, token)?,
                     ChatChannel::Club(club_id) => protocol.chat_join_club(*club_id, token)?,
@@ -586,6 +615,7 @@ impl LiveChat {
                 pending_party_accepts: BTreeSet::new(),
                 party_online_channels: BTreeSet::new(),
                 pending_club_lookups: Vec::new(),
+                probe: CommandProbe::from_environment(),
                 pending_club_subscription: local_toon_handle,
                 announced_friends: Vec::new(),
                 local_toon: local_toon_handle,
@@ -726,7 +756,7 @@ impl LiveChat {
         let request = match &channel {
             ChatChannel::Public(channel_name_id) => {
                 self.protocol
-                    .chat_join_public(*channel_name_id, token, "enUS")?
+                    .chat_join_public(*channel_name_id, token, JOIN_LOCALE)?
             }
             ChatChannel::Private(name) => self.protocol.chat_join_private(name, token)?,
             ChatChannel::Club(club_id) => self.protocol.chat_join_club(*club_id, token)?,
@@ -1023,8 +1053,10 @@ impl LiveChat {
             return Ok(event);
         }
         self.request_clubs_when_idle()?;
+        self.probe_when_due()?;
 
         let record = self.session.records_mut().receive()?;
+        self.probe.observe(record_route(&record));
         let observed = self.profiles.observe(&record.value);
         let event = match &record.value {
             Payload::ChatMembership(membership) => {
@@ -1286,6 +1318,12 @@ impl LiveChat {
                 })
             }
             Payload::ClubSummaries(clubs) => {
+                // a summary knows the roster size but not who is on it; the
+                // club-info lookup is what carries the live count, so the
+                // groups you belong to queue for one.
+                self.enqueue_club_lookups(
+                    &clubs.iter().map(|club| club.club_id).collect::<Vec<_>>(),
+                );
                 let mut summaries = clubs.iter().map(|club| ChatEvent::GroupSummary {
                     club_id: club.club_id,
                     name: club.name.clone(),
@@ -1293,6 +1331,8 @@ impl LiveChat {
                     category: club.category,
                     private: club.private,
                     member: true,
+                    member_count: club.member_count,
+                    online: club.online,
                 });
                 let first = summaries.next().unwrap_or(ChatEvent::Activity {
                     route: record_route(&record),
@@ -1301,12 +1341,10 @@ impl LiveChat {
                 Ok(first)
             }
             Payload::ClubSearch(club_ids) => {
-                self.pending_club_lookups = club_ids
-                    .chunks(CLUB_LOOKUP_BATCH)
-                    .map(<[u32]>::to_vec)
-                    .rev()
-                    .collect();
-                self.request_next_club_lookup();
+                // batches pop from the end, so search results — queued last —
+                // are fetched before any group lookups still waiting behind
+                // them, without discarding those the way a replace would.
+                self.enqueue_club_lookups(club_ids);
                 Ok(ChatEvent::GroupSearch {
                     club_ids: club_ids.clone(),
                 })
@@ -1321,6 +1359,8 @@ impl LiveChat {
                     category: club.category,
                     private: club.private,
                     member: false,
+                    member_count: club.member_count,
+                    online: club.online,
                 });
                 let first = summaries.next().unwrap_or(ChatEvent::Activity {
                     route: record_route(&record),
@@ -1328,7 +1368,8 @@ impl LiveChat {
                 self.pending_events.extend(summaries);
                 Ok(first)
             }
-            Payload::ConferenceDescriptions(directory) => Ok(conference_event(directory)),
+            Payload::ConferenceDescriptions(page) => Ok(description_event(page)),
+            Payload::ConferenceMemberCounts(counts) => Ok(conference_event(counts)),
             Payload::Friends(page) => {
                 apply_friend_page(&mut self.friends, page);
                 Ok(self.friends_event())
@@ -1500,6 +1541,40 @@ impl LiveChat {
                 .send(&self.protocol.friend_toons(account_id)?)?;
         }
         Ok(())
+    }
+
+    /// queues club ids for a club-info lookup. lookups run one batch at a time
+    /// — each response asks for the next — so a request only starts here when
+    /// nothing was queued and therefore nothing is draining.
+    fn enqueue_club_lookups(&mut self, club_ids: &[u32]) {
+        if club_ids.is_empty() {
+            return;
+        }
+        let idle = self.pending_club_lookups.is_empty();
+        self.pending_club_lookups.extend(
+            club_ids
+                .chunks(CLUB_LOOKUP_BATCH)
+                .map(<[u32]>::to_vec)
+                .rev(),
+        );
+        if idle {
+            self.request_next_club_lookup();
+        }
+    }
+
+    /// sends the next probe candidate once the previous one has had time to
+    /// answer. inert unless `SUPERIORITY_CHAT_PROBE` is set.
+    fn probe_when_due(&mut self) -> Result<()> {
+        let Some(command) = self.probe.next_due() else {
+            return Ok(());
+        };
+        let packet = self
+            .session
+            .records()
+            .protocol()
+            .chat_empty_request(command)?;
+        eprintln!("superiority: probe -> Chat/{command} (empty payload, {} bytes)", packet.len());
+        self.session.records_mut().send(&packet)
     }
 
     fn request_next_club_lookup(&mut self) {
@@ -2303,6 +2378,78 @@ fn accept_party_join(
     Ok((channel_index, local_member_handle))
 }
 
+/// walks a list of candidate chat command ids, one at a time, looking for the
+/// query that makes the service answer.
+///
+/// SC2 never sends `EnumConferenceDescriptions`, so its command id appears
+/// nowhere in the client and no capture can reveal it. the only remaining way
+/// to find it is to ask the service. every chat query is a bare routing header,
+/// so a candidate costs one eleven-bit record; a wrong guess is either ignored
+/// or answered with an error, and the right one produces a reply carrying
+/// conference descriptions.
+///
+/// enable with `SUPERIORITY_CHAT_PROBE=28,34,3,14,17`. candidates are spaced so
+/// each has time to answer and the service is never hammered.
+#[derive(Default)]
+struct CommandProbe {
+    queue: VecDeque<u8>,
+    due: Option<Instant>,
+    sent: Vec<u8>,
+    routes_before: BTreeSet<(Option<u8>, u8)>,
+}
+
+impl CommandProbe {
+    const SPACING: Duration = Duration::from_secs(4);
+
+    fn from_environment() -> Self {
+        let Some(list) = std::env::var_os("SUPERIORITY_CHAT_PROBE") else {
+            return Self::default();
+        };
+        let queue = list
+            .to_string_lossy()
+            .split(',')
+            .filter_map(|candidate| candidate.trim().parse::<u8>().ok())
+            .collect::<VecDeque<_>>();
+        if !queue.is_empty() {
+            eprintln!("superiority: probe candidates {queue:?}, {}s apart", Self::SPACING.as_secs());
+        }
+        Self {
+            queue,
+            // let the session finish its own bootstrap chatter first, so a
+            // reply cannot be confused with the normal login traffic
+            due: Some(Instant::now() + Duration::from_secs(20)),
+            sent: Vec::new(),
+            routes_before: BTreeSet::new(),
+        }
+    }
+
+    fn next_due(&mut self) -> Option<u8> {
+        let due = self.due?;
+        if Instant::now() < due {
+            return None;
+        }
+        let command = self.queue.pop_front()?;
+        self.sent.push(command);
+        self.due = Some(Instant::now() + Self::SPACING);
+        Some(command)
+    }
+
+    /// reports any inbound route that only started appearing after probing
+    /// began — the reply, whatever id it arrives on.
+    fn observe(&mut self, route: (Option<u8>, u8)) {
+        if self.sent.is_empty() {
+            self.routes_before.insert(route);
+            return;
+        }
+        if self.routes_before.insert(route) {
+            eprintln!(
+                "superiority: probe <- NEW inbound route slot={:?} command={} after sending Chat/{:?}",
+                route.0, route.1, self.sent
+            );
+        }
+    }
+}
+
 fn trace_party(message: impl std::fmt::Display) {
     if std::env::var_os("SUPERIORITY_TRACE").is_some()
         || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
@@ -2320,14 +2467,17 @@ fn trace_battle_net_error(context: impl std::fmt::Display, code: u16) {
     }
 }
 
-fn conference_event(directory: &ConferenceDescriptions) -> ChatEvent {
-    ChatEvent::ConferenceDirectory {
-        identifiers: directory
-            .entries
-            .iter()
-            .map(|entry| entry.identifier)
-            .collect(),
-        complete: directory.is_last,
+fn description_event(page: &ConferenceDescriptions) -> ChatEvent {
+    ChatEvent::ConferenceDescriptions {
+        conferences: page.entries.clone(),
+        complete: page.is_last,
+    }
+}
+
+fn conference_event(counts: &ConferenceMemberCounts) -> ChatEvent {
+    ChatEvent::ConferenceMemberCounts {
+        counts: counts.entries.clone(),
+        complete: counts.is_last,
     }
 }
 

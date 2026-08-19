@@ -10,3 +10,4 @@ pub struct AccountFullName {
     #[bsn(name = "m_surname")]
     pub surname: String,
 }
+

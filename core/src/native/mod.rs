@@ -13,13 +13,15 @@ mod wire_layout;
 
 pub use client::{Connector, Session};
 pub use crypto::{
-    Rc4State, SessionProof, TransportHandshake, build_session_proof, build_transport_handshake,
-    derive_session_auth_key, derive_transport_rc4_keys, thumbprint_context_for_peer,
-    transport_kdf64, verify_thumbprint_proof,
+    Rc4State, ServerSessionProof, SessionProof, TransportHandshake, build_session_proof,
+    build_transport_handshake, derive_session_auth_key, derive_transport_rc4_keys,
+    sign_thumbprint_proof, thumbprint_context_for_peer, thumbprint_modulus_le, transport_kdf64,
+    verify_client_session_proof, verify_thumbprint_proof,
 };
 pub use model::{
     AccountBlockEntry, AccountBlockPage, CacheStreamItems, ChannelList, ChatJoin, ChatMembership,
-    ChatMessage, ChatWhisper, ConferenceDescriptions, FriendEntry, FriendIdentity, FriendToon,
+    ChatMessage, ChatWhisper, ConferenceMemberCount, ConferenceMemberCounts, FriendEntry,
+    FriendIdentity, FriendToon,
     FriendToonPage, FriendUpdate, FriendsPage, ImageTableEntry, MemberClanTag, Payload,
     ProfileAddress, ProfileAddressQueryResponse, ProfileReadResponse, ProfileReadResult,
     SocialOperation, ToonFullName, ToonHandle, ToonList, ToonNameResolved, ToonSelected,

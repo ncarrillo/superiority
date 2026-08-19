@@ -19,11 +19,7 @@ impl sc2_core::bsn::FromBsn for ClientComSatTalkerIdId {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientComSatTalkerIdId, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientComSatTalkerIdId, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Invalid(<() as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -61,3 +57,4 @@ pub struct ComSatSessionIdUnion {
     #[bsn(name = "m_instance")]
     pub instance: u32,
 }
+

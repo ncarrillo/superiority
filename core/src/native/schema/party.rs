@@ -48,11 +48,7 @@ impl sc2_core::bsn::FromBsn for PartyReadyProcess {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for PartyReadyProcess, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for PartyReadyProcess, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::JoinAmm(<super::party::PartyReadyProcessJoinAmm as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -89,7 +85,8 @@ pub struct PartyReadyProcessJoinCustomGame {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct PartyReadyProcessJoinFunOrNot {}
+pub struct PartyReadyProcessJoinFunOrNot {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct PartyReadyProcessJoinReplay {
@@ -98,3 +95,4 @@ pub struct PartyReadyProcessJoinReplay {
     #[bsn(name = "m_lobbyContextData")]
     pub lobby_context_data: super::s2game::S2GameReplayLobbyContextData,
 }
+

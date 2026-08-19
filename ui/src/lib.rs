@@ -10,6 +10,7 @@ pub use components::scrollbar::{
     ScrollbarStyle, Scrollbars, ShowScrollbar, WithScrollbar,
 };
 pub use model::{
-    Portrait, PresenceKind, RosterChannelKind, RosterPresentation, RosterRelationship, RosterUser,
-    RosterUserTone, TranscriptLine,
+    DigestEvent, MembershipEvent, MembershipKind, Portrait, PresenceKind, RosterChannelKind,
+    RosterPresentation, RosterRelationship, RosterSegment, RosterUser, RosterUserTone,
+    TranscriptLine,
 };

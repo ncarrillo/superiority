@@ -68,13 +68,16 @@ impl SettingsComponent {
                     })
                     .border_1()
                     .border_color(if selected {
-                        rgb(0x33a8f0)
+                        rgb(0x6bc2f2)
                     } else {
-                        rgb(0x133852)
+                        rgba(BORDER_STRUCTURAL)
                     })
                     .rounded(px(2.0))
                     .cursor_pointer()
-                    .hover(|style| style.border_2().border_color(rgb(0x33a8f0)).shadow_lg())
+                    // selection reads as the bright stroke plus its glow — the
+                    // stroke stays 1px in every state so nothing shifts.
+                    .when(selected, |tile| tile.shadow(selection_glow()))
+                    .hover(|style| style.border_color(rgb(BORDER_FOCUSED)))
                     .active(|style| style.opacity(0.82))
                     .on_hover(cx.listener(move |this, hovered, _, cx| {
                         this.settings

@@ -7,14 +7,26 @@ use gpui::{
 };
 
 use crate::{
-    Portrait, RosterUser, RosterUserTone, UiAssets,
+    Portrait, RosterSegment, RosterUser, RosterUserTone, UiAssets,
     animation::AnimationClock,
     components::controls,
     theme::{
-        FONT_INTERFACE, FONT_INTERNATIONAL, MUTED, PANEL_BACKGROUND, PANEL_BORDER, PANEL_HEADER,
-        PANEL_SHELL, ROSTER_ROW_HEIGHT, ROSTER_WIDTH, TEXT,
+        BORDER_FOCUSED, BORDER_STRUCTURAL, FONT_INTERFACE, FONT_INTERNATIONAL, MUTED,
+        PANEL_BACKGROUND, PANEL_HEADER, PANEL_SHELL, ROSTER_ROW_HEIGHT, ROSTER_SEGMENT_HEIGHT,
+        ROSTER_WIDTH, TEXT,
     },
 };
+
+/// rows for players who are not really there — one value applied to the whole
+/// row, lifted on hover so they still feel clickable.
+const DIMMED_ROW_OPACITY: f32 = 0.55;
+const DIMMED_ROW_HOVER_OPACITY: f32 = 0.8;
+
+/// the portrait block: a 24px face inside a 28px frame.
+pub const PORTRAIT_FRAME: f32 = 28.0;
+pub const PORTRAIT_FACE: f32 = 24.0;
+const ROW_INSET: f32 = 14.0;
+const STATUS_DOT: f32 = 9.0;
 
 const TRANSITION_DURATION: Duration = Duration::from_millis(240);
 const FULL_REVEAL_DURATION: Duration = Duration::from_millis(180);
@@ -420,12 +432,67 @@ fn roster_diff(previous: &[u32], next: &[u32]) -> Option<(Vec<usize>, Vec<usize>
     })
 }
 
-fn portrait(user: &RosterUser, assets: &UiAssets) -> AnyElement {
-    portrait_at(user, assets, 12.0, 7.0, 38.0)
+/// the member-list portrait — a framed face that sits in the flow rather than
+/// pinned to the row, so the name and dot can lay themselves out around it.
+fn portrait(user: &RosterUser, assets: &UiAssets) -> Div {
+    framed_portrait(
+        user.portrait.as_ref(),
+        assets,
+        PORTRAIT_FRAME,
+        PORTRAIT_FACE,
+    )
 }
 
-fn portrait_at(user: &RosterUser, assets: &UiAssets, left: f32, top: f32, size: f32) -> AnyElement {
-    match &user.portrait {
+/// the member list's row art at an arbitrary size, for anywhere else a person
+/// needs a face — the /w and @ results wear the same frame the roster does.
+#[must_use]
+pub fn framed_portrait(
+    portrait: Option<&Portrait>,
+    assets: &UiAssets,
+    frame: f32,
+    face: f32,
+) -> Div {
+    div()
+        .relative()
+        .size(px(frame))
+        .flex_shrink_0()
+        .child(portrait_at(
+            portrait,
+            assets,
+            (frame - face) / 2.0,
+            (frame - face) / 2.0,
+            face,
+        ))
+        .child(
+            img(assets.portrait_frame.clone())
+                .absolute()
+                .inset_0()
+                .size(px(frame))
+                .object_fit(ObjectFit::Fill),
+        )
+}
+
+/// a portrait sized for inline use — the avatar on a transcript name chip.
+/// unlike the roster's, this one sits in the flow rather than absolutely.
+#[must_use]
+pub fn inline_portrait(user: &RosterUser, assets: &UiAssets, size: f32) -> AnyElement {
+    div()
+        .relative()
+        .size(px(size))
+        .flex_shrink_0()
+        .overflow_hidden()
+        .child(portrait_at(user.portrait.as_ref(), assets, 0.0, 0.0, size))
+        .into_any_element()
+}
+
+fn portrait_at(
+    portrait: Option<&Portrait>,
+    assets: &UiAssets,
+    left: f32,
+    top: f32,
+    size: f32,
+) -> AnyElement {
+    match portrait {
         Some(Portrait::Image(source)) => img(source.clone())
             .absolute()
             .left(px(left))
@@ -493,7 +560,13 @@ impl Render for RosterTooltip {
         );
         let tooltip = controls::tooltip_shell(286.0, 152.0, self.assets.tooltip_fill.clone())
             .font_family(FONT_INTERFACE)
-            .child(portrait_at(&self.user, &self.assets, 16.0, 20.0, 48.0))
+            .child(portrait_at(
+                self.user.portrait.as_ref(),
+                &self.assets,
+                16.0,
+                20.0,
+                48.0,
+            ))
             .child(
                 img(self.assets.portrait_frame.clone())
                     .absolute()
@@ -877,13 +950,31 @@ impl RenderOnce for RosterRow {
         if let Some(on_click) = self.on_click {
             row = row.on_click(move |event, window, cx| on_click(event, window, cx));
         }
-        row.child(segment_divider(&self.user))
-            .child(
-                selection(self.selected, self.user.tone)
-                    .group_hover(self.group, |style| style.opacity(1.0)),
-            )
-            .child(row_body(&self.user, &self.assets))
+        let dimmed = self.user.dimmed;
+        let selected = self.selected;
+        row.child(selection(selected, self.user.tone))
+            .when(!selected, |row| {
+                row.child(hover_fill().group_hover(self.group.clone(), |style| style.opacity(1.0)))
+            })
+            .child(row_body(&self.user, &self.assets).when(dimmed, |body| {
+                body.group_hover(self.group, |style| style.opacity(DIMMED_ROW_HOVER_OPACITY))
+            }))
     }
+}
+
+/// hover is a flat wash; the tone fills belong to selection alone, so the two
+/// never read as the same state. it sits under the row body rather than on it,
+/// which keeps an away row dim while the wash behind stays at full strength.
+#[must_use]
+fn hover_fill() -> Div {
+    div()
+        .absolute()
+        .left(px(4.0))
+        .right(px(4.0))
+        .top(px(1.0))
+        .bottom(px(1.0))
+        .opacity(0.0)
+        .bg(rgba(0x1231_5e59))
 }
 
 #[must_use]
@@ -891,46 +982,115 @@ fn row_body(user: &RosterUser, assets: &UiAssets) -> Div {
     div()
         .relative()
         .size_full()
+        .flex()
+        .items_center()
+        .gap(px(10.0))
+        .px(px(ROW_INSET))
+        // one dim value for the whole row rather than a separate value per
+        // portrait / name / detail line.
+        .opacity(if user.dimmed { DIMMED_ROW_OPACITY } else { 1.0 })
         .child(portrait(user, assets))
-        .child(
-            img(assets.portrait_frame.clone())
-                .absolute()
-                .left(px(8.0))
-                .top(px(3.0))
-                .size(px(46.0))
-                .object_fit(ObjectFit::Fill),
-        )
-        .child(
+        .child(name_block(user))
+        .child(status_dot(user))
+}
+
+/// the name, and a second line only when the person is doing something the
+/// status dot cannot say on its own.
+#[must_use]
+fn name_block(user: &RosterUser) -> Div {
+    let block = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .child(name_line(user));
+    match user.detail() {
+        None => block,
+        Some(detail) => block.child(
             div()
-                .absolute()
-                .left(px(62.0))
-                .right(px(10.0))
-                .top(px(10.0))
-                .h(px(16.0))
-                .flex()
-                .items_center()
+                .font_family(FONT_INTERFACE)
+                .text_size(px(10.5))
+                .text_color(rgb(0x008f_b2d9))
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .font_family(FONT_INTERNATIONAL)
-                .text_size(px(13.0))
-                .text_color(username_color(user.tone))
-                .opacity(if user.dimmed { 0.54 } else { 1.0 })
-                .child(user.name.clone()),
-        )
+                .child(detail.to_owned()),
+        ),
+    }
+}
+
+#[must_use]
+fn name_line(user: &RosterUser) -> Div {
+    let line = div()
+        .flex()
+        .items_center()
+        .gap(px(4.0))
+        .min_w_0()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .font_family(FONT_INTERNATIONAL)
+        .text_size(px(12.5));
+    let line = match &user.clan_tag {
+        None => line,
+        Some(tag) => line.child(
+            div()
+                .flex_shrink_0()
+                .text_color(rgb(user.clan_tag_color()))
+                .child(format!("<{tag}>")),
+        ),
+    };
+    line.child(
+        // the tag carries the affiliation; the name itself stays plain so a
+        // channel full of clanmates does not read as a wall of gold.
+        div()
+            .min_w_0()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_color(rgb(TEXT))
+            .child(user.bare_name().to_owned()),
+    )
+}
+
+#[must_use]
+fn status_dot(user: &RosterUser) -> Div {
+    let color = user.presence.dot_color();
+    let dot = div()
+        .size(px(STATUS_DOT))
+        .flex_shrink_0()
+        .rounded(px(STATUS_DOT / 2.0))
+        .bg(rgb(color));
+    if user.presence.dot_glows() {
+        // the dot's own colour at 80%, bloomed just enough to read as lit
+        dot.shadow(vec![
+            gpui::BoxShadow::new(px(0.0), px(0.0), rgba((color << 8) | 0xcc).into())
+                .blur_radius(px(5.0)),
+        ])
+    } else {
+        dot
+    }
+}
+
+/// the whisper-quiet band label — "CLAN — 2". it takes a whole row slot so the
+/// list stays uniform, and hugs the bottom of it so the leftover space reads as
+/// separation from the band above.
+#[must_use]
+pub fn segment_header(segment: RosterSegment, count: usize) -> Div {
+    div()
+        .w_full()
+        .h_full()
+        .flex()
+        .flex_col()
+        .justify_end()
         .child(
-            presence_line(
-                user.presence_icon.clone(),
-                user.presence_label.clone(),
-                14.0,
-                4.0,
-                11.5,
-                rgb(MUTED).into(),
-            )
-            .absolute()
-            .left(px(62.0))
-            .right(px(10.0))
-            .top(px(29.0))
-            .h(px(18.0)),
+            div()
+                .h(px(ROSTER_SEGMENT_HEIGHT))
+                .flex()
+                .items_center()
+                .px(px(ROW_INSET))
+                .font_family(FONT_INTERFACE)
+                .font_weight(gpui::FontWeight::BOLD)
+                .text_size(px(9.5))
+                .text_color(rgb(segment.accent()))
+                .child(format!("{} — {count}", segment.label())),
         )
 }
 
@@ -986,30 +1146,12 @@ fn selection(selected: bool, tone: RosterUserTone) -> Div {
         .border_color(border)
 }
 
+/// the member row's contents with no member list around them — portrait, name,
+/// optional detail line, status dot. the social panel dresses friends in this
+/// so a person costs the same pixels wherever they are listed.
 #[must_use]
-fn username_color(tone: RosterUserTone) -> Hsla {
-    match tone {
-        RosterUserTone::Clan => rgb(0xf0aa64).into(),
-        RosterUserTone::Party => rgb(0xf092c4).into(),
-        RosterUserTone::Normal => rgb(TEXT).into(),
-    }
-}
-
-#[must_use]
-fn segment_divider(user: &RosterUser) -> Div {
-    let color = match user.tone {
-        RosterUserTone::Clan => rgba(0xf0aa_648f),
-        RosterUserTone::Party => rgba(0xf092_c48f),
-        RosterUserTone::Normal => rgba(0x6bc2_f266),
-    };
-    div()
-        .absolute()
-        .left(px(8.0))
-        .right(px(8.0))
-        .top_0()
-        .h(px(1.0))
-        .bg(color)
-        .opacity(if user.segment_start { 1.0 } else { 0.0 })
+pub fn person_row(user: &RosterUser, assets: &UiAssets) -> Div {
+    row_body(user, assets)
 }
 
 #[must_use]
@@ -1019,7 +1161,6 @@ pub fn static_row(user: &RosterUser, assets: &UiAssets, selected: bool) -> Div {
         .h(px(ROSTER_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
-        .child(segment_divider(user))
         .child(selection(selected, user.tone))
         .child(row_body(user, assets))
 }
@@ -1074,7 +1215,7 @@ fn panel_with_width(width: Option<f32>) -> Div {
         .h_full()
         .flex_shrink_0()
         .border_1()
-        .border_color(rgb(PANEL_BORDER))
+        .border_color(rgba(BORDER_STRUCTURAL))
         .bg(rgb(PANEL_SHELL))
         .child(
             div()
@@ -1184,11 +1325,13 @@ impl RenderOnce for RosterPanel {
             .children(self.overlays)
             .when(self.focused, |panel| {
                 panel.child(
+                    // tier 2 stroke, but no glow: a bloom around a surface this
+                    // large reads as the panel itself lighting up.
                     div()
                         .absolute()
                         .inset_0()
                         .border_1()
-                        .border_color(rgba(0x39ba_ffb8)),
+                        .border_color(rgb(BORDER_FOCUSED)),
                 )
             });
         if let Some(on_hover) = self.on_hover {

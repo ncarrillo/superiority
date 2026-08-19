@@ -1,11 +1,6 @@
 use super::*;
 
 impl SuperiorityView {
-    pub(in crate::app::client) fn join_channel(&mut self, title: String, cx: &mut Context<Self>) {
-        let target = self.join.target_for_query(title.trim());
-        self.join_channel_target(target, cx);
-    }
-
     pub(in crate::app::client) fn channel_label(&self, channel: &ChatChannel) -> String {
         if let ChatChannel::Public(identifier) = channel
             && let Some(name) = self.join.public_channels.get(identifier)

@@ -12,6 +12,10 @@ impl SocialComponent {
         cx: &mut Context<SuperiorityView>,
     ) -> AnyElement {
         let pane_offset = self.pane_offset(Instant::now());
+        // the panes slide as one; the header crossfades with them so the
+        // conversation's identity takes the SOCIAL title's place instead of
+        // stacking a second header under it.
+        let detail_progress = (-pane_offset / 400.0).clamp(0.0, 1.0);
         let social_rows = self.rows(chrome, cx);
         let social_results = div()
             .id("social-results-scroll")
@@ -43,7 +47,7 @@ impl SocialComponent {
             .w(px(800.0))
             .h(px(SOCIAL_BODY_HEIGHT))
             .child(list_pane)
-            .child(self.conversation_pane(chrome, window, cx));
+            .child(self.conversation_pane(window, cx));
         let body_clip = div()
             .absolute()
             .left(px(SOCIAL_FRAME_CLIP_GUTTER))
@@ -71,17 +75,26 @@ impl SocialComponent {
                     .object_fit(ObjectFit::Fill),
             );
         }
-        let modal = modal
-            .child(chrome.modal_header(SOCIAL_HEADER, "SOCIAL"))
-            .child(
-                ui_controls::close_button("friends-close")
-                    .absolute()
-                    .left(px(362.0))
-                    .top(px(18.0))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.dismiss_overlay(window, cx);
-                    })),
+        let mut modal = modal.child(
+            chrome
+                .modal_header(SOCIAL_HEADER, "SOCIAL")
+                .opacity(1.0 - detail_progress),
+        );
+        if detail_progress > 0.0 {
+            modal = modal.child(
+                self.conversation_header(chrome, cx)
+                    .opacity(detail_progress),
             );
+        }
+        let modal = modal.child(
+            ui_controls::close_button("friends-close")
+                .absolute()
+                .left(px(362.0))
+                .top(px(18.0))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.dismiss_overlay(window, cx);
+                })),
+        );
         let overlay = div()
             .id("friends-dismiss")
             .absolute()

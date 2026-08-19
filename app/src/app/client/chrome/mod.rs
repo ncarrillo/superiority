@@ -17,4 +17,8 @@ pub(in crate::app::client) struct ChromeComponent {
     pub(in crate::app::client) button_frames: Option<ButtonFrames>,
     pub(in crate::app::client) top_nav_background: Option<Arc<RenderImage>>,
     pub(in crate::app::client) ui_assets: UiAssets,
+    /// modal textures are decoded on first use, which would otherwise happen
+    /// while the first dialog is animating open.
+    pub(in crate::app::client) modal_assets_warming: bool,
+    pub(in crate::app::client) modal_warmup_started: bool,
 }

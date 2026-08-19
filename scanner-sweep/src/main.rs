@@ -449,12 +449,13 @@ fn print_updates(updates: Vec<SweepUpdate>) {
                     sc2_core::native::inspect::Direction::Outgoing => "C→S",
                 };
                 println!(
-                    "{direction} #{:04} {}/{} {:>6} B  {}",
+                    "{direction} #{:04} {}/{} {:>6} B  {}  {}",
                     record.sequence,
                     record.service,
                     record.command_id,
                     record.bytes.len(),
-                    record.command
+                    record.command,
+                    hex::encode(&record.bytes)
                 );
             }
         }

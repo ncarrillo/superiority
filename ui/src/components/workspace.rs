@@ -243,17 +243,22 @@ where
         self.selections.retain(|scope, _| retain(scope));
     }
 
+    /// `positions` maps each selectable handle to the row it occupies in the
+    /// rendered list, which is longer than `handles` whenever the list carries
+    /// anything that cannot be selected — segment headers, in the roster's case.
     #[must_use]
     pub fn select_index(
         &mut self,
         scope: K,
         handles: &[u32],
+        positions: &[usize],
         index: usize,
         strategy: gpui::ScrollStrategy,
     ) -> Option<u32> {
         let selected = handles.get(index).copied()?;
         self.selections.insert(scope, selected);
-        self.scroll.scroll_to_item(index, strategy);
+        self.scroll
+            .scroll_to_item(positions.get(index).copied().unwrap_or(index), strategy);
         Some(selected)
     }
 
@@ -262,6 +267,7 @@ where
         &mut self,
         scope: K,
         handles: &[u32],
+        positions: &[usize],
         delta: isize,
         strategy: gpui::ScrollStrategy,
     ) -> Option<u32> {
@@ -279,7 +285,7 @@ where
             None if delta < 0 => handles.len() - 1,
             None => 0,
         };
-        self.select_index(scope, handles, next, strategy)
+        self.select_index(scope, handles, positions, next, strategy)
     }
 }
 

@@ -21,9 +21,7 @@ impl sc2_core::bsn::FromBsn for ChatChannelType2Enum {
             3i128 => Ok(Self::PARTY),
             4i128 => Ok(Self::PUBLIC),
             5i128 => Ok(Self::CLUB),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ChatChannelType2Enum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ChatChannelType2Enum"))),
         }
     }
 }
@@ -61,26 +59,12 @@ impl sc2_core::bsn::FromBsn for ChatJoinNotifyResult2 {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ChatJoinNotifyResult2, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ChatJoinNotifyResult2, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::Success(
-                <super::chat::ChatJoinNotifyResult2Success as sc2_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            1i128 => Ok(Self::Failed(
-                <super::chat::ChatJoinNotifyResult2Failed as sc2_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a ChatJoinNotifyResult2 variant"
-            ))),
+            0i128 => Ok(Self::Success(<super::chat::ChatJoinNotifyResult2Success as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Failed(<super::chat::ChatJoinNotifyResult2Failed as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ChatJoinNotifyResult2 variant"))),
         }
     }
 }
@@ -126,11 +110,7 @@ impl sc2_core::bsn::FromBsn for ChatMemberStatusSingle {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ChatMemberStatusSingle, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ChatMemberStatusSingle, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Other(<super::chat::ChatMemberStatusSingleOther as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -161,11 +141,7 @@ impl sc2_core::bsn::FromBsn for ChatMemberStatusSingleOther {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ChatMemberStatusSingleOther, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ChatMemberStatusSingleOther, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::ClubData(<super::chat::ChatMemberStatusSingleOtherClubData as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -213,11 +189,7 @@ impl sc2_core::bsn::FromBsn for ChatMembershipChange {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ChatMembershipChange, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ChatMembershipChange, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::LeaveChannel(<super::chat::ChatMembershipChangeLeaveChannel as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -268,9 +240,7 @@ impl sc2_core::bsn::FromBsn for ChatPartyMemberStatusEnum {
             1i128 => Ok(Self::ONLINE),
             2i128 => Ok(Self::OFFLINE),
             3i128 => Ok(Self::INVITED),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ChatPartyMemberStatusEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ChatPartyMemberStatusEnum"))),
         }
     }
 }
@@ -284,7 +254,8 @@ pub struct ClientChatCategoryDescriptions {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientChatChannelList {}
+pub struct ClientChatChannelList {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatChannelListRequest {
@@ -310,9 +281,7 @@ impl sc2_core::bsn::FromBsn for ClientChatChannelListTypeEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             0i128 => Ok(Self::AUTOJOIN),
             1i128 => Ok(Self::RECENTLYJOINED),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClientChatChannelListTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClientChatChannelListTypeEnum"))),
         }
     }
 }
@@ -323,6 +292,16 @@ pub struct ClientChatConferenceDescriptions {
     pub list: Vec<super::conference::ConferenceFullConferenceDescription>,
     #[bsn(name = "m_isLast")]
     pub is_last: bool,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatConferenceMemberCounts {
+    #[bsn(name = "m_list")]
+    pub list: Vec<super::conference::ConferenceMembershipInfo>,
+    #[bsn(name = "m_isLast")]
+    pub is_last: bool,
+    #[bsn(name = "m_time")]
+    pub time: Option<i32>,
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -346,10 +325,16 @@ pub struct ClientChatDatagramConnectionUpdate {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientChatEnumCategoryDescriptions {}
+pub struct ClientChatEnumCategoryDescriptions {
+}
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientChatEnumConferenceDescriptions {}
+pub struct ClientChatEnumConferenceDescriptions {
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatEnumConferenceMemberCounts {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatInviteAccept {
@@ -400,7 +385,8 @@ pub struct ClientChatMembershipChangeNotify {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientChatMessage {}
+pub struct ClientChatMessage {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatMessageRecv {
@@ -465,22 +451,12 @@ impl sc2_core::bsn::FromBsn for ClientChatModifyChannelListResponse2Result {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientChatModifyChannelListResponse2Result, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientChatModifyChannelListResponse2Result, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::Success(<i32 as sc2_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            1i128 => Ok(Self::Failure(<u16 as sc2_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a ClientChatModifyChannelListResponse2Result variant"
-            ))),
+            0i128 => Ok(Self::Success(<i32 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Failure(<u16 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ClientChatModifyChannelListResponse2Result variant"))),
         }
     }
 }
@@ -496,10 +472,12 @@ pub struct ClientChatStatusChangeRequest {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientChatWhisper {}
+pub struct ClientChatWhisper {
+}
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientChatWhisperEcho {}
+pub struct ClientChatWhisperEcho {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientChatWhisperEchoRecv {
@@ -520,3 +498,4 @@ pub struct ClientChatWhisperRecv {
     #[bsn(name = "m_body")]
     pub body: String,
 }
+

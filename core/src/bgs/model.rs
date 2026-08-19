@@ -182,6 +182,12 @@ impl NativeHandoff {
         })
     }
 
+    /// override the native endpoint (`host:port`). used to point a native client
+    /// at a loopback Sunken server instead of Blizzard's real native address.
+    pub fn set_address(&mut self, address: String) {
+        self.address = address;
+    }
+
     pub fn endpoint(&self, default_port: u16) -> Result<(String, u16)> {
         let value = self.address.trim();
         let (host, port) = if let Some(value) = value.strip_prefix('[') {

@@ -71,7 +71,14 @@ impl CredentialStore for FileCredentialStore {
         let parent = path.parent().ok_or_else(|| {
             Error::Authentication("credential cache has no parent directory".into())
         })?;
-        create_private_directory(parent)?;
+        // a bare relative filename has an empty parent, which is the working
+        // directory: it already exists, and creating or chmod-ing "" fails.
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            create_private_directory(parent)?;
+            parent
+        };
 
         let temporary = parent.join(format!(
             ".{CREDENTIAL_FILENAME}.{}-{}.tmp",
@@ -116,8 +123,10 @@ impl FileCredentialStore {
         })
     }
 
-    #[cfg(test)]
-    fn at(path: PathBuf) -> Self {
+    /// a store at an explicit path, for embedders that must not share the
+    /// app's cache.
+    #[must_use]
+    pub fn at(path: PathBuf) -> Self {
         Self { path: Some(path) }
     }
 }
@@ -184,6 +193,28 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    #[test]
+    fn stores_beside_the_working_directory_when_the_path_is_a_bare_filename() {
+        let directory = std::env::temp_dir().join(format!(
+            "superiority-relative-test-{}-{:x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir_all(&directory).expect("test directory is created");
+        let restore = std::env::current_dir().expect("a working directory exists");
+        std::env::set_current_dir(&directory).expect("test directory is usable");
+
+        let store = FileCredentialStore::at(PathBuf::from("bare-credentials.bin"));
+        let credential = SecretBytes::new(vec![9, 9, 9]).expect("fixture is valid");
+        let stored = store.store(&credential);
+        let loaded = store.load();
+
+        std::env::set_current_dir(restore).expect("working directory is restored");
+        stored.expect("a bare filename stores into the working directory");
+        assert_eq!(loaded.expect("credential is loaded").unwrap(), credential);
+        fs::remove_dir_all(&directory).expect("test directory is removed");
+    }
 
     #[test]
     fn stores_loads_and_deletes_private_credentials() {

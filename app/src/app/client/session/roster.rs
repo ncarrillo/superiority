@@ -1,5 +1,4 @@
 use super::*;
-use crate::app::client::roster::presented_roster_users;
 
 impl SuperiorityView {
     pub(in crate::app::client) fn queue_roster(&mut self, snapshot: RosterSnapshot) {
@@ -51,6 +50,32 @@ impl SuperiorityView {
         changed
     }
 
+    /// a join event announces someone before their avatar and clan tag exist,
+    /// so transcript members start out incomplete. copy the roster's version
+    /// over them once it lands — permanently, because the roster will not hold
+    /// that person forever and a chip must not decay back to a placeholder
+    /// when they leave.
+    fn adopt_transcript_identities(tab: &mut ChannelState) {
+        if !tab.identities_pending {
+            return;
+        }
+        let roster = tab.users.clone();
+        let mut pending = false;
+        for line in &mut tab.transcript {
+            let members: &mut [&mut Vec<UiUser>] = match line {
+                ChatLine::Membership { members, .. } => &mut [members],
+                ChatLine::Digest { joined, left, .. } => &mut [joined, left],
+                _ => continue,
+            };
+            for group in members {
+                for member in group.iter_mut() {
+                    pending |= !adopt_identity(member, &roster);
+                }
+            }
+        }
+        tab.identities_pending = pending;
+    }
+
     pub(in crate::app::client) fn apply_roster_snapshot(
         &mut self,
         snapshot: RosterSnapshot,
@@ -70,22 +95,31 @@ impl SuperiorityView {
             .collect::<Vec<_>>();
         let filter = self.channels.tabs[position].roster_filter.clone();
         let previous_users = self.channels.tabs[position].users.clone();
-        let previous_visible =
-            presented_roster_users(&self.channels.tabs, &self.channels.tabs[position], &filter);
+        let previous_visible = presented_roster_entries(
+            &self.channels.tabs,
+            &self.social.friends,
+            &self.channels.tabs[position],
+            &filter,
+        );
         let mut projected_tabs = self.channels.tabs.clone();
         projected_tabs[position].users.clone_from(&next_users);
-        let next_visible =
-            presented_roster_users(&projected_tabs, &projected_tabs[position], &filter);
+        let next_visible = presented_roster_entries(
+            &projected_tabs,
+            &self.social.friends,
+            &projected_tabs[position],
+            &filter,
+        );
         let previous_handles = previous_visible
             .iter()
-            .map(|user| user.handle)
+            .filter_map(|entry| entry.user().map(|user| user.handle))
             .collect::<Vec<_>>();
         let next_handles = next_visible
             .iter()
-            .map(|user| user.handle)
+            .filter_map(|entry| entry.user().map(|user| user.handle))
             .collect::<Vec<_>>();
         self.channels.tabs[position].users = next_users;
         self.channels.tabs[position].roster_complete = snapshot.initial_complete;
+        Self::adopt_transcript_identities(&mut self.channels.tabs[position]);
 
         if position != self.channels.active_tab {
             return previous_handles != next_handles;
@@ -111,4 +145,25 @@ impl SuperiorityView {
         ));
         previous_handles != next_handles || previous_users != self.channels.tabs[position].users
     }
+}
+
+/// fill in whatever the join event could not know. returns whether the member
+/// is now complete.
+pub(in crate::app::client) fn adopt_identity(member: &mut UiUser, roster: &[UiUser]) -> bool {
+    if member.portrait.is_some() && member.clan_tag.is_some() {
+        return true;
+    }
+    let Some(current) = roster.iter().find(|user| user.handle == member.handle) else {
+        // they are gone from the roster; whatever we already resolved is the
+        // best this event will ever have, so stop asking.
+        return true;
+    };
+    if member.portrait.is_none() && current.portrait.is_some() {
+        member.portrait.clone_from(&current.portrait);
+    }
+    if member.clan_tag.is_none() && current.clan_tag.is_some() {
+        member.clan_tag.clone_from(&current.clan_tag);
+        member.name.clone_from(&current.name);
+    }
+    member.portrait.is_some() && member.clan_tag.is_some()
 }

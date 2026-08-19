@@ -4,7 +4,8 @@ use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientProfileAddressQuery {}
+pub struct ClientProfileAddressQuery {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientProfileAddressQueryRequest {
@@ -35,11 +36,7 @@ impl sc2_core::bsn::FromBsn for ClientProfileAddressQueryResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientProfileAddressQueryResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientProfileAddressQueryResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::profile::ClientProfileAddressQueryResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -74,7 +71,8 @@ pub struct ClientProfileHandleToNameResponse {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientProfileRead {}
+pub struct ClientProfileRead {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientProfileReadRequest {
@@ -101,7 +99,8 @@ pub struct ClientProfileReadResponse {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientProfileResolveToonHandleToName {}
+pub struct ClientProfileResolveToonHandleToName {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientProfileResolveToonHandleToNameRequest {
@@ -120,7 +119,8 @@ pub struct ClientProfileResolveToonHandleToNameResponse {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientProfileResolveToonNameToHandle {}
+pub struct ClientProfileResolveToonNameToHandle {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientProfileResolveToonNameToHandleRequest {
@@ -170,9 +170,7 @@ impl sc2_core::bsn::FromBsn for ClientProfileSettingsTypeEnum {
             1i128 => Ok(Self::SETTINGACCOUNT),
             2i128 => Ok(Self::SETTINGGAME),
             3i128 => Ok(Self::SETTINGTOON),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClientProfileSettingsTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClientProfileSettingsTypeEnum"))),
         }
     }
 }
@@ -194,11 +192,7 @@ impl sc2_core::bsn::FromBsn for ProfileHeroStatSelection {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ProfileHeroStatSelection, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ProfileHeroStatSelection, found {other:?}"))),
         };
         match index {
             1i128 => Ok(Self::AllForSeason(<super::profile::ProfileHeroStatSelectionAllForSeason as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -245,11 +239,7 @@ impl sc2_core::bsn::FromBsn for ProfileProfileDataResponse {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ProfileProfileDataResponse, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ProfileProfileDataResponse, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Start(<super::profile::ProfileProfileDataResponseStart as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -282,11 +272,7 @@ impl sc2_core::bsn::FromBsn for ProfileReadSelection {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ProfileReadSelection, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ProfileReadSelection, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::All(<super::profile::ProfileReadSelectionAll as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -355,3 +341,4 @@ pub struct ProfileRecordAddress {
     #[bsn(name = "m_id")]
     pub id: u64,
 }
+

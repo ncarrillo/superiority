@@ -24,28 +24,19 @@ impl sc2_core::bsn::FromBsn for ClientS2MapGameGroupUpdateResults {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientS2MapGameGroupUpdateResults, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientS2MapGameGroupUpdateResults, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::GameGroup(
-                <Vec<super::s2map::S2MapShortLink> as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            1i128 => Ok(Self::MapGroup(
-                <Vec<u32> as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a ClientS2MapGameGroupUpdateResults variant"
-            ))),
+            0i128 => Ok(Self::GameGroup(<Vec<super::s2map::S2MapShortLink> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::MapGroup(<Vec<u32> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ClientS2MapGameGroupUpdateResults variant"))),
         }
     }
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientS2MapS2ListMapFavorites {}
+pub struct ClientS2MapS2ListMapFavorites {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientS2MapS2ListMapFavoritesRequest {
@@ -72,11 +63,7 @@ impl sc2_core::bsn::FromBsn for ClientS2MapS2ListMapFavoritesResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientS2MapS2ListMapFavoritesResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientS2MapS2ListMapFavoritesResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::s2map::ClientS2MapS2ListMapFavoritesResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -130,9 +117,7 @@ impl sc2_core::bsn::FromBsn for S2MapLinkEntryTypeEnum {
             0i128 => Ok(Self::PRIMARY),
             1i128 => Ok(Self::OPTIONAL),
             2i128 => Ok(Self::DEPENDENCY),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid S2MapLinkEntryTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid S2MapLinkEntryTypeEnum"))),
         }
     }
 }
@@ -156,3 +141,4 @@ pub struct S2MapShortLink {
     #[bsn(name = "m_entries")]
     pub entries: Vec<super::s2map::S2MapLinkEntry>,
 }
+

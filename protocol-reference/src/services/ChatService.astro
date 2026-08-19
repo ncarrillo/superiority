@@ -104,27 +104,47 @@ struct ChannelDescriptor {
     </Endpoint>
 
     <Endpoint id="chat-conference-query" direction="client → server" phase="protected discovery" structure="empty payload" status="live verified">
-      <Fragment slot="title"><code>Chat/25</code> Chat::EnumConferenceDescriptions</Fragment>
-      <p>Requests the regional public-conference catalog.</p>
-      <RustSchema code={`struct EnumConferenceDescriptions; // zero payload bits`} />
+      <Fragment slot="title"><code>Chat/25</code> Chat::EnumConferenceMemberCounts</Fragment>
+      <p>Asks for the live population of every conference the account can see.
+      Long documented here as <code>EnumConferenceDescriptions</code>; both
+      request types are zero-field structs and encode to identical bytes, so the
+      name follows from the reply rather than from the wire.</p>
+      <RustSchema code={`struct EnumConferenceMemberCounts; // zero payload bits`} />
     </Endpoint>
 
     <Endpoint id="chat-conference-result" direction="server → client" phase="protected discovery" structure="generated order" status="live verified">
-      <Fragment slot="title"><code>Chat/26</code> Chat::ConferenceDescriptions</Fragment>
-      <p>Returns one page of public numeric conference descriptions.</p>
-      <RustSchema code={`struct ConferenceDescriptions {
+      <Fragment slot="title"><code>Chat/26</code> Chat::ConferenceMemberCounts</Fragment>
+      <p>One page of live per-conference head counts. A public channel is served
+      by one or more conferences; the server sets <code>m_isFull</code> itself at
+      the cap rather than leaving the client to compare against a maximum.</p>
+      <RustSchema code={`struct ConferenceMemberCounts {
     is_last: bool,
     _reserved: Reserved<27>,
-    decoy: Option<i32>,
-    entries: Vec<ConferenceDescription>, // count: 6 wire bits
+    sampled_at: Option<i32>,       // Time::Seconds
+    entries: Vec<MembershipInfo>,  // count: 6 wire bits
 }
 
-struct ConferenceDescription {
+struct MembershipInfo {
     _reserved: Reserved<23>,
-    identifier: u32,
-    sort_order: u16,
-    marker: bool,
+    conference_id: u32,            // Conference::Id
+    members: u16,                  // m_numMembers
+    full: bool,                    // m_isFull
 }`} />
+      <p class="endpoint-note">This route was labelled
+      <code>ConferenceDescriptions</code> until 2026-08-19, with
+      <code>members</code> read as a sort order, <code>full</code> as an unknown
+      marker, and <code>sampled_at</code> dismissed as a decoy. The bit layout
+      was right all along; only the names were wrong. Three things settle it: the
+      optional <code>i32</code> reproduces the moment of capture to within
+      seconds across ten recorded pages; the handler's element stride is eight
+      bytes, which a <code>FullConferenceDescription</code> (two arrays and a
+      choice) cannot fit; and <code>m_isFull</code> is set at exactly one value,
+      181, which is also the highest population ever observed. A sort order does
+      not vary between samples — 28 of 30 conferences do.</p>
+      <p class="endpoint-note">Counts arrive keyed by <code>Conference::Id</code>.
+      Nothing SC2 requests pairs a conference id with the
+      <code>ShardName</code> it serves, so they cannot yet be attributed to a
+      named channel.</p>
     </Endpoint>
 
     <Endpoint id="chat-join-request" direction="client → server" phase="protected" structure="logical order" status="verified">

@@ -25,9 +25,7 @@ impl sc2_core::bsn::FromBsn for LeagueLeagueEnum {
             5i128 => Ok(Self::MASTER),
             6i128 => Ok(Self::GRANDMASTER),
             7i128 => Ok(Self::TOTALCOUNT),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid LeagueLeagueEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid LeagueLeagueEnum"))),
         }
     }
 }
@@ -44,9 +42,8 @@ impl sc2_core::bsn::FromBsn for LeagueTeamTypeEnum {
             0i128 => Ok(Self::ARRANGED),
             1i128 => Ok(Self::RANDOM),
             2i128 => Ok(Self::TOTALCOUNT),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid LeagueTeamTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid LeagueTeamTypeEnum"))),
         }
     }
 }
+

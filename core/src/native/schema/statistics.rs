@@ -10,3 +10,4 @@ pub struct StatisticsClientValue {
     #[bsn(name = "m_value")]
     pub value: u64,
 }
+

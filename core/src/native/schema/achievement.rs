@@ -18,11 +18,7 @@ impl sc2_core::bsn::FromBsn for AchievementCriteriaComparandChoice {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for AchievementCriteriaComparandChoice, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for AchievementCriteriaComparandChoice, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::None(<() as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -81,11 +77,7 @@ impl sc2_core::bsn::FromBsn for AchievementDataSegment {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for AchievementDataSegment, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for AchievementDataSegment, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Achievements(<Vec<super::achievement::AchievementPersistentRecord> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -117,9 +109,7 @@ impl sc2_core::bsn::FromBsn for AchievementListenModeEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             0i128 => Ok(Self::SUBSCRIPTION),
             1i128 => Ok(Self::SNAPSHOT),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid AchievementListenModeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid AchievementListenModeEnum"))),
         }
     }
 }
@@ -134,9 +124,7 @@ impl sc2_core::bsn::FromBsn for AchievementListenScopeEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             0i128 => Ok(Self::ACHIEVEMENTSONLY),
             1i128 => Ok(Self::ACHIEVEMENTSANDCRITERIA),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid AchievementListenScopeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid AchievementListenScopeEnum"))),
         }
     }
 }
@@ -163,9 +151,7 @@ impl sc2_core::bsn::FromBsn for AchievementNotificationEnum {
             5i128 => Ok(Self::EXPECTEDCANCELLATION),
             6i128 => Ok(Self::UNEXPECTEDCANCELLATION),
             7i128 => Ok(Self::STATICDATAINITIALIZING),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid AchievementNotificationEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid AchievementNotificationEnum"))),
         }
     }
 }
@@ -211,3 +197,4 @@ pub struct ClientAchievementListenRequest {
     #[bsn(name = "m_scope")]
     pub scope: super::achievement::AchievementListenScopeEnum,
 }
+

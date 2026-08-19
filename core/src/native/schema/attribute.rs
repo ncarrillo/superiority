@@ -12,3 +12,4 @@ pub struct AttributeNonLobbyAttribute {
     #[bsn(name = "m_index")]
     pub index: u16,
 }
+

@@ -17,13 +17,6 @@ impl SuperiorityView {
                 self.social
                     .overlay(&self.chrome, &self.overlays, window, cx),
             ),
-            Overlay::Join => Some(self.join.overlay(
-                &self.channels.tabs,
-                &self.chrome,
-                &self.overlays,
-                window,
-                cx,
-            )),
             Overlay::Settings => {
                 let live_url = self.runtime.uplink.stats.feed_url();
                 let live_error = self
@@ -56,17 +49,18 @@ impl SuperiorityView {
 impl Render for SuperiorityView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         platform::configure_window(window);
-        self.sync_text_inputs();
+        self.sync_text_inputs(cx);
+        self.sync_command_focus(window, cx);
         self.advance_tab_animations(window, cx);
 
-        if self.join.join_assets_warming && !self.join.join_warmup_started {
-            self.join.join_warmup_started = true;
+        if self.chrome.modal_assets_warming && !self.chrome.modal_warmup_started {
+            self.chrome.modal_warmup_started = true;
             let executor = cx.background_executor().clone();
             cx.spawn_in(window, async move |entity, cx| {
                 executor.timer(Duration::from_millis(180)).await;
                 entity
                     .update_in(cx, |this, _, cx| {
-                        this.join.join_assets_warming = false;
+                        this.chrome.modal_assets_warming = false;
                         cx.notify();
                     })
                     .ok();
@@ -81,8 +75,8 @@ impl Render for SuperiorityView {
             .on_drag_move::<TabDragPayload>(cx.listener(Self::update_tab_drag))
             .on_drop(cx.listener(Self::finish_tab_drag))
             .relative();
-        if self.join.join_assets_warming {
-            root = root.child(self.chrome.join_asset_warmup());
+        if self.chrome.modal_assets_warming {
+            root = root.child(self.chrome.modal_asset_warmup());
         }
         let online_friends = self
             .social
@@ -97,19 +91,32 @@ impl Render for SuperiorityView {
             .channels
             .view(account_portrait, &self.chrome, window, cx);
         let invitations = self.join.invitation_stack(&self.chrome, cx);
-        let chat = self
-            .chat
-            .panel(&self.channels, &self.settings, &self.chrome, invitations);
+        let affinity = RosterAffinity::new(&self.channels.tabs, &self.social.friends);
+        let chat = self.chat.panel(
+            &self.channels,
+            &self.settings,
+            &self.chrome,
+            invitations,
+            &affinity,
+            cx,
+        );
         let roster = self.roster.panel(
             &self.channels,
+            &self.social.friends,
             self.selected_user(),
             &self.chrome.ui_assets,
             window,
             cx,
         );
-        let composer =
-            self.composer
-                .view(window, self.channels.active().is_some(), online_friends, cx);
+        let command_results = self.command_results();
+        let composer = self.composer.view(
+            window,
+            self.channels.active().is_some(),
+            online_friends,
+            command_results,
+            &self.chrome.ui_assets,
+            cx,
+        );
         let chat_chrome = div().id("chat-chrome").absolute().inset_0().child(
             ui_workspace::ChannelWorkspace::new(navigation, chat, roster)
                 .footer(composer)

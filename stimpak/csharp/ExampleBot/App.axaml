@@ -1,0 +1,33 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ExampleBot"
+             x:Class="ExampleBot.App"
+             RequestedThemeVariant="Dark">
+  <Application.DataTemplates>
+    <local:ViewLocator />
+  </Application.DataTemplates>
+
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
+
+  <Application.Resources>
+    <!-- lifted from the superiority design system so the bot reads as part of
+         the same family rather than a default fluent window -->
+    <Color x:Key="BackgroundColor">#0b0f15</Color>
+    <SolidColorBrush x:Key="Background" Color="#0b0f15" />
+    <SolidColorBrush x:Key="PanelBackground" Color="#060a0f" />
+    <SolidColorBrush x:Key="PanelHeader" Color="#091016" />
+    <SolidColorBrush x:Key="PanelShell" Color="#0b121a" />
+    <SolidColorBrush x:Key="Structural" Color="#b3133e5b" />
+    <SolidColorBrush x:Key="Focused" Color="#33a8f0" />
+    <SolidColorBrush x:Key="Text" Color="#d6e0f0" />
+    <SolidColorBrush x:Key="Muted" Color="#7d8fa8" />
+    <SolidColorBrush x:Key="Notice" Color="#6bc2f2" />
+    <SolidColorBrush x:Key="Online" Color="#47d184" />
+    <SolidColorBrush x:Key="Clan" Color="#f0aa64" />
+    <SolidColorBrush x:Key="Party" Color="#f092c4" />
+    <SolidColorBrush x:Key="Title" Color="#e6f9ff" />
+    <SolidColorBrush x:Key="Selection" Color="#f512315e" />
+  </Application.Resources>
+</Application>

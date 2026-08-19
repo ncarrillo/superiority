@@ -3,8 +3,9 @@ use std::{fmt, net::IpAddr, str::FromStr};
 use hmac::{Hmac, Mac};
 use rand::TryRngCore;
 use rc4::{KeyInit, Rc4, StreamCipher};
-use rsa::{BigUint, Pkcs1v15Sign, RsaPublicKey, traits::PublicKeyParts};
+use rsa::{BigUint, Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey, traits::PublicKeyParts};
 use sha2::{Digest, Sha256, Sha512};
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{Error, Result};
@@ -211,6 +212,15 @@ pub fn thumbprint_context_for_peer(address: &str) -> Result<[u8; 16]> {
     }
 }
 
+/// Blizzard's native thumbprint modulus, little-endian, exactly as SC2 stores
+/// it in memory. used as the search needle when patching the running client to
+/// trust a server key we control (see `tools/sunken-redirect`). this is a
+/// public key; there is nothing secret about it.
+#[must_use]
+pub fn thumbprint_modulus_le() -> [u8; 512] {
+    THUMBPRINT_MODULUS_LE
+}
+
 #[must_use]
 pub fn verify_thumbprint_proof(context: &[u8], signature: &[u8]) -> bool {
     if context.len() != 16 || signature.len() != 512 {
@@ -229,6 +239,98 @@ pub fn verify_thumbprint_proof(context: &[u8], signature: &[u8]) -> bool {
     let signature = signature.iter().rev().copied().collect::<Vec<_>>();
     key.verify(Pkcs1v15Sign::new::<Sha512>(), &digest, &signature)
         .is_ok()
+}
+
+/// server-side inverse of [`verify_thumbprint_proof`].
+///
+/// signs the native thumbprint challenge (`context ‖ "Thumbprint.IPv6"`) with a
+/// 4096-bit RSA private key we control and returns the 512-byte little-endian
+/// wire signature the SC2 client expects. for the client to accept it, the
+/// matching public modulus must be patched into the running client in place of
+/// Blizzard's (see `tools/sunken-redirect`). `context` is the 16-byte
+/// IPv4-mapped IPv6 peer address from [`thumbprint_context_for_peer`].
+pub fn sign_thumbprint_proof(private_key: &RsaPrivateKey, context: &[u8]) -> Result<[u8; 512]> {
+    if context.len() != 16 {
+        return Err(native_error("thumbprint context must be 16 bytes"));
+    }
+    if private_key.size() != 512 {
+        return Err(native_error("thumbprint key must be RSA-4096"));
+    }
+    let digest = Sha512::digest([context, b"Thumbprint.IPv6"].concat());
+    let signature = private_key
+        .sign(Pkcs1v15Sign::new::<Sha512>(), &digest)
+        .map_err(|error| native_error(format!("thumbprint signing failed: {error}")))?;
+    if signature.len() != 512 {
+        return Err(native_error("thumbprint signature was not 512 bytes"));
+    }
+    // the client transmits and verifies the signature little-endian; the RSA
+    // library produces the standard big-endian PKCS#1 v1.5 block, so reverse it.
+    let mut wire = [0_u8; 512];
+    for (destination, source) in wire.iter_mut().zip(signature.iter().rev()) {
+        *destination = *source;
+    }
+    Ok(wire)
+}
+
+/// server side of the native session proof.
+///
+/// mirrors [`build_session_proof`], which runs on the client. given the
+/// pre-shared 64-byte `GameUtilities` seed, the 16-byte server nonce we issued
+/// in the `Auth/2 ProofRequest`, and the client's 49-byte `ProofResponse`
+/// output,
+/// this verifies the client proof and returns the phase-two server proof plus
+/// the transport key `C`.
+pub fn verify_client_session_proof(
+    session_seed: &[u8],
+    server_nonce: &[u8; 16],
+    client_output: &[u8],
+) -> Result<ServerSessionProof> {
+    require_length(session_seed, 64, "GameUtilities session seed")?;
+    if client_output.len() != 49 || client_output[0] != 1 {
+        return Err(native_error(
+            "native client proof output is not a 49-byte phase-one response",
+        ));
+    }
+    let mut client_nonce = [0_u8; 16];
+    client_nonce.copy_from_slice(&client_output[1..17]);
+    let client_proof = &client_output[17..49];
+    let transport_key = derive_session_auth_key(session_seed, &client_nonce, server_nonce)?;
+    let expected_client_proof =
+        hmac_sha256(&transport_key, &[b"\x00", &client_nonce, server_nonce])?;
+    if !bool::from(expected_client_proof.as_slice().ct_eq(client_proof)) {
+        return Err(native_error("native client session proof failed"));
+    }
+    let server_proof = hmac_sha256(&transport_key, &[b"\x01", server_nonce, &client_nonce])?;
+    Ok(ServerSessionProof {
+        server_proof,
+        transport_key,
+    })
+}
+
+/// result of [`verify_client_session_proof`]: the phase-two proof to return in
+/// `Auth/1 ResumeResponse` and the 64-byte transport key `C` used to switch RC4.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct ServerSessionProof {
+    server_proof: [u8; 32],
+    transport_key: [u8; 64],
+}
+
+impl ServerSessionProof {
+    #[must_use]
+    pub const fn server_proof(&self) -> &[u8; 32] {
+        &self.server_proof
+    }
+
+    #[must_use]
+    pub const fn transport_key(&self) -> &[u8; 64] {
+        &self.transport_key
+    }
+}
+
+impl fmt::Debug for ServerSessionProof {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ServerSessionProof(<redacted>)")
+    }
 }
 
 fn build_transport_handshake_with_nonce(
@@ -405,5 +507,26 @@ mod tests {
         );
         assert!(thumbprint_context_for_peer("native.example").is_err());
         assert!(!verify_thumbprint_proof(&[0; 16], &[0; 512]));
+    }
+
+    #[test]
+    fn server_session_proof_mirrors_the_client() {
+        // same recovered vectors as `session_proof_matches_recovered_hmac_order`:
+        // the server, given only the seed, the nonce it issued, and the client's
+        // 49-byte output, must reconstruct the identical transport key and the
+        // exact phase-two proof the client is waiting to validate.
+        let seed = (0_u8..64).collect::<Vec<_>>();
+        let server_nonce: [u8; 16] = (16_u8..32).collect::<Vec<_>>().try_into().unwrap();
+        let client_nonce: [u8; 16] = (32_u8..48).collect::<Vec<_>>().try_into().unwrap();
+        let client = build_session_proof_with_nonce(&seed, &server_nonce, client_nonce).unwrap();
+
+        let server = verify_client_session_proof(&seed, &server_nonce, client.output()).unwrap();
+        assert_eq!(server.transport_key(), client.transport_key());
+        assert_eq!(server.server_proof(), client.expected_server_proof());
+
+        // a tampered client proof must be rejected.
+        let mut forged = *client.output();
+        forged[48] ^= 1;
+        assert!(verify_client_session_proof(&seed, &server_nonce, &forged).is_err());
     }
 }

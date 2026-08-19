@@ -46,3 +46,8 @@ sc2-*.pcapng
 .claude
 assets
 AGENTS.md
+tools/sunken-redirect/state/
+
+*credentials*.bin
+stimpak/csharp/**/bin/
+stimpak/csharp/**/obj/

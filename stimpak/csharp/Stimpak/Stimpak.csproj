@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Stimpak</RootNamespace>
+    <AssemblyName>Stimpak</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    the managed assembly is useless without the native library beside it, so the
+    build copies it rather than leaving that to a DYLD_LIBRARY_PATH the caller
+    has to remember. point StimpakNativeDir at a prebuilt library to consume
+    one without a rust toolchain.
+  -->
+  <PropertyGroup>
+    <!-- release only: the native side is a dependency, not something a managed
+         Debug build should be recompiling unoptimised. -->
+    <StimpakNativeDir Condition="'$(StimpakNativeDir)' == ''">$(MSBuildThisFileDirectory)../../../target/release/</StimpakNativeDir>
+    <!-- false to consume a prebuilt library instead of invoking cargo. -->
+    <StimpakBuildNative Condition="'$(StimpakBuildNative)' == ''">true</StimpakBuildNative>
+  </PropertyGroup>
+
+  <Target Name="BuildStimpakNative"
+          BeforeTargets="ResolveStimpakNative"
+          Condition="'$(StimpakBuildNative)' == 'true'">
+    <Exec Command="cargo build --release -p stimpak -p stimpak-auth-window"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../../../"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="StimpakCargoExit" />
+    </Exec>
+    <Message Importance="high"
+             Condition="'$(StimpakCargoExit)' != '0'"
+             Text="cargo build failed or cargo is unavailable; falling back to whatever is already in $(StimpakNativeDir)" />
+  </Target>
+
+  <Target Name="ResolveStimpakNative" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <!-- globs, not literal paths: a wildcard matches only files that exist,
+           so a platform's missing variants never become items. -->
+      <StimpakNativeLibrary Include="$(StimpakNativeDir)*libstimpak.dylib;
+                                         $(StimpakNativeDir)*libstimpak.so;
+                                         $(StimpakNativeDir)*stimpak.dll;
+                                         $(StimpakNativeDir)*stimpak-auth-window;
+                                         $(StimpakNativeDir)*stimpak-auth-window.exe" />
+      <!-- None with CopyToOutputDirectory flows to referencing projects, so an
+           app that only references this library still gets the native one. -->
+      <None Include="@(StimpakNativeLibrary)">
+        <Link>%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Visible>false</Visible>
+      </None>
+    </ItemGroup>
+    <Warning Condition="'@(StimpakNativeLibrary)' == ''"
+             Code="SUP001"
+             Text="No native library found in $(StimpakNativeDir). Run 'cargo build --release -p stimpak' from the repository root, or set StimpakNativeDir to a directory that already holds one." />
+  </Target>
+</Project>

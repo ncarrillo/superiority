@@ -1,84 +1,39 @@
 use super::*;
 
-impl SocialComponent {
-    pub(super) fn friend_row(
-        &self,
-        row_id: usize,
-        friend: &UiFriend,
-        dimmed: bool,
-        chrome: &ChromeComponent,
-        cx: &mut Context<SuperiorityView>,
-    ) -> AnyElement {
-        let peer = friend.name.clone();
-        let portrait = friend.portrait.as_ref().map_or_else(
-            || img("images/icons/friend-placeholder.png"),
-            |portrait| img(portrait.clone()),
-        );
-        let presence = presence_kind(friend.presence);
-        let icon = chrome.ui_assets.presence_icon(presence);
-        let mut row = div()
-            .id(("social-friend", row_id))
-            .relative()
-            .h(px(52.0))
-            .flex_shrink_0()
-            .cursor_pointer()
-            .hover(|style| style.bg(rgba(0x12315eb8)))
-            .active(|style| style.bg(rgba(0x1a4778e8)).opacity(0.82))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.social.open_conversation(peer.clone(), window, cx);
-                cx.notify();
-            }))
-            .child(
-                portrait
-                    .absolute()
-                    .left(px(12.0))
-                    .top(px(7.0))
-                    .size(px(38.0))
-                    .object_fit(ObjectFit::Contain),
-            )
-            .child(
-                img("images/nine-patch/portraits/frame.png")
-                    .absolute()
-                    .left(px(8.0))
-                    .top(px(3.0))
-                    .size(px(46.0))
-                    .object_fit(ObjectFit::Fill),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(64.0))
-                    .right(px(8.0))
-                    .top(px(7.0))
-                    .h(px(19.0))
-                    .flex()
-                    .items_center()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .font_family(FONT_INTERNATIONAL)
-                    .font_weight(FontWeight::BOLD)
-                    .text_size(px(13.0))
-                    .text_color(rgb(0xd6e0f0))
-                    .child(friend.name.clone()),
-            )
-            .child(
-                ui_roster::presence_line(
-                    icon,
-                    presence.label(),
-                    12.0,
-                    6.0,
-                    11.5,
-                    rgb(0x7d8fa8).into(),
-                )
-                .absolute()
-                .left(px(64.0))
-                .right(px(8.0))
-                .top(px(29.0))
-                .h(px(18.0)),
-            );
-        if dimmed {
-            row = row.opacity(0.46);
-        }
-        row.into_any_element()
+/// a friend at member-list density (refinement I via N): a 28px portrait, a
+/// name, and a status dot — no presence label, because the dot says it, and no
+/// "Offline", because the dimming does.
+pub(super) fn friend_row(
+    row_id: usize,
+    friend: &UiFriend,
+    chrome: &ChromeComponent,
+    cx: &mut Context<SuperiorityView>,
+) -> AnyElement {
+    let peer = friend.name.clone();
+    let dimmed = !friend.is_online();
+    let user = friend.roster_user(&chrome.ui_assets);
+    let mut row = div()
+        .id(("social-friend", row_id))
+        .relative()
+        .h(px(ROSTER_ROW_HEIGHT))
+        .flex_shrink_0()
+        .cursor_pointer()
+        .hover(move |style| {
+            let style = style.bg(rgba(0x1231_5e59));
+            // offline rows lift back toward legible on hover so they still feel
+            // clickable.
+            if dimmed { style.opacity(0.7) } else { style }
+        })
+        .active(|style| style.opacity(0.82))
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.social.open_conversation(peer.clone(), window, cx);
+            cx.notify();
+        }))
+        .child(ui_roster::person_row(&user, &chrome.ui_assets));
+    if dimmed {
+        // one dim value for the whole row rather than a value per portrait,
+        // name, and dot.
+        row = row.opacity(SOCIAL_DIMMED_OPACITY);
     }
+    row.into_any_element()
 }

@@ -1,0 +1,150 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:ExampleBot.ViewModels"
+        xmlns:behaviors="clr-namespace:ExampleBot.Behaviors"
+        xmlns:convert="clr-namespace:ExampleBot.Converters"
+        xmlns:stimpak="clr-namespace:Stimpak;assembly=Stimpak"
+        x:Class="ExampleBot.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="ExampleBot"
+        Width="1100" Height="700"
+        MinWidth="820" MinHeight="520"
+        Background="{StaticResource Background}"
+        FontFamily="{StaticResource InterFontFamily}">
+
+  <Design.DataContext>
+    <vm:MainWindowViewModel />
+  </Design.DataContext>
+
+  <Window.Resources>
+    <convert:PresenceAccent x:Key="Accent" />
+    <convert:PresenceOpacity x:Key="Dim" />
+    <convert:PresenceLabel x:Key="PresenceLabel" />
+  </Window.Resources>
+
+  <Window.Styles>
+    <Style Selector="TextBlock.label">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="LetterSpacing" Value="1.6" />
+      <Setter Property="Foreground" Value="{StaticResource Muted}" />
+    </Style>
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="{StaticResource PanelShell}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Structural}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.header">
+      <Setter Property="Background" Value="{StaticResource PanelHeader}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Structural}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Height" Value="42" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="52,*,Auto" Margin="18">
+
+    <!-- status rail -->
+    <Border Grid.Row="0" Classes="panel" Padding="16,0" Margin="0,0,0,12">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <Ellipse Width="9" Height="9" Fill="{Binding StageBrush}" />
+          <TextBlock Text="{Binding Stage}"
+                     Foreground="{StaticResource Title}"
+                     FontSize="12" LetterSpacing="1.4" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <TextBlock Grid.Column="1" Text="{Binding ChannelName}"
+                   Foreground="{StaticResource Notice}"
+                   FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+        <TextBlock Grid.Column="2" Text="{Binding Warning}"
+                   Foreground="#ff6b63" Classes="label" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,12,300">
+
+      <!-- transcript -->
+      <Border Grid.Column="0" Classes="panel">
+        <Grid RowDefinitions="42,*">
+          <Border Grid.Row="0" Classes="header" Padding="14,0">
+            <TextBlock Text="TRANSCRIPT" Classes="label" VerticalAlignment="Center" />
+          </Border>
+
+          <ScrollViewer Grid.Row="1" Padding="14,10" behaviors:AutoScroll.Enabled="True">
+            <ItemsControl ItemsSource="{Binding Transcript}" VerticalAlignment="Bottom">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LineViewModel">
+                  <Grid ColumnDefinitions="62,Auto,*" Margin="0,0,0,7">
+                    <TextBlock Grid.Column="0" Text="{Binding Time}"
+                               Foreground="{StaticResource Muted}" FontSize="11" />
+                    <TextBlock Grid.Column="1" Text="{Binding Speaker}"
+                               IsVisible="{Binding HasSpeaker}"
+                               Foreground="{Binding Accent}"
+                               FontSize="13" FontWeight="SemiBold" Margin="0,0,7,0" />
+                    <TextBlock Grid.Column="2" Text="{Binding Body}"
+                               Foreground="{StaticResource Text}"
+                               FontSize="13" TextWrapping="Wrap" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+
+      <!-- roster -->
+      <Border Grid.Column="2" Classes="panel">
+        <Grid RowDefinitions="42,*">
+          <Border Grid.Row="0" Classes="header" Padding="14,0">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0" Text="ROSTER" Classes="label" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{Binding Population}"
+                         Classes="label" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+
+          <ScrollViewer Grid.Row="1">
+            <ItemsControl ItemsSource="{Binding Roster}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="stimpak:Person">
+                  <Border Height="46"
+                          Opacity="{Binding Presence, Converter={StaticResource Dim}}"
+                          BorderBrush="#33133e5b" BorderThickness="0,0,0,1">
+                    <StackPanel Margin="14,0" VerticalAlignment="Center" Spacing="2">
+                      <TextBlock Text="{Binding Name}"
+                                 Foreground="{Binding ., Converter={StaticResource Accent}}"
+                                 FontSize="13" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Presence, Converter={StaticResource PresenceLabel}}"
+                                 Foreground="{StaticResource Muted}" FontSize="11" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- composer -->
+    <Border Grid.Row="2" Classes="panel" Height="46" Margin="0,12,0,0"
+            BorderBrush="{Binding ComposerBorder}">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBox Grid.Column="0" Name="Composer"
+                 Watermark="Press Enter to chat"
+                 Text="{Binding Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 Background="Transparent" BorderThickness="0"
+                 Foreground="{StaticResource Text}" FontSize="13"
+                 VerticalAlignment="Center" Margin="12,0">
+          <TextBox.KeyBindings>
+            <KeyBinding Gesture="Enter" Command="{Binding SendCommand}" />
+          </TextBox.KeyBindings>
+        </TextBox>
+        <TextBlock Grid.Column="1" Text="ENTER TO SEND" Classes="label"
+                   VerticalAlignment="Center" Margin="0,0,14,0"
+                   IsVisible="{Binding Joined}" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

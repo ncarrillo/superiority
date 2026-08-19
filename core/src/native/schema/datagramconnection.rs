@@ -17,11 +17,7 @@ impl sc2_core::bsn::FromBsn for ClientDatagramConnectionEndPointId {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientDatagramConnectionEndPointId, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientDatagramConnectionEndPointId, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::PlayerTarget(<super::datagramconnection::ClientDatagramConnectionEndPointIdPlayerTarget as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -56,9 +52,7 @@ impl sc2_core::bsn::FromBsn for DatagramConnectionArbitrationNotifyEnum {
             4i128 => Ok(Self::FAILED),
             5i128 => Ok(Self::STUNUPDATE),
             6i128 => Ok(Self::ADDRESSCHANGED),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid DatagramConnectionArbitrationNotifyEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid DatagramConnectionArbitrationNotifyEnum"))),
         }
     }
 }
@@ -77,9 +71,8 @@ impl sc2_core::bsn::FromBsn for DatagramConnectionNATTypeEnum {
             1i128 => Ok(Self::OPEN),
             2i128 => Ok(Self::NAT),
             3i128 => Ok(Self::SYMMETRICNAT),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid DatagramConnectionNATTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid DatagramConnectionNATTypeEnum"))),
         }
     }
 }
+

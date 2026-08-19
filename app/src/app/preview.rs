@@ -31,7 +31,7 @@ pub enum FixtureLine {
     },
     Membership {
         time: &'static str,
-        text: &'static str,
+        user: usize,
     },
     Message {
         time: &'static str,
@@ -76,7 +76,7 @@ pub const TRANSCRIPT: &[FixtureLine] = &[
     },
     FixtureLine::Membership {
         time: "7:32 PM",
-        text: "Nova joined the channel.",
+        user: 1,
     },
     FixtureLine::Message {
         time: "7:32 PM",
@@ -94,3 +94,19 @@ pub const TRANSCRIPT: &[FixtureLine] = &[
         text: "Perfect. I’ll make the party.",
     },
 ];
+
+/// catalogue the `/join` popup is previewed against: a channel name, the
+/// conference serving it, and how many people are in there. without a live
+/// session there is no directory, so the fast path has nothing to autocomplete.
+pub const CATALOGUE: &[(u16, &str, u16)] = &[
+    (1028, "General", 370),
+    (1030, "Protoss Strategy", 231),
+    (1031, "Probes & Pylons", 88),
+    (1033, "Practice League", 64),
+    (1035, "Looking for Quick Match Team", 96),
+    (1036, "Looking for Cooperative Team", 3),
+];
+
+/// a group the preview has already searched up, so the popup shows a row that
+/// carries an icon and a kind next to the bare channels.
+pub const CATALOGUE_GROUP: (u32, &str, u32, u32) = (5322, "Protectorate", 42, 6);

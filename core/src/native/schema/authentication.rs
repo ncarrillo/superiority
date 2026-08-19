@@ -46,11 +46,7 @@ impl sc2_core::bsn::FromBsn for ClientAuthenticationGenerateWebTokenResponseResu
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientAuthenticationGenerateWebTokenResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientAuthenticationGenerateWebTokenResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::authentication::ClientAuthenticationGenerateWebTokenResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -67,7 +63,8 @@ pub struct ClientAuthenticationGenerateWebTokenResponseResultSuccess {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientAuthenticationLogon {}
+pub struct ClientAuthenticationLogon {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientAuthenticationLogonRequest3 {
@@ -104,11 +101,7 @@ impl sc2_core::bsn::FromBsn for ClientAuthenticationLogonResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientAuthenticationLogonResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientAuthenticationLogonResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::authentication::ClientAuthenticationLogonResponseSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -141,7 +134,8 @@ pub struct ClientAuthenticationLogonResponseSuccess {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientAuthenticationProof {}
+pub struct ClientAuthenticationProof {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientAuthenticationProofRequest {
@@ -189,11 +183,7 @@ impl sc2_core::bsn::FromBsn for ClientAuthenticationResponseFailureResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientAuthenticationResponseFailureResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientAuthenticationResponseFailureResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Update(<() as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -223,7 +213,8 @@ pub struct ClientAuthenticationResponseSuccessCommon {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientAuthenticationResume {}
+pub struct ClientAuthenticationResume {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientAuthenticationResumeRequest {
@@ -254,11 +245,7 @@ impl sc2_core::bsn::FromBsn for ClientAuthenticationResumeResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientAuthenticationResumeResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientAuthenticationResumeResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::authentication::ClientAuthenticationResumeResponseSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -283,3 +270,4 @@ pub struct ClientAuthenticationSingleSignOnRequest3 {
     #[bsn(name = "m_compatibility")]
     pub compatibility: u64,
 }
+

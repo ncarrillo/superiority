@@ -17,9 +17,8 @@ impl sc2_core::bsn::FromBsn for Starcraft2ExpansionLevelEnum {
             1i128 => Ok(Self::WINGSOFLIBERTY),
             2i128 => Ok(Self::HEARTOFTHESWARM),
             3i128 => Ok(Self::LEGACYOFTHEVOID),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid Starcraft2ExpansionLevelEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid Starcraft2ExpansionLevelEnum"))),
         }
     }
 }
+

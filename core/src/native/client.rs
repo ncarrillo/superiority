@@ -47,6 +47,19 @@ impl Session {
         self.records.get_ref().shutdown(Shutdown::Both)?;
         Ok(())
     }
+
+    /// wrap an already-handshaken, protection-enabled record stream as a session.
+    /// used by the loopback harness, which performs the native handshake against a
+    /// local Sunken server (verifying the thumbprint with *our* modulus) instead of
+    /// going through [`Connector::authenticate`], which pins Blizzard's modulus.
+    #[must_use]
+    pub fn from_protected(records: RecordStream<TcpStream>, transport_key: Vec<u8>) -> Self {
+        Self {
+            records,
+            transport_key: Zeroizing::new(transport_key),
+            use_s3_depot: false,
+        }
+    }
 }
 
 impl fmt::Debug for Session {

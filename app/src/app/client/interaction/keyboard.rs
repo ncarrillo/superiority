@@ -7,7 +7,7 @@ impl SuperiorityView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.sync_text_inputs();
+        self.sync_text_inputs(cx);
         if self.updates.update_dialog_visible {
             if event.keystroke.modifiers.platform
                 && event.keystroke.key.eq_ignore_ascii_case("c")
@@ -59,48 +59,6 @@ impl SuperiorityView {
             }
             return;
         }
-        if self.overlays.active == Some(Overlay::Join) && self.join.join_focused {
-            let handled = match event.keystroke.key.as_str() {
-                "up" => {
-                    let count = self.join.rows(&self.channels.tabs).len();
-                    if count > 0 {
-                        self.join.join_selected = (self.join.join_selected + count - 1) % count;
-                        self.join
-                            .join_scroll
-                            .scroll_to_item(self.join.join_selected);
-                    }
-                    true
-                }
-                "down" => {
-                    let count = self.join.rows(&self.channels.tabs).len();
-                    if count > 0 {
-                        self.join.join_selected = (self.join.join_selected + 1) % count;
-                        self.join
-                            .join_scroll
-                            .scroll_to_item(self.join.join_selected);
-                    }
-                    true
-                }
-                "enter" | "return" => {
-                    let rows = self.join.rows(&self.channels.tabs);
-                    if let Some(row) = rows.get(self.join.join_selected) {
-                        self.join_channel_target(row.target.clone(), cx);
-                    } else {
-                        let title = self.join.join_query.trim().to_owned();
-                        if !title.is_empty() {
-                            self.join_channel(title, cx);
-                        }
-                    }
-                    true
-                }
-                _ => false,
-            };
-            if handled {
-                cx.stop_propagation();
-                cx.notify();
-            }
-            return;
-        }
         if self.overlays.active.is_some() {
             cx.stop_propagation();
             return;
@@ -110,16 +68,25 @@ impl SuperiorityView {
             && !self.text_input_focused(window)
             && self.chat.transcript.selection.has_selection()
         {
+            let assets = self.chrome.ui_assets.clone();
             let rows = self
                 .channels
                 .active()
                 .into_iter()
-                .flat_map(|channel| channel.transcript.iter().enumerate())
-                .filter(|(_, line)| {
-                    self.settings.show_membership || !matches!(line, ChatLine::Membership { .. })
+                .flat_map(|channel| {
+                    let online = channel.users.len();
+                    channel
+                        .transcript
+                        .iter()
+                        .enumerate()
+                        .map(move |(index, line)| (index, line, online, &channel.users))
                 })
-                .map(|(index, line)| {
-                    let line = shared_transcript_line(line);
+                .filter(|(_, line, _, _)| {
+                    self.settings.show_membership
+                        || !matches!(line, ChatLine::Membership { .. } | ChatLine::Digest { .. })
+                })
+                .map(|(index, line, online, roster)| {
+                    let line = shared_transcript_line(line, online, roster, None, &assets);
                     (index, ui_chat::transcript_text(&line))
                 })
                 .collect::<Vec<_>>();
@@ -184,11 +151,53 @@ impl SuperiorityView {
             }
             return;
         }
-        if !self.composer.composer_focused || self.channels.active().is_none() {
+        if !self.composer.composer_focused {
             return;
         }
+        // while a command is being typed the composer answers to the popup
+        // above it, not to the transcript below.
+        if let Some(results) = self.command_results() {
+            let selected = self.composer.command_selected;
+            let handled = match event.keystroke.key.as_str() {
+                "up" => {
+                    self.composer.command_selected = results.step(selected, -1);
+                    true
+                }
+                "down" => {
+                    self.composer.command_selected = results.step(selected, 1);
+                    true
+                }
+                "tab" => {
+                    if let Some(line) = results.completion(selected) {
+                        self.complete_composer_command(&line);
+                    } else if let Some(action) = results.action(selected) {
+                        // a mention has no line to complete — taking it is the
+                        // completion
+                        self.perform_command_action(action, window, cx);
+                    }
+                    true
+                }
+                "escape" => {
+                    self.composer.command_dismissed = true;
+                    self.begin_command_close(results, cx);
+                    true
+                }
+                "enter" | "return" => {
+                    if let Some(action) = results.action(selected) {
+                        self.perform_command_action(action, window, cx);
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if handled {
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
+        }
         if matches!(event.keystroke.key.as_str(), "enter" | "return") {
-            self.send_message(cx);
+            self.send_message(window, cx);
             cx.stop_propagation();
         }
     }

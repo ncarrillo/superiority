@@ -15,7 +15,6 @@ impl SuperiorityView {
         self.overlays.closing = true;
         self.settings.settings_tooltip = None;
         self.social.conversation_focused = false;
-        self.join.join_focused = false;
         self.focus_handle.focus(window, cx);
         self.overlays.epoch = self.overlays.epoch.wrapping_add(1);
         let epoch = self.overlays.epoch;
@@ -33,7 +32,6 @@ impl SuperiorityView {
                     if this.overlays.epoch == epoch {
                         this.overlays.active = None;
                         this.overlays.closing = false;
-                        this.join.join_focused = false;
                         this.social.social_detail_open = false;
                         this.social.social_pane_transition = None;
                         this.social.conversation_peer = None;

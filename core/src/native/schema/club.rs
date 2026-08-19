@@ -64,11 +64,7 @@ impl sc2_core::bsn::FromBsn for ClientClubGetClubInfoResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientClubGetClubInfoResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientClubGetClubInfoResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Infos(<super::club::ClientClubGetClubInfoResponseResultInfos as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -127,11 +123,7 @@ impl sc2_core::bsn::FromBsn for ClientClubGetToonClubsResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientClubGetToonClubsResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientClubGetToonClubsResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::club::ClientClubGetToonClubsResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -182,11 +174,7 @@ impl sc2_core::bsn::FromBsn for ClientClubSearchClubsRequestSearch {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientClubSearchClubsRequestSearch, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientClubSearchClubsRequestSearch, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Name(<super::club::ClientClubSearchClubsRequestSearchName as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -251,11 +239,7 @@ impl sc2_core::bsn::FromBsn for ClientClubSearchClubsResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientClubSearchClubsResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientClubSearchClubsResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::club::ClientClubSearchClubsResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -285,9 +269,7 @@ impl sc2_core::bsn::FromBsn for ClubChangeTypeEnum {
             1i128 => Ok(Self::UPDATE),
             2i128 => Ok(Self::REMOVE),
             3i128 => Ok(Self::SYNC),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubChangeTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubChangeTypeEnum"))),
         }
     }
 }
@@ -324,9 +306,7 @@ impl sc2_core::bsn::FromBsn for ClubClubCategoryEnum {
             10i128 => Ok(Self::ESPORTSLEAGUES),
             11i128 => Ok(Self::ARCADE),
             12i128 => Ok(Self::IGR),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubClubCategoryEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubClubCategoryEnum"))),
         }
     }
 }
@@ -359,45 +339,19 @@ impl sc2_core::bsn::FromBsn for ClubClubChangeInfoInfo {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClubClubChangeInfoInfo, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClubClubChangeInfoInfo, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::SummaryInfoDeltaList(<Vec<
-                super::club::ClubClubSummaryChangeRequest,
-            > as sc2_core::bsn::FromBsn>::from_bsn(
-                inner
-            )?)),
-            1i128 => Ok(Self::SummaryInfoFull(
-                <super::club::ClubClubSummaryInfo as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            2i128 => Ok(Self::OnlineStatus(
-                <() as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            3i128 => Ok(Self::Announcement(
-                <super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            4i128 => Ok(Self::AnnouncementSimple(
-                <super::club::ClubClubUserTextSimple as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            5i128 => Ok(Self::Event(
-                <super::club::ClubClubEvent as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            6i128 => Ok(Self::EventSimple(
-                <super::club::ClubClubEventSimple as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            7i128 => Ok(Self::Description(
-                <super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            8i128 => Ok(Self::MessageBoard(
-                <super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a ClubClubChangeInfoInfo variant"
-            ))),
+            0i128 => Ok(Self::SummaryInfoDeltaList(<Vec<super::club::ClubClubSummaryChangeRequest> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::SummaryInfoFull(<super::club::ClubClubSummaryInfo as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::OnlineStatus(<() as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            3i128 => Ok(Self::Announcement(<super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            4i128 => Ok(Self::AnnouncementSimple(<super::club::ClubClubUserTextSimple as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            5i128 => Ok(Self::Event(<super::club::ClubClubEvent as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            6i128 => Ok(Self::EventSimple(<super::club::ClubClubEventSimple as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            7i128 => Ok(Self::Description(<super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            8i128 => Ok(Self::MessageBoard(<super::club::ClubClubUserText as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ClubClubChangeInfoInfo variant"))),
         }
     }
 }
@@ -446,19 +400,11 @@ impl sc2_core::bsn::FromBsn for ClubClubLinkField {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClubClubLinkField, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClubClubLinkField, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::Shortlink(
-                <super::s2map::S2MapShortLink as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a ClubClubLinkField variant"
-            ))),
+            0i128 => Ok(Self::Shortlink(<super::s2map::S2MapShortLink as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ClubClubLinkField variant"))),
         }
     }
 }
@@ -488,11 +434,7 @@ impl sc2_core::bsn::FromBsn for ClubClubSummaryChangeRequest {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClubClubSummaryChangeRequest, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClubClubSummaryChangeRequest, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Name(<String as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -566,9 +508,7 @@ impl sc2_core::bsn::FromBsn for ClubClubTypeEnum {
             1i128 => Ok(Self::GROUP),
             2i128 => Ok(Self::CLAN),
             3i128 => Ok(Self::TEAM),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubClubTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubClubTypeEnum"))),
         }
     }
 }
@@ -601,9 +541,7 @@ impl sc2_core::bsn::FromBsn for ClubFileTypeEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             0i128 => Ok(Self::ICON),
             1i128 => Ok(Self::DECAL),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubFileTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubFileTypeEnum"))),
         }
     }
 }
@@ -634,9 +572,7 @@ impl sc2_core::bsn::FromBsn for ClubInviteCodeEnum {
             1i128 => Ok(Self::ACCEPTED),
             2i128 => Ok(Self::DECLINED),
             3i128 => Ok(Self::AUTODECLINED),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubInviteCodeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubInviteCodeEnum"))),
         }
     }
 }
@@ -671,9 +607,7 @@ impl sc2_core::bsn::FromBsn for ClubMemberRankEnum {
             30i128 => Ok(Self::MEMBER),
             40i128 => Ok(Self::OFFICER),
             50i128 => Ok(Self::OWNER),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubMemberRankEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubMemberRankEnum"))),
         }
     }
 }
@@ -710,9 +644,8 @@ impl sc2_core::bsn::FromBsn for ClubSubscriptionTypeEnum {
             5i128 => Ok(Self::ANNOUNCEMENTSIMPLE),
             6i128 => Ok(Self::MESSAGEBOARD),
             7i128 => Ok(Self::ROSTER),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid ClubSubscriptionTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid ClubSubscriptionTypeEnum"))),
         }
     }
 }
+
