@@ -54,6 +54,30 @@ pub fn action_button(
         .child(div().relative().child(title.into()))
 }
 
+/// the same frame with nothing behind it: the art sits back, the label goes
+/// muted, and there is no hover swap to promise a press that would do nothing.
+#[must_use]
+pub fn disabled_action_button(
+    title: impl Into<SharedString>,
+    width: f32,
+    height: f32,
+    idle: ImageSource,
+) -> Div {
+    div()
+        .relative()
+        .w(px(width))
+        .h(px(height))
+        .flex()
+        .items_center()
+        .justify_center()
+        .font_family(FONT_NAVIGATION)
+        .font_weight(FontWeight::BOLD)
+        .text_size(px(10.5))
+        .text_color(rgb(0x0055_6272))
+        .child(button_image(idle, height).opacity(0.35))
+        .child(div().relative().child(title.into()))
+}
+
 fn button_image(source: ImageSource, height: f32) -> gpui::Img {
     img(source)
         .absolute()
@@ -122,16 +146,30 @@ pub fn tooltip_shell(width: f32, height: f32, fill: ImageSource) -> Div {
         .h(px(height))
         .overflow_hidden()
         .rounded(px(1.0))
+        .child(tooltip_frame(fill))
+}
+
+/// the frame every floating surface in the app wears: a dark fill, the SC2
+/// tooltip texture stretched over it, and one thin blue rule inside the edge.
+///
+/// it sizes itself to whatever it is dropped into, so a surface whose height is
+/// its content — the /join popup — wears the same frame as the fixed-size
+/// tooltips without repeating the numbers.
+#[must_use]
+pub fn tooltip_frame(fill: ImageSource) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .overflow_hidden()
+        .rounded(px(1.0))
         .child(div().absolute().inset(px(3.0)).bg(rgba(0x0106_0dfc)))
         .child(
-            img(fill)
-                .absolute()
-                .left(px(3.0))
-                .top(px(3.0))
-                .w(px((width - 6.0).max(0.0)))
-                .h(px((height - 6.0).max(0.0)))
-                .opacity(0.82)
-                .object_fit(ObjectFit::Fill),
+            div().absolute().inset(px(3.0)).overflow_hidden().child(
+                img(fill)
+                    .size_full()
+                    .opacity(0.82)
+                    .object_fit(ObjectFit::Fill),
+            ),
         )
         .child(
             div()

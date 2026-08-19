@@ -28,8 +28,38 @@ impl SuperiorityView {
 
     pub(in crate::app::client) fn visible_roster_users(&self) -> Vec<UiUser> {
         self.channels.active().map_or_else(Vec::new, |channel| {
-            presented_roster_users(&self.channels.tabs, channel, &channel.roster_filter)
+            presented_roster_users(
+                &self.channels.tabs,
+                &self.social.friends,
+                channel,
+                &channel.roster_filter,
+            )
         })
+    }
+
+    pub(in crate::app::client) fn visible_roster_entries(&self) -> Vec<RosterEntry> {
+        self.channels.active().map_or_else(Vec::new, |channel| {
+            presented_roster_entries(
+                &self.channels.tabs,
+                &self.social.friends,
+                channel,
+                &channel.roster_filter,
+            )
+        })
+    }
+
+    /// keyboard navigation walks people, not headers — but the list it scrolls
+    /// counts both, so every selectable handle carries the row it lives on.
+    fn roster_cursor(&self) -> (Vec<u32>, Vec<usize>) {
+        let mut handles = Vec::new();
+        let mut positions = Vec::new();
+        for (index, entry) in self.visible_roster_entries().iter().enumerate() {
+            if let Some(user) = entry.user() {
+                handles.push(user.handle);
+                positions.push(index);
+            }
+        }
+        (handles, positions)
     }
 
     pub(in crate::app::client) fn roster_base_scroll(&self) -> ScrollHandle {
@@ -40,13 +70,16 @@ impl SuperiorityView {
         if self.active_roster_filter() == next {
             return;
         }
-        let previous = self.visible_roster_users().into_iter().collect::<Vec<_>>();
+        let previous = self.visible_roster_entries();
         let Some(channel) = self.channels.tabs.get_mut(self.channels.active_tab) else {
             return;
         };
         channel.roster_filter = next;
-        let next = self.visible_roster_users().into_iter().collect::<Vec<_>>();
-        let next_handles = next.iter().map(|user| user.handle).collect::<Vec<_>>();
+        let next = self.visible_roster_entries();
+        let next_handles = next
+            .iter()
+            .filter_map(|entry| entry.user().map(|user| user.handle))
+            .collect::<Vec<_>>();
         if self
             .selected_user()
             .is_some_and(|handle| !next_handles.contains(&handle))
@@ -59,54 +92,57 @@ impl SuperiorityView {
     }
 
     pub(in crate::app::client) fn select_roster_index(&mut self, index: usize) {
-        let handles = self
-            .visible_roster_users()
-            .into_iter()
-            .map(|user| user.handle)
-            .collect::<Vec<_>>();
+        let (handles, positions) = self.roster_cursor();
         let Some(channel_id) = self.channels.active().map(|channel| channel.id) else {
             return;
         };
-        let _ =
-            self.roster
-                .roster
-                .select_index(channel_id, &handles, index, ScrollStrategy::Center);
+        let _ = self.roster.roster.select_index(
+            channel_id,
+            &handles,
+            &positions,
+            index,
+            ScrollStrategy::Center,
+        );
     }
 
     pub(in crate::app::client) fn move_roster_selection(&mut self, delta: isize) {
-        let handles = self
-            .visible_roster_users()
-            .into_iter()
-            .map(|user| user.handle)
-            .collect::<Vec<_>>();
+        let (handles, positions) = self.roster_cursor();
         let Some(channel_id) = self.channels.active().map(|channel| channel.id) else {
             return;
         };
-        let _ =
-            self.roster
-                .roster
-                .move_selection(channel_id, &handles, delta, ScrollStrategy::Center);
+        let _ = self.roster.roster.move_selection(
+            channel_id,
+            &handles,
+            &positions,
+            delta,
+            ScrollStrategy::Center,
+        );
     }
 
     pub(in crate::app::client) fn begin_roster_animation(
         &mut self,
         channel_id: u64,
-        previous: Vec<UiUser>,
-        next: &[UiUser],
+        previous: Vec<RosterEntry>,
+        next: &[RosterEntry],
     ) {
         let previous_handles = previous
             .iter()
-            .map(|user| user.handle)
+            .map(RosterEntry::handle)
             .collect::<BTreeSet<_>>();
-        let next_handles = next.iter().map(|user| user.handle).collect::<BTreeSet<_>>();
+        let next_handles = next
+            .iter()
+            .map(RosterEntry::handle)
+            .collect::<BTreeSet<_>>();
         if previous_handles == next_handles {
             self.roster.roster.animation = None;
             return;
         }
-        self.roster
-            .roster
-            .begin_transition(channel_id, previous, next, Instant::now(), |user| {
-                user.handle
-            });
+        self.roster.roster.begin_transition(
+            channel_id,
+            previous,
+            next,
+            Instant::now(),
+            RosterEntry::handle,
+        );
     }
 }

@@ -14,3 +14,4 @@ pub struct SessionBillingInfo {
     #[bsn(name = "m_boxLevel")]
     pub box_level: u8,
 }
+

@@ -6,7 +6,7 @@ use std::{
 #[cfg(target_os = "windows")]
 use gpui::WindowControlArea;
 use gpui::{
-    AnyElement, App, Bounds, Context, FocusHandle, Focusable, KeyDownEvent, MouseButton,
+    AnyElement, App, Bounds, Context, Div, FocusHandle, Focusable, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, Rgba, ScrollStrategy, Subscription, TitlebarOptions,
     UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
     uniform_list,
@@ -21,8 +21,8 @@ use superiority_ui::{
 };
 
 use crate::native::inspect::{
-    Capture, Field, FieldRole, capture_paused, clear_capture, live_capture_after, sample_capture,
-    set_capture_paused,
+    Capture, Direction, Field, FieldRole, capture_paused, clear_capture, live_capture_after,
+    sample_capture, set_capture_paused,
 };
 
 use super::client::{chrome::Assets, platform};
@@ -33,8 +33,11 @@ const WINDOW_WIDTH: f32 = 1360.0;
 const WINDOW_HEIGHT: f32 = 820.0;
 const RECORD_PANE_WIDTH: f32 = 300.0;
 const FIELD_PANE_WIDTH: f32 = 500.0;
-const RECORD_ROW_HEIGHT: f32 = 68.0;
-const FIELD_ROW_HEIGHT: f32 = 64.0;
+const RECORD_ROW_HEIGHT: f32 = 50.0;
+const FIELD_ROW_HEIGHT: f32 = 28.0;
+const FIELD_INDENT: f32 = 17.0;
+const FIELD_TOGGLE_SIZE: f32 = 14.0;
+const BIT_RANGE_GUTTER: f32 = 96.0;
 const BIT_ROW_HEIGHT: f32 = 51.0;
 const BYTE_ROW_HEIGHT: f32 = 24.0;
 const SPLITTER_SIZE: f32 = 7.0;
@@ -240,6 +243,63 @@ fn clear_icon() -> impl IntoElement {
         )
 }
 
+/// direction reads before service does: outgoing is the tone orange, incoming
+/// the online green. nothing else in the rail wears either colour.
+fn direction_color(direction: Direction) -> Rgba {
+    match direction {
+        Direction::Outgoing => rgb(0xf0aa64),
+        Direction::Incoming => rgb(0x47d184),
+    }
+}
+
+fn direction_badge(direction: Direction) -> impl IntoElement {
+    let color = direction_color(direction);
+    div()
+        .flex_shrink_0()
+        .px(px(6.0))
+        .py(px(1.0))
+        .border_1()
+        .border_color(color.alpha(0.5))
+        .font_family("monospace")
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_size(px(9.5))
+        .text_color(color)
+        .child(direction.label().to_uppercase())
+}
+
+fn search_icon(color: Rgba) -> impl IntoElement {
+    div()
+        .relative()
+        .size(px(12.0))
+        .flex_shrink_0()
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .top(px(1.0))
+                .size(px(8.0))
+                .rounded(px(4.0))
+                .border_1()
+                .border_color(color),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(7.0))
+                .top(px(8.0))
+                .size(px(2.0))
+                .bg(color),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(8.5))
+                .top(px(9.5))
+                .size(px(2.0))
+                .bg(color),
+        )
+}
+
 fn service_color(service: &str) -> Rgba {
     match service {
         "Authentication" => rgb(0xf0b35a),
@@ -263,6 +323,57 @@ fn service_color(service: &str) -> Rgba {
             rgb(COLORS[index])
         }
     }
+}
+
+/// booleans are the one value worth colouring: `true` is the thing you scan a
+/// decoded header for. everything else stays the one value tone.
+fn field_value_color(value: &str, active: bool) -> Rgba {
+    match value {
+        "true" => rgb(0x47d184),
+        "false" => rgb(0x7d8fa8),
+        _ if active => rgb(0xbdeaff),
+        _ => rgb(0x67ceff),
+    }
+}
+
+/// a record survives both filters at once: the chips narrow the capture to a
+/// set of services, the search narrows what is left. neither drops a record
+/// from the capture — the header keeps counting all of them.
+fn record_matches(
+    record: &crate::native::inspect::Record,
+    filter: &str,
+    services: &HashSet<String>,
+) -> bool {
+    if !services.is_empty() && !services.contains(&record.service) {
+        return false;
+    }
+    filter.is_empty()
+        || record.service.to_lowercase().contains(filter)
+        || record.command.to_lowercase().contains(filter)
+        || record.type_name.to_lowercase().contains(filter)
+        || record.direction.label().contains(filter)
+}
+
+/// every service present in the capture, busiest first. chips are a legend as
+/// much as a filter, so the order has to hold still while traffic arrives —
+/// ties break alphabetically rather than by arrival.
+fn service_counts(records: &[crate::native::inspect::Record]) -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for record in records {
+        match counts
+            .iter_mut()
+            .find(|(service, _)| *service == record.service)
+        {
+            Some((_, count)) => *count += 1,
+            None => counts.push((record.service.clone(), 1)),
+        }
+    }
+    counts.sort_by(|(left_service, left_count), (right_service, right_count)| {
+        right_count
+            .cmp(left_count)
+            .then_with(|| left_service.cmp(right_service))
+    });
+    counts
 }
 
 fn field_label(path: &str) -> String {
@@ -331,6 +442,7 @@ struct ProtocolViewer {
     selected_field: usize,
     record_filter: ui_text_input::TextInput,
     record_filter_value: String,
+    service_filters: HashSet<String>,
     field_filter: ui_text_input::TextInput,
     field_filter_value: String,
     filter_target: FilterTarget,
@@ -346,6 +458,7 @@ struct ProtocolViewer {
     following: bool,
     paused: bool,
     collapsed_fields: HashSet<String>,
+    hovered_field: Option<usize>,
     record_pane_width: f32,
     field_pane_width: f32,
     bit_pane_width: f32,
@@ -356,11 +469,11 @@ struct ProtocolViewer {
 
 impl ProtocolViewer {
     fn new(cx: &mut Context<Self>) -> Self {
-        let record_filter = ui_text_input::TextInput::new("Filter service or command", cx);
+        let record_filter = ui_text_input::TextInput::new("Search records", cx);
         let record_subscription = record_filter.subscribe(cx, |this, cx| {
             this.set_record_filter(this.record_filter.content(), cx);
         });
-        let field_filter = ui_text_input::TextInput::new("Filter properties", cx);
+        let field_filter = ui_text_input::TextInput::new("Search properties", cx);
         let field_subscription = field_filter.subscribe(cx, |this, cx| {
             this.set_field_filter(this.field_filter.content(), cx);
         });
@@ -378,6 +491,7 @@ impl ProtocolViewer {
             selected_field: 0,
             record_filter,
             record_filter_value: String::new(),
+            service_filters: HashSet::new(),
             field_filter,
             field_filter_value: String::new(),
             filter_target: FilterTarget::Records,
@@ -393,6 +507,7 @@ impl ProtocolViewer {
             following: true,
             paused: capture_paused(),
             collapsed_fields: HashSet::new(),
+            hovered_field: None,
             record_pane_width: RECORD_PANE_WIDTH,
             field_pane_width: FIELD_PANE_WIDTH,
             bit_pane_width: WINDOW_WIDTH - RECORD_PANE_WIDTH - FIELD_PANE_WIDTH,
@@ -427,6 +542,7 @@ impl ProtocolViewer {
     fn select_record(&mut self, index: usize, cx: &mut Context<Self>) {
         self.selected_record = index;
         self.selected_field = 0;
+        self.hovered_field = None;
         self.following = index + 1 == self.capture.records.len();
         self.bit_scroll
             .0
@@ -489,6 +605,7 @@ impl ProtocolViewer {
         self.selected_field = self
             .selected_field
             .min(self.selected_record().fields.len().saturating_sub(1));
+        self.hovered_field = None;
         cx.notify();
     }
 
@@ -712,7 +829,12 @@ impl ProtocolViewer {
         let previous = self.filtered_record_indices();
         self.record_filter_value = next;
         let filtered = self.filtered_record_indices();
-        self.record_transition = ui_roster::Transition::new(previous, &filtered, |index| {
+        self.begin_record_transition(previous, &filtered);
+        cx.notify();
+    }
+
+    fn begin_record_transition(&mut self, previous: Vec<usize>, next: &[usize]) {
+        self.record_transition = ui_roster::Transition::new(previous, next, |index| {
             u32::try_from(*index).unwrap_or(u32::MAX)
         })
         .map(|transition| ui_roster::TimedTransition {
@@ -720,7 +842,6 @@ impl ProtocolViewer {
             transition,
             started: Instant::now(),
         });
-        cx.notify();
     }
 
     fn set_field_filter(&mut self, next: String, cx: &mut Context<Self>) {
@@ -889,26 +1010,130 @@ impl ProtocolViewer {
         }
     }
 
-    fn capture_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn capture_controls(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let record_count = self.capture.records.len();
         let filtered_count = self.filtered_record_indices().len();
-        ui_inspector::header(
-            if self.record_filter_value.is_empty() {
-                "Records".to_owned()
-            } else {
-                format!("Records  /  {}", self.record_filter_value)
-            },
-            if self.record_filter_value.is_empty() {
-                record_count.to_string()
-            } else {
-                format!("{filtered_count} / {record_count}")
-            },
-        )
-        .id("protocol-record-filter-focus")
-        .cursor(gpui::CursorStyle::IBeam)
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.focus_filter(FilterTarget::Records, window, cx);
-        }))
+        let filtering = filtered_count != record_count;
+        div()
+            .w_full()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .child(
+                ui_inspector::header_shell()
+                    .id("protocol-record-filter-focus")
+                    .cursor(gpui::CursorStyle::IBeam)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.focus_filter(FilterTarget::Records, window, cx);
+                    }))
+                    .child(ui_inspector::header_title("Records"))
+                    .child(
+                        ui_inspector::header_detail()
+                            .font_family("monospace")
+                            .text_size(px(12.0))
+                            .child(record_count.to_string())
+                            .when(filtering, |detail| {
+                                detail
+                                    .child(div().text_color(rgb(0x3f5b6d)).child("·"))
+                                    .child(
+                                        div()
+                                            .text_color(rgb(0x8fa8bb))
+                                            .child(format!("{filtered_count} shown")),
+                                    )
+                            }),
+                    ),
+            )
+            .child(self.search_row(FilterTarget::Records, window, cx))
+            .child(self.service_chips(cx))
+    }
+
+    /// the search box each pane wears under its header. the pointer already
+    /// routes keystrokes to whichever column it is over, so this is the caret
+    /// that tells you which one that is.
+    fn search_row(
+        &self,
+        target: FilterTarget,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (input, focused) = match target {
+            FilterTarget::Records => (&self.record_filter, self.record_filter.is_focused(window)),
+            FilterTarget::Fields => (&self.field_filter, self.field_filter.is_focused(window)),
+        };
+        div()
+            .w_full()
+            .flex_shrink_0()
+            .px(px(12.0))
+            .pt(px(9.0))
+            .pb(px(8.0))
+            .child(
+                ui_inspector::search_field(focused)
+                    .id(match target {
+                        FilterTarget::Records => "protocol-record-search",
+                        FilterTarget::Fields => "protocol-field-search",
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            this.focus_filter(target, window, cx);
+                        }),
+                    )
+                    .child(search_icon(if focused {
+                        rgb(0x6bc2f2)
+                    } else {
+                        rgb(0x5e8291)
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .h_full()
+                            .font_family("monospace")
+                            .text_size(px(12.0))
+                            .text_color(rgb(0xd6e0f0))
+                            .child(input.element()),
+                    ),
+            )
+    }
+
+    /// service chips double as the capture's legend. filtering hides records,
+    /// it never drops them — the header keeps counting the whole capture.
+    fn service_chips(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let services = self.record_services();
+        div()
+            .w_full()
+            .flex_shrink_0()
+            .flex()
+            .flex_wrap()
+            .gap(px(4.0))
+            .px(px(12.0))
+            .pb(px(9.0))
+            .children(
+                services
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, (service, count))| {
+                        let selected = self.service_filters.contains(&service);
+                        let label = service.to_uppercase();
+                        ui_inspector::filter_chip(("protocol-service", position), label, selected)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.toggle_service_filter(&service, cx);
+                                this.focus_filter(FilterTarget::Records, window, cx);
+                            }))
+                            .child(
+                                div()
+                                    .ml(px(5.0))
+                                    .font_family("monospace")
+                                    .text_size(px(9.5))
+                                    .text_color(if selected {
+                                        rgb(0x8fc9ea)
+                                    } else {
+                                        rgb(0x4c657a)
+                                    })
+                                    .child(count.to_string()),
+                            )
+                    }),
+            )
     }
 
     fn titlebar(&self, _window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -995,14 +1220,23 @@ impl ProtocolViewer {
             .iter()
             .enumerate()
             .filter_map(|(index, record)| {
-                (filter.is_empty()
-                    || record.service.to_lowercase().contains(&filter)
-                    || record.command.to_lowercase().contains(&filter)
-                    || record.type_name.to_lowercase().contains(&filter)
-                    || record.direction.label().contains(&filter))
-                .then_some(index)
+                record_matches(record, &filter, &self.service_filters).then_some(index)
             })
             .collect()
+    }
+
+    fn record_services(&self) -> Vec<(String, usize)> {
+        service_counts(&self.capture.records)
+    }
+
+    fn toggle_service_filter(&mut self, service: &str, cx: &mut Context<Self>) {
+        let previous = self.filtered_record_indices();
+        if !self.service_filters.remove(service) {
+            self.service_filters.insert(service.to_owned());
+        }
+        let filtered = self.filtered_record_indices();
+        self.begin_record_transition(previous, &filtered);
+        cx.notify();
     }
 
     fn record_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -1011,7 +1245,8 @@ impl ProtocolViewer {
         let category_color = service_color(&record.service);
         let category_text =
             rgb(0x7893a9).blend(category_color.alpha(if selected { 0.62 } else { 0.48 }));
-        ui_inspector::tinted_selectable_row(("protocol-record", index), selected, category_color)
+        let direction = direction_color(record.direction);
+        ui_inspector::rail_row(("protocol-record", index), selected)
             .h(px(RECORD_ROW_HEIGHT))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_record(index, cx);
@@ -1019,95 +1254,58 @@ impl ProtocolViewer {
             }))
             .child(
                 div()
-                    .relative()
                     .h_full()
                     .px(px(12.0))
-                    .py(px(9.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(9.0))
                     .child(
                         div()
-                            .h(px(20.0))
+                            .w(px(32.0))
+                            .flex_shrink_0()
+                            .font_family("monospace")
+                            .text_size(px(10.5))
+                            .text_color(direction.alpha(if selected { 1.0 } else { 0.82 }))
+                            .child(format!("{} {:02}", record.direction.marker(), index + 1)),
+                    )
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .flex_1()
                             .flex()
-                            .items_center()
-                            .gap(px(9.0))
+                            .flex_col()
+                            .gap(px(2.0))
                             .child(
                                 div()
-                                    .w(px(44.0))
-                                    .h(px(18.0))
-                                    .flex_shrink_0()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(2.0))
-                                    .border_1()
-                                    .border_color(category_color.alpha(if selected {
-                                        0.72
-                                    } else {
-                                        0.38
-                                    }))
-                                    .bg(category_color.alpha(if selected { 0.13 } else { 0.06 }))
-                                    .font_family("monospace")
-                                    .text_size(px(10.5))
-                                    .text_color(category_text)
-                                    .child(format!(
-                                        "{} {:02}",
-                                        record.direction.marker(),
-                                        index + 1
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .min_w(px(0.0))
-                                    .flex_1()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_size(px(14.5))
+                                    .truncate()
+                                    .text_size(px(13.5))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(if selected {
-                                        rgb(0xf0f7ff)
+                                        rgb(0xe6f9ff)
                                     } else {
                                         rgb(0xd5e5f4)
                                     })
                                     .child(record.command.clone()),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(11.5))
+                                    .text_color(category_text)
+                                    .child(record.service.clone()),
                             ),
                     )
                     .child(
                         div()
-                            .mt(px(7.0))
-                            .pl(px(53.0))
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .min_w(px(0.0))
-                                    .flex_1()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_size(px(12.5))
-                                    .text_color(category_text)
-                                    .child(record.service.clone()),
-                            )
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .px(px(7.0))
-                                    .py(px(2.0))
-                                    .rounded(px(2.0))
-                                    .bg(category_color.alpha(if selected { 0.1 } else { 0.045 }))
-                                    .font_family("monospace")
-                                    .text_size(px(10.0))
-                                    .text_color(if selected {
-                                        rgb(0x8ebbd0)
-                                    } else {
-                                        rgb(0x536f84)
-                                    })
-                                    .child(format!(
-                                        "{} B · {}b",
-                                        record.bytes.len(),
-                                        record.logical_bits
-                                    )),
-                            ),
+                            .flex_shrink_0()
+                            .font_family("monospace")
+                            .text_size(px(10.5))
+                            .text_color(if selected {
+                                rgb(0x8ebbd0)
+                            } else {
+                                rgb(0x536f84)
+                            })
+                            .child(format!("{} B", record.bytes.len())),
                     ),
             )
             .into_any_element()
@@ -1153,16 +1351,7 @@ impl ProtocolViewer {
             .flex_shrink_0()
             .border_r_1()
             .border_color(rgb(0x17384d))
-            .child(self.capture_controls(cx))
-            .child(
-                div()
-                    .absolute()
-                    .right(px(4.0))
-                    .top(px(4.0))
-                    .size(px(1.0))
-                    .opacity(0.001)
-                    .child(self.record_filter.element()),
-            )
+            .child(self.capture_controls(window, cx))
             .child(
                 div()
                     .id("protocol-record-viewport")
@@ -1351,6 +1540,20 @@ impl ProtocolViewer {
             )
     }
 
+    /// the row the pointer is resting on, when it traces a real wire range and
+    /// isn't already the selected one. both the bitstream and the hex pane read
+    /// this, so a hover lights up the same span in each at once.
+    fn hinted_range(&self) -> Option<(usize, usize)> {
+        let hovered = self.hovered_field?;
+        if hovered == self.selected_field {
+            return None;
+        }
+        let field = self.selected_record().fields.get(hovered)?;
+        field
+            .exact_range
+            .then_some((field.start_bit, field.end_bit))
+    }
+
     fn bytes_per_bit_row(&self) -> usize {
         (((self.bit_pane_width - 24.0 - BIT_LABEL_WIDTH - BIT_LABEL_GAP) / BIT_BYTE_WIDTH).floor()
             as usize)
@@ -1366,6 +1569,7 @@ impl ProtocolViewer {
         let record = self.selected_record();
         let selected = self.selected_field();
         let selection_is_exact = selected.exact_range;
+        let hinted_range = self.hinted_range();
         let start = row_index * bytes_per_row;
         let end = (start + bytes_per_row).min(record.bytes.len());
         let row_start_bit = start * 8;
@@ -1377,6 +1581,9 @@ impl ProtocolViewer {
                 let value = (byte >> bit_in_byte) & 1;
                 let active =
                     selection_is_exact && bit >= selected.start_bit && bit < selected.end_bit;
+                let hinted = !active
+                    && hinted_range
+                        .is_some_and(|(start_bit, end_bit)| bit >= start_bit && bit < end_bit);
                 let role = record
                     .fields
                     .iter()
@@ -1394,7 +1601,13 @@ impl ProtocolViewer {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .border_color(if active { rgb(0x3caee0) } else { rgb(0x18394d) })
+                    .border_color(if active {
+                        rgb(0x3caee0)
+                    } else if hinted {
+                        rgb(0x2b7ea8)
+                    } else {
+                        rgb(0x18394d)
+                    })
                     .when(active, |cell| {
                         cell.border_y_1()
                             .when(bit == selected.start_bit.max(row_start_bit), |cell| {
@@ -1407,6 +1620,8 @@ impl ProtocolViewer {
                     .when(!active, |cell| cell.border_1())
                     .bg(if active {
                         rgb(0x145b80)
+                    } else if hinted {
+                        rgb(0x0f3f58)
                     } else {
                         match role {
                             FieldRole::Route => rgb(0x10293a),
@@ -1417,7 +1632,13 @@ impl ProtocolViewer {
                     })
                     .font_family("monospace")
                     .text_size(px(11.0))
-                    .text_color(if active { rgb(0xd9f2ff) } else { rgb(0x7894a9) })
+                    .text_color(if active {
+                        rgb(0xd9f2ff)
+                    } else if hinted {
+                        rgb(0xa9cde0)
+                    } else {
+                        rgb(0x7894a9)
+                    })
                     .hover(|style| style.border_color(rgb(0x56c9ff)).text_color(rgb(0xffffff)))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_bit(bit, cx)))
                     .child(value.to_string())
@@ -1457,53 +1678,71 @@ impl ProtocolViewer {
             .into_any_element()
     }
 
+    /// one hex cell. the selected range is a solid wash; the hovered one is the
+    /// same wash at a whisper, so a hover previews without pretending to be a
+    /// selection.
+    fn hex_cell(byte: u8, index: usize, selected: &Field, hinted: Option<(usize, usize)>) -> Div {
+        let byte_start = index * 8;
+        let overlap_start = selected.start_bit.max(byte_start);
+        let overlap_end = selected.end_bit.min(byte_start + 8);
+        let active = selected.exact_range && overlap_start < overlap_end;
+        let hint = hinted.and_then(|(start_bit, end_bit)| {
+            let hint_start = start_bit.max(byte_start);
+            let hint_end = end_bit.min(byte_start + 8);
+            (!active && hint_start < hint_end).then_some((hint_start, hint_end))
+        });
+        let cell = div()
+            .relative()
+            .w(px(23.0))
+            .flex_shrink_0()
+            .text_center()
+            .when(active, |cell| cell.text_color(rgb(0xd9f2ff)))
+            .when(hint.is_some(), |cell| cell.text_color(rgb(0xa9cde0)))
+            .child(format!("{byte:02x}"));
+        let (wash, span) = if active {
+            (gpui::rgba(0x174e_6fa8), Some((overlap_start, overlap_end)))
+        } else {
+            (gpui::rgba(0x174e_6f4d), hint)
+        };
+        match span {
+            Some((span_start, span_end)) => cell.child(
+                div()
+                    .absolute()
+                    .left(px(23.0 * (span_start - byte_start) as f32 / 8.0))
+                    .top_0()
+                    .bottom_0()
+                    .w(px(23.0 * (span_end - span_start) as f32 / 8.0))
+                    .bg(wash),
+            ),
+            None => cell,
+        }
+    }
+
     fn byte_row(&self, row_index: usize) -> AnyElement {
         let record = self.selected_record();
         let selected = self.selected_field();
+        let hinted_range = self.hinted_range();
         let start = row_index * 16;
         let end = (start + 16).min(record.bytes.len());
-        let hex = (start..end).map(|index| {
-            let byte = record.bytes[index];
-            let byte_start = index * 8;
-            let overlap_start = selected.start_bit.max(byte_start);
-            let overlap_end = selected.end_bit.min(byte_start + 8);
-            let active = selected.exact_range && overlap_start < overlap_end;
-            let coverage = if active {
-                (overlap_end - overlap_start) as f32 / 8.0
-            } else {
-                0.0
-            };
-            let cell = div()
-                .relative()
-                .w(px(23.0))
-                .flex_shrink_0()
-                .text_center()
-                .when(active, |cell| cell.text_color(rgb(0xd9f2ff)))
-                .child(format!("{byte:02x}"));
-            if active {
-                cell.child(
-                    div()
-                        .absolute()
-                        .left(px(23.0 * (overlap_start - byte_start) as f32 / 8.0))
-                        .top_0()
-                        .bottom_0()
-                        .w(px(23.0 * coverage))
-                        .bg(gpui::rgba(0x174e_6fa8)),
-                )
-            } else {
-                cell
-            }
-        });
+        let hex = (start..end)
+            .map(|index| Self::hex_cell(record.bytes[index], index, selected, hinted_range));
         let ascii = (start..end).map(|index| {
             let byte = record.bytes[index];
             let active = selected.exact_range
                 && index * 8 < selected.end_bit
                 && index * 8 + 8 > selected.start_bit;
+            let hinted = !active
+                && hinted_range.is_some_and(|(start_bit, end_bit)| {
+                    index * 8 < end_bit && index * 8 + 8 > start_bit
+                });
             div()
                 .w(px(7.0))
                 .text_center()
                 .when(active, |cell| {
                     cell.bg(gpui::rgba(0x174e_6f80)).text_color(rgb(0xd9f2ff))
+                })
+                .when(hinted, |cell| {
+                    cell.bg(gpui::rgba(0x174e_6f40)).text_color(rgb(0xa9cde0))
                 })
                 .child(if byte.is_ascii_graphic() || byte == b' ' {
                     char::from(byte).to_string()
@@ -1589,6 +1828,69 @@ impl ProtocolViewer {
         visible
     }
 
+    /// the expand/collapse box. leaves keep the same footprint so names stay on
+    /// one ruler, but only containers draw a target.
+    fn field_toggle(
+        &self,
+        index: usize,
+        container: bool,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let path = self.selected_record().fields[index].path.clone();
+        div()
+            .id(("protocol-field-toggle", index))
+            .size(px(FIELD_TOGGLE_SIZE))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(container, |toggle| {
+                toggle
+                    .border_1()
+                    .border_color(rgb(0x245c78))
+                    .bg(rgb(0x091d2a))
+                    .cursor_pointer()
+                    .hover(|style| {
+                        style
+                            .border_color(rgb(0x57c8f5))
+                            .bg(rgb(0x123247))
+                            .text_color(rgb(0xe2f7ff))
+                    })
+                    .active(|style| style.opacity(0.68))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.toggle_field(index, &path, cx);
+                        this.focus_filter(FilterTarget::Fields, window, cx);
+                    }))
+                    .child(
+                        div()
+                            .relative()
+                            .size(px(8.0))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .right_0()
+                                    .top(px(3.5))
+                                    .h(px(1.0))
+                                    .bg(rgb(0x62c7ee)),
+                            )
+                            .when(collapsed, |glyph| {
+                                glyph.child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .bottom_0()
+                                        .left(px(3.5))
+                                        .w(px(1.0))
+                                        .bg(rgb(0x62c7ee)),
+                                )
+                            }),
+                    )
+            })
+    }
+
     fn field_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let record = self.selected_record();
         let field = &record.fields[index];
@@ -1598,41 +1900,13 @@ impl ProtocolViewer {
             .is_some_and(|next| next.depth > field.depth);
         let collapsed = container && self.collapsed_fields.contains(&field.path);
         let label = field_label(&field.path);
-        let metadata = if field.exact_range {
-            format!(
-                "{}  ·  bits [{}, {})",
-                field.kind, field.start_bit, field.end_bit
-            )
+        let range = if field.exact_range {
+            format!("bits [{}, {})", field.start_bit, field.end_bit)
         } else {
-            format!(
-                "{}  ·  within [{}, {})",
-                field.kind, field.start_bit, field.end_bit
-            )
+            format!("within [{}, {})", field.start_bit, field.end_bit)
         };
-        let toggle_glyph = div()
-            .relative()
-            .size(px(8.0))
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .top(px(3.5))
-                    .h(px(1.0))
-                    .bg(rgb(0x62c7ee)),
-            )
-            .when(collapsed, |glyph| {
-                glyph.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(3.5))
-                        .w(px(1.0))
-                        .bg(rgb(0x62c7ee)),
-                )
-            });
         let active = index == self.selected_field;
+        let traced = active || self.hovered_field == Some(index);
         let tooltip_title = field.path.clone();
         let tooltip_detail = field_help::tooltip_detail(field, container);
         let row = ui_inspector::selectable_row(("protocol-field", index), active)
@@ -1642,114 +1916,95 @@ impl ProtocolViewer {
                 this.select_field(index, cx);
                 this.focus_filter(FilterTarget::Fields, window, cx);
             }))
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let next = if *hovered {
+                    Some(index)
+                } else if this.hovered_field == Some(index) {
+                    None
+                } else {
+                    return;
+                };
+                if this.hovered_field != next {
+                    this.hovered_field = next;
+                    cx.notify();
+                }
+            }))
             .child(
                 div()
                     .relative()
                     .h_full()
-                    .pl(px(12.0 + field.depth as f32 * 19.0))
-                    .pr(px(14.0))
+                    .pl(px(10.0 + field.depth as f32 * FIELD_INDENT))
+                    .pr(px(12.0))
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
+                    .gap(px(7.0))
                     .when(field.depth > 0 && !active, |row| {
                         row.child(
                             div()
                                 .absolute()
-                                .left(px(18.0 + (field.depth - 1) as f32 * 19.0))
+                                .left(px(10.0
+                                    + FIELD_TOGGLE_SIZE / 2.0
+                                    + (field.depth - 1) as f32 * FIELD_INDENT))
                                 .top_0()
                                 .bottom_0()
                                 .w(px(1.0))
                                 .bg(rgb(0x102c3d)),
                         )
                     })
+                    .child(self.field_toggle(index, container, collapsed, cx))
                     .child(
                         div()
-                            .id(("protocol-field-toggle", index))
-                            .size(px(18.0))
                             .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .border_1()
-                            .border_color(if container {
-                                rgb(0x245c78)
+                            .max_w(px(190.0))
+                            .truncate()
+                            .font_family(if label.starts_with('[') {
+                                "monospace"
                             } else {
-                                rgb(0x142b39)
+                                FONT_INTERFACE
                             })
-                            .bg(if container {
-                                rgb(0x091d2a)
+                            .text_size(px(12.5))
+                            .font_weight(if container {
+                                gpui::FontWeight::SEMIBOLD
                             } else {
-                                rgb(0x06121a)
+                                gpui::FontWeight::NORMAL
                             })
-                            .when(container, |toggle| {
-                                let path = field.path.clone();
-                                toggle
-                                    .cursor_pointer()
-                                    .hover(|style| {
-                                        style
-                                            .border_color(rgb(0x57c8f5))
-                                            .bg(rgb(0x123247))
-                                            .text_color(rgb(0xe2f7ff))
-                                    })
-                                    .active(|style| style.opacity(0.68))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        cx.stop_propagation();
-                                        this.toggle_field(index, &path, cx);
-                                        this.focus_filter(FilterTarget::Fields, window, cx);
-                                    }))
+                            .text_color(if active {
+                                rgb(0xf1f8ff)
+                            } else if container {
+                                rgb(0xcce2f2)
+                            } else {
+                                rgb(0xaebfce)
                             })
-                            .when(container, |toggle| toggle.child(toggle_glyph)),
+                            .child(label),
                     )
                     .child(
                         div()
                             .min_w(px(0.0))
                             .flex_1()
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .font_family(if label.starts_with('[') {
-                                        "monospace"
-                                    } else {
-                                        FONT_INTERFACE
-                                    })
-                                    .text_size(px(if container { 15.5 } else { 15.0 }))
-                                    .font_weight(if container {
-                                        gpui::FontWeight::SEMIBOLD
-                                    } else {
-                                        gpui::FontWeight::NORMAL
-                                    })
-                                    .text_color(if active {
-                                        rgb(0xf1f8ff)
-                                    } else if container {
-                                        rgb(0xcce2f2)
-                                    } else {
-                                        rgb(0xaebfce)
-                                    })
-                                    .child(label),
-                            )
-                            .child(
-                                div()
-                                    .mt(px(3.0))
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .font_family("monospace")
-                                    .text_size(px(12.0))
-                                    .text_color(if active { rgb(0x8dbbd0) } else { rgb(0x607f94) })
-                                    .child(metadata),
-                            ),
+                            .truncate()
+                            .font_family("monospace")
+                            .text_size(px(12.5))
+                            .text_color(field_value_color(&field.value, active))
+                            .child(field.value.clone()),
                     )
                     .child(
                         div()
-                            .max_w(px(230.0))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_right()
+                            .flex_shrink_0()
                             .font_family("monospace")
-                            .text_size(px(14.0))
-                            .text_color(if active { rgb(0xbdeaff) } else { rgb(0x67ceff) })
-                            .child(field.value.clone()),
+                            .text_size(px(10.0))
+                            .text_color(if active { rgb(0x7f9cb0) } else { rgb(0x56718a) })
+                            .child(field.kind),
+                    )
+                    .child(
+                        div()
+                            .w(px(BIT_RANGE_GUTTER))
+                            .flex_shrink_0()
+                            .text_right()
+                            .truncate()
+                            .font_family("monospace")
+                            .text_size(px(10.0))
+                            .text_color(if traced { rgb(0xa9b8cc) } else { rgb(0x4c657a) })
+                            .child(range),
                     ),
             );
         with_inspector_tooltip(row, tooltip_title, tooltip_detail, self.ui_assets.clone())
@@ -1798,36 +2053,30 @@ impl ProtocolViewer {
             .border_l_1()
             .border_color(rgb(0x17384d))
             .child(
-                ui_inspector::header(
-                    if self.field_filter_value.is_empty() {
-                        "Decoded payload".to_owned()
-                    } else {
-                        format!("Decoded payload  /  {}", self.field_filter_value)
-                    },
-                    if self.field_filter_value.is_empty() {
-                        format!("{} · {}", record.direction.label(), record.type_name)
-                    } else {
-                        format!("{visible_count} / {}", record.fields.len())
-                    },
-                )
-                .id("protocol-field-filter-focus")
-                .cursor(gpui::CursorStyle::IBeam)
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| {
-                        this.focus_filter(FilterTarget::Fields, window, cx);
-                    }),
-                ),
+                ui_inspector::header_shell()
+                    .id("protocol-field-filter-focus")
+                    .cursor(gpui::CursorStyle::IBeam)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.focus_filter(FilterTarget::Fields, window, cx);
+                        }),
+                    )
+                    .child(ui_inspector::header_title("Decoded"))
+                    .child(direction_badge(record.direction))
+                    .child(
+                        ui_inspector::header_detail()
+                            .font_family("monospace")
+                            .text_size(px(12.0))
+                            .text_color(rgb(0x8fa8bb))
+                            .child(if self.field_filter_value.is_empty() {
+                                record.type_name.clone()
+                            } else {
+                                format!("{visible_count} / {}", record.fields.len())
+                            }),
+                    ),
             )
-            .child(
-                div()
-                    .absolute()
-                    .right(px(4.0))
-                    .top(px(4.0))
-                    .size(px(1.0))
-                    .opacity(0.001)
-                    .child(self.field_filter.element()),
-            )
+            .child(self.search_row(FilterTarget::Fields, window, cx))
             .child(
                 div()
                     .id("protocol-field-viewport")
@@ -1866,6 +2115,78 @@ impl Drop for ProtocolViewer {
         if self.paused {
             set_capture_paused(false);
         }
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use std::collections::HashSet;
+
+    use super::{Direction, record_matches, service_counts};
+    use crate::native::inspect::Record;
+
+    fn record(service: &str, command: &str, direction: Direction) -> Record {
+        Record {
+            sequence: 0,
+            captured_at_millis: 0,
+            direction,
+            service: service.to_owned(),
+            command: command.to_owned(),
+            type_name: format!("{service}::{command}"),
+            service_slot: 0,
+            command_id: 0,
+            bytes: Vec::new(),
+            logical_bits: 0,
+            fields: Vec::new(),
+        }
+    }
+
+    fn services(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn chips_and_search_narrow_together() {
+        let chat = record("Chat", "MembershipChangeNotify", Direction::Incoming);
+        let presence = record("Presence", "UpdateNotify", Direction::Incoming);
+        let selected = services(&["Chat"]);
+        assert!(record_matches(&chat, "", &selected));
+        assert!(!record_matches(&presence, "", &selected));
+        assert!(record_matches(&chat, "membership", &selected));
+        assert!(!record_matches(&chat, "presence", &selected));
+    }
+
+    #[test]
+    fn no_selected_chips_means_every_service() {
+        let presence = record("Presence", "UpdateNotify", Direction::Incoming);
+        assert!(record_matches(&presence, "", &HashSet::new()));
+        assert!(record_matches(&presence, "presence", &HashSet::new()));
+    }
+
+    #[test]
+    fn search_still_reaches_type_name_and_direction() {
+        let profile = record("Profile", "ReadRequest", Direction::Outgoing);
+        assert!(record_matches(&profile, "profile::read", &HashSet::new()));
+        assert!(record_matches(&profile, "outgoing", &HashSet::new()));
+        assert!(!record_matches(&profile, "incoming", &HashSet::new()));
+    }
+
+    #[test]
+    fn chips_order_by_traffic_then_name() {
+        let records = [
+            record("Presence", "UpdateNotify", Direction::Incoming),
+            record("Chat", "MembershipChangeNotify", Direction::Incoming),
+            record("Presence", "UpdateNotify", Direction::Incoming),
+            record("Authentication", "LogonRequest", Direction::Outgoing),
+        ];
+        assert_eq!(
+            service_counts(&records),
+            vec![
+                ("Presence".to_owned(), 2),
+                ("Authentication".to_owned(), 1),
+                ("Chat".to_owned(), 1),
+            ]
+        );
     }
 }
 

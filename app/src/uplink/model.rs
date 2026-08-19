@@ -414,10 +414,11 @@ impl Projector {
                     body: truncated(body),
                 }),
             // everything else stays on the machine: catalog and ux noise
-            // (ConferenceDirectory, Activity, JoinRejected, WhisperFailed,
+            // (ConferenceMemberCounts, activity, JoinRejected, WhisperFailed,
             // Group*) and BlockedAccounts, which no opt-in covers.
             ChatEvent::PublicChannelCatalog(_)
-            | ChatEvent::ConferenceDirectory { .. }
+            | ChatEvent::ConferenceDescriptions { .. }
+            | ChatEvent::ConferenceMemberCounts { .. }
             | ChatEvent::JoinRejected { .. }
             | ChatEvent::BlockedAccounts(_)
             | ChatEvent::Activity { .. }
@@ -890,6 +891,8 @@ mod tests {
             category: 1,
             private: false,
             member: true,
+            member_count: None,
+            online: None,
         };
         match projector.project(&summary, all) {
             Some(EventKind::Joined { channel }) => {
@@ -1012,8 +1015,8 @@ mod tests {
         let share = shared(&["public:1033"]);
         let events = [
             ChatEvent::PublicChannelCatalog(vec![]),
-            ChatEvent::ConferenceDirectory {
-                identifiers: vec![1],
+            ChatEvent::ConferenceMemberCounts {
+                counts: Vec::new(),
                 complete: true,
             },
             ChatEvent::JoinRejected {

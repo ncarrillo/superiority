@@ -12,7 +12,8 @@ pub struct CacheStreamItem {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientCacheGetStreamItems {}
+pub struct ClientCacheGetStreamItems {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientCacheGetStreamItemsResponse {
@@ -27,3 +28,4 @@ pub struct ClientCacheGetStreamItemsResponse {
     #[bsn(name = "m_token")]
     pub token: u32,
 }
+

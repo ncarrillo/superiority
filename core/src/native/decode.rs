@@ -1,11 +1,18 @@
+use std::collections::BTreeMap;
+
 use crate::{
     Error, Result,
-    bsn::{bits::BitReader, codec::DecodedField, value::BsnValue},
+    bsn::{
+        bits::BitReader,
+        codec::DecodedField,
+        value::{BsnStruct, BsnValue},
+    },
     metadata::{TypeKind, TypeShape},
     native::model::{
         AccountBlockEntry, AccountBlockPage, CacheStreamItem, CacheStreamItems, ChannelDescriptor,
         ChannelList, ChatInvite, ChatJoin, ChatMembership, ChatMessage, ChatWhisper,
         ClubInviteAction, ClubSummary, ConferenceDescription, ConferenceDescriptions,
+        ConferenceMemberCount, ConferenceMemberCounts,
         ConnectionMessageFrame, FriendEntry, FriendIdentity, FriendToon, FriendToonPage,
         FriendUpdate, FriendsPage, MemberClanTag, MembershipChange, MembershipKind,
         PartyMemberStatus, Payload, PresenceField, PresenceFieldFlags, PresenceFields,
@@ -2121,6 +2128,34 @@ pub(crate) fn cache_stream_items_with_provenance(
     ))
 }
 
+/// `Battlenet::Conference::FullConferenceDescription`, in the order the client
+/// actually writes it — which is not its declaration order, because the type is
+/// flagged obfuscated:
+///
+/// ```text
+///   m_id               u32   32        m_index              u16   16
+///   (reserved)                8        (reserved)                 29
+///   m_maxMembers       u16   16        LocatorKey tag              2
+///   m_allowedPrograms  3 + n*32          public arm: locale 32, channel 16
+///   m_targetProportion f32   32        (constant)                  8
+///   m_allowedRealms    3 + m*32        m_sortOrder          u16   16
+///   m_flags            u32   32
+/// ```
+///
+/// `m_targetProportion` sitting between the two arrays is the part that defeats
+/// a guess at the order, and `m_index` leading `ShardName` is why the shard
+/// cannot be found by walking back from the naming fields. the proportion is
+/// 0.9 and the capacity 200, which is why the server marks a room full at 181
+/// rather than at 200. recovered from the element decoder at
+/// `0x100edf5d0` and its configuration reader at `0x100eb5400` in the decrypted
+/// 97563 build, then checked against a retail page: the computed length lands on
+/// the next entry for all 39 of them.
+const CONFERENCE_ARRAY_COUNT_BITS: usize = 3;
+const CONFERENCE_ELEMENT_BITS: usize = 32;
+/// `Conference::LocatorKey` arms: private 0, public 2, club 3. only a public
+/// conference is a listed channel, and only its arm has a fixed width.
+const LOCATOR_KEY_PUBLIC: u64 = 2;
+
 pub(crate) fn conference_descriptions(reader: &mut BitReader<'_>) -> Result<Payload> {
     Ok(conference_descriptions_with_provenance(reader)?.payload)
 }
@@ -2130,58 +2165,55 @@ pub(crate) fn conference_descriptions_with_provenance(
 ) -> Result<DecodedPayload> {
     let start_bit = reader.position();
     let is_last = read_spanned_u64(reader, 1)?;
-    let reserved = read_spanned_u64(reader, 27)?;
-    let generated_present = read_spanned_u64(reader, 1)?;
-    let generated = (generated_present.value != 0)
-        .then(|| read_spanned_i32(reader))
-        .transpose()?;
     let count = read_spanned_usize(reader, 6)?;
     let mut provenance = vec![
         spanned_field("value.is_last", "bool", &is_last, 1),
-        spanned_field("value.reserved", "reserved bits", &reserved, 1),
-        spanned_field(
-            "value.generated.present",
-            "optional flag",
-            &generated_present,
-            1,
-        ),
         spanned_field("value.entries.count", "array length", &count, 2),
     ];
-    if let Some(generated) = &generated {
-        provenance.push(spanned_field(
-            "value.generated.value",
-            "generated field",
-            generated,
-            1,
-        ));
-    }
     let mut entries = Vec::with_capacity(count.value);
     for index in 0..count.value {
-        let path = format!("value.entries[{index}]");
         let entry_start = reader.position();
-        let reserved = read_spanned_u64(reader, 23)?;
-        let identifier = read_spanned_u32(reader, 32)?;
-        let sort_order = read_spanned_u64(reader, 16)?;
-        let marker = read_spanned_u64(reader, 1)?;
-        let entry_end = reader.position();
+        let conference_id = read_spanned_u32(reader, 32)?;
+        reader.read(8)?; // constant across every observed entry
+        let max_members = u16::try_from(reader.read(16)?).unwrap_or_default();
+        read_conference_array(reader)?; // m_allowedPrograms
+        let target_proportion_bits = u32::try_from(reader.read(32)?).unwrap_or_default();
+        read_conference_array(reader)?; // m_allowedRealms
+        reader.read(32)?; // m_flags — zero on every observed conference
+        let shard = u16::try_from(reader.read(16)?).unwrap_or_default();
+        reader.read(29)?; // reserved run inside ShardName
+        let locator = reader.read(2)?;
+        if locator != LOCATOR_KEY_PUBLIC {
+            // a private or club conference is not a listed channel, and its
+            // locator arm is a different width, so the walk cannot continue
+            return Err(Error::Native(format!(
+                "conference description {index} uses locator arm {locator}, not a public channel"
+            )));
+        }
+        let locale = u32::try_from(reader.read(32)?).unwrap_or_default();
+        let channel_name_id = u16::try_from(reader.read(16)?).unwrap_or_default();
+        reader.read(8)?; // constant across every observed entry
+        let sort_order = u16::try_from(reader.read(16)?).unwrap_or_default();
+        let path = format!("value.entries[{index}]");
         provenance.extend([
             decoded_field(
                 path.clone(),
-                "ConferenceDescription",
-                "4 fields",
+                "FullConferenceDescription",
+                "5 fields",
                 entry_start,
-                entry_end,
+                reader.position(),
                 2,
             ),
-            spanned_field(format!("{path}.reserved"), "reserved bits", &reserved, 3),
-            spanned_field(format!("{path}.identifier"), "uint32", &identifier, 3),
-            spanned_field(format!("{path}.sort_order"), "uint16", &sort_order, 3),
-            spanned_field(format!("{path}.marker"), "bool", &marker, 3),
+            spanned_field(format!("{path}.m_id"), "Conference::Id", &conference_id, 3),
         ]);
         entries.push(ConferenceDescription {
-            identifier: identifier.value,
-            sort_order: u16::try_from(sort_order.value).expect("16-bit field fits in u16"),
-            marker: marker.value != 0,
+            conference_id: conference_id.value,
+            locale,
+            channel_name_id,
+            shard,
+            sort_order,
+            max_members,
+            target_proportion_bits,
         });
     }
     provenance.push(decoded_field(
@@ -2199,6 +2231,101 @@ pub(crate) fn conference_descriptions_with_provenance(
         }),
         provenance,
         "ConferenceDescriptions",
+        "2 fields",
+        start_bit,
+        reader.position(),
+    ))
+}
+
+/// skips one of the configuration's arrays: a three-bit count then that many
+/// 32-bit elements — `Program::Id` is a `FourCC` and `Realm::Id` a `u32`.
+fn read_conference_array(reader: &mut BitReader<'_>) -> Result<()> {
+    let count = usize::try_from(reader.read(CONFERENCE_ARRAY_COUNT_BITS)?).unwrap_or_default();
+    for _ in 0..count {
+        reader.read(CONFERENCE_ELEMENT_BITS)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn conference_member_counts(reader: &mut BitReader<'_>) -> Result<Payload> {
+    Ok(conference_member_counts_with_provenance(reader)?.payload)
+}
+
+pub(crate) fn conference_member_counts_with_provenance(
+    reader: &mut BitReader<'_>,
+) -> Result<DecodedPayload> {
+    let start_bit = reader.position();
+    let is_last = read_spanned_u64(reader, 1)?;
+    let reserved = read_spanned_u64(reader, 27)?;
+    let sampled_present = read_spanned_u64(reader, 1)?;
+    let sampled_at = (sampled_present.value != 0)
+        .then(|| read_spanned_i32(reader))
+        .transpose()?;
+    let count = read_spanned_usize(reader, 6)?;
+    let mut provenance = vec![
+        spanned_field("value.is_last", "bool", &is_last, 1),
+        spanned_field("value.reserved", "reserved bits", &reserved, 1),
+        spanned_field(
+            "value.generated.present",
+            "optional flag",
+            &sampled_present,
+            1,
+        ),
+        spanned_field("value.entries.count", "array length", &count, 2),
+    ];
+    if let Some(sampled_at) = &sampled_at {
+        provenance.push(spanned_field(
+            "value.m_time.value",
+            "Time::Seconds",
+            sampled_at,
+            1,
+        ));
+    }
+    let mut entries = Vec::with_capacity(count.value);
+    for index in 0..count.value {
+        let path = format!("value.entries[{index}]");
+        let entry_start = reader.position();
+        let reserved = read_spanned_u64(reader, 23)?;
+        let conference_id = read_spanned_u32(reader, 32)?;
+        let members = read_spanned_u64(reader, 16)?;
+        let full = read_spanned_u64(reader, 1)?;
+        let entry_end = reader.position();
+        provenance.extend([
+            decoded_field(
+                path.clone(),
+                "MembershipInfo",
+                "4 fields",
+                entry_start,
+                entry_end,
+                2,
+            ),
+            spanned_field(format!("{path}.reserved"), "reserved bits", &reserved, 3),
+            spanned_field(format!("{path}.m_id"), "Conference::Id", &conference_id, 3),
+            spanned_field(format!("{path}.m_numMembers"), "uint16", &members, 3),
+            spanned_field(format!("{path}.m_isFull"), "bool", &full, 3),
+        ]);
+        entries.push(ConferenceMemberCount {
+            conference_id: conference_id.value,
+            members: u16::try_from(members.value).expect("16-bit field fits in u16"),
+            full: full.value != 0,
+        });
+    }
+    provenance.push(decoded_field(
+        "value.entries",
+        "array",
+        format!("{} items", entries.len()),
+        count.start_bit,
+        reader.position(),
+        1,
+    ));
+    Ok(custom_payload(
+        Payload::ConferenceMemberCounts(ConferenceMemberCounts {
+            entries,
+            is_last: is_last.value != 0,
+            sampled_at: sampled_at.map(|sampled_at| sampled_at.value),
+        }),
+        provenance,
+        "ConferenceMemberCounts",
         "4 fields",
         start_bit,
         reader.position(),
@@ -3133,16 +3260,21 @@ pub(crate) fn club_info(
 ) -> Result<Payload> {
     let start = reader.position();
     let buffer_bits = reader.data().len() * 8;
+    let mut counts = BTreeMap::new();
     let walked_end = match protocol.codec().decode_from(reader, type_id) {
-        Ok(_) => Some(reader.position()),
+        Ok(value) => {
+            collect_club_counts(&value, &mut counts);
+            Some(reader.position())
+        }
         Err(_) => None,
     };
     reader.set_position(start)?;
-    let Ok((clubs, _, elements_end, incomplete)) =
+    let Ok((mut clubs, _, elements_end, incomplete)) =
         walk_club_elements(reader, walked_end.unwrap_or(buffer_bits))
     else {
         return Err(incomplete_club_frame(buffer_bits));
     };
+    apply_club_counts(&mut clubs, &counts);
     if incomplete {
         return Err(incomplete_club_frame(buffer_bits));
     }
@@ -3179,6 +3311,72 @@ pub(crate) fn club_search_with_provenance(
         collect_club_ids(&value, &mut ids);
         Ok(Payload::ClubSearch(ids))
     })
+}
+
+/// head counts lifted from the reflected walk of a club response.
+///
+/// the element scraper below reads a club's identity from fixed bit offsets and
+/// steps over the tail, which is where `m_memberCount` lives; the reflected
+/// decode names every field but is only trusted for its end position. rather
+/// than teach the scraper new offsets, this reads the counts out of the walk
+/// that already happened and merges them in by club id.
+#[derive(Clone, Copy, Default)]
+struct ClubCounts {
+    member_count: Option<u32>,
+    online: Option<u32>,
+}
+
+fn collect_club_counts(value: &BsnValue, counts: &mut BTreeMap<u32, ClubCounts>) {
+    if let BsnValue::Struct(fields) = value {
+        // `ClubInfo` — a summary plus the live online status beside it.
+        if let (Some(BsnValue::Struct(summary)), Some(BsnValue::Struct(status))) =
+            (fields.get("m_summary"), fields.get("m_status"))
+            && let Some(club_id) = struct_u32(summary, "m_id")
+        {
+            let entry = counts.entry(club_id).or_default();
+            entry.member_count = entry.member_count.or(struct_u32(summary, "m_memberCount"));
+            entry.online = entry.online.or(struct_u32(status, "m_online"));
+        }
+        // a bare `ClubSummaryInfo`, which knows the roster size but not who is on it.
+        if let (Some(club_id), Some(member_count)) =
+            (struct_u32(fields, "m_id"), struct_u32(fields, "m_memberCount"))
+        {
+            let entry = counts.entry(club_id).or_default();
+            entry.member_count = entry.member_count.or(Some(member_count));
+        }
+        for field in &fields.fields {
+            collect_club_counts(&field.value, counts);
+        }
+        return;
+    }
+    match value {
+        BsnValue::Array(items) => {
+            for item in items {
+                collect_club_counts(item, counts);
+            }
+        }
+        BsnValue::Optional(Some(inner)) | BsnValue::Choice { value: inner, .. } => {
+            collect_club_counts(inner, counts);
+        }
+        _ => {}
+    }
+}
+
+fn struct_u32(fields: &BsnStruct, field: &str) -> Option<u32> {
+    match fields.get(field)? {
+        BsnValue::Integer(number) => u32::try_from(*number).ok(),
+        _ => None,
+    }
+}
+
+fn apply_club_counts(clubs: &mut [ClubSummary], counts: &BTreeMap<u32, ClubCounts>) {
+    for club in clubs {
+        let Some(found) = counts.get(&club.club_id) else {
+            continue;
+        };
+        club.member_count = found.member_count;
+        club.online = found.online;
+    }
 }
 
 fn collect_club_ids(value: &BsnValue, ids: &mut Vec<u32>) {
@@ -3294,6 +3492,8 @@ fn walk_club_elements(
             kind,
             category,
             private,
+            member_count: None,
+            online: None,
         });
 
         let flag_at = name_end + CLUB_TAG_FLAG_OFFSET;
@@ -3359,13 +3559,18 @@ pub(crate) fn club_summaries(
         Ok(_) => reader.position(),
         Err(_) => buffer_bits,
     };
+    let mut counts = BTreeMap::new();
+    if let Ok(value) = &walked {
+        collect_club_counts(value, &mut counts);
+    }
     reader.set_position(start)?;
-    let Ok((clubs, _, start, incomplete)) = walk_club_elements(reader, total) else {
+    let Ok((mut clubs, _, start, incomplete)) = walk_club_elements(reader, total) else {
         return Err(incomplete_club_frame(buffer_bits));
     };
     if incomplete {
         return Err(incomplete_club_frame(buffer_bits));
     }
+    apply_club_counts(&mut clubs, &counts);
     // each summary ends with a u32, one rank byte per club, and a final flag.
     let tail = 32 + 8 + clubs.len() * 8 + 1;
     let end = (start + tail).div_ceil(8) * 8;
@@ -3388,10 +3593,16 @@ pub(crate) fn club_summaries_with_provenance(
         Ok(_) => reader.position(),
         Err(_) => buffer_bits,
     };
+    let mut counts = BTreeMap::new();
+    if let Ok(value) = &walked {
+        collect_club_counts(value, &mut counts);
+    }
     reader.set_position(start_bit)?;
-    let Ok((clubs, traces, elements_end, incomplete)) = walk_club_elements(reader, total) else {
+    let Ok((mut clubs, traces, elements_end, incomplete)) = walk_club_elements(reader, total)
+    else {
         return Err(incomplete_club_frame(buffer_bits));
     };
+    apply_club_counts(&mut clubs, &counts);
     if incomplete {
         return Err(incomplete_club_frame(buffer_bits));
     }
@@ -3415,16 +3626,21 @@ pub(crate) fn club_info_with_provenance(
 ) -> Result<DecodedPayload> {
     let start_bit = reader.position();
     let buffer_bits = reader.data().len() * 8;
+    let mut counts = BTreeMap::new();
     let walked_end = match protocol.codec().decode_from(reader, type_id) {
-        Ok(_) => Some(reader.position()),
+        Ok(value) => {
+            collect_club_counts(&value, &mut counts);
+            Some(reader.position())
+        }
         Err(_) => None,
     };
     reader.set_position(start_bit)?;
-    let Ok((clubs, traces, elements_end, incomplete)) =
+    let Ok((mut clubs, traces, elements_end, incomplete)) =
         walk_club_elements(reader, walked_end.unwrap_or(buffer_bits))
     else {
         return Err(incomplete_club_frame(buffer_bits));
     };
+    apply_club_counts(&mut clubs, &counts);
     if incomplete {
         return Err(incomplete_club_frame(buffer_bits));
     }
@@ -4704,43 +4920,387 @@ mod tests {
     }
 
     #[test]
-    fn chat_directory_preserves_public_channel_identifiers() {
+    fn conference_member_counts_carry_population_and_fullness() {
         let mut writer = BitWriter::new();
         writer.write(1, 1).unwrap();
         writer.write(0x12_3456, 27).unwrap();
         writer.write(1, 1).unwrap();
         writer.write(0x1020_3040, 32).unwrap();
         writer.write(2, 6).unwrap();
-        for (identifier, sort_order, marker) in [(1028, 3, false), (1033, 9, true)] {
+        for (conference_id, members, full) in [(102_192_u64, 24_u64, false), (102_194, 181, true)] {
             writer.write(0x65_4321, 23).unwrap();
-            writer.write(identifier, 32).unwrap();
-            writer.write(sort_order, 16).unwrap();
-            writer.write(u64::from(marker), 1).unwrap();
+            writer.write(conference_id, 32).unwrap();
+            writer.write(members, 16).unwrap();
+            writer.write(u64::from(full), 1).unwrap();
         }
         let expected_bits = writer.position();
         let bytes = writer.into_bytes();
         let mut reader = BitReader::new(&bytes, Some(expected_bits)).unwrap();
-        let Payload::ConferenceDescriptions(directory) =
-            conference_descriptions(&mut reader).unwrap()
+        let Payload::ConferenceMemberCounts(page) = conference_member_counts(&mut reader).unwrap()
         else {
-            panic!("expected conference descriptions");
+            panic!("expected conference member counts");
         };
-        assert!(directory.is_last);
+        assert!(page.is_last);
+        assert_eq!(page.sampled_at, Some(0x1020_3040 ^ i32::MIN));
         assert_eq!(
-            directory.entries,
+            page.entries,
             vec![
-                ConferenceDescription {
-                    identifier: 1028,
-                    sort_order: 3,
-                    marker: false,
+                ConferenceMemberCount {
+                    conference_id: 102_192,
+                    members: 24,
+                    full: false,
                 },
-                ConferenceDescription {
-                    identifier: 1033,
-                    sort_order: 9,
-                    marker: true,
+                ConferenceMemberCount {
+                    conference_id: 102_194,
+                    members: 181,
+                    full: true,
                 },
             ]
         );
         assert_eq!(reader.position(), expected_bits);
+    }
+
+    /// a retail `Chat/24` page captured from SC2 itself (2026-08-13), stored as
+    /// it came off the wire.
+    ///
+    /// this is what proves the route is `ConferenceDescriptions`: the entries
+    /// name real public channels, and their count matches the header exactly —
+    /// which only holds when `m_id` is read as the *first* field of an entry
+    /// rather than the last. reading the naming fields as belonging to the
+    /// entry they follow shifts every conference by one position and loses the
+    /// first entry entirely.
+    #[test]
+    fn retail_conference_descriptions_name_every_public_channel() {
+        const PAYLOAD_START: usize = 3;
+        const PAYLOAD_BITS: usize = 13882;
+        let bytes = conference_descriptions_vector();
+        let mut reader = BitReader::new(&bytes, Some(PAYLOAD_START + PAYLOAD_BITS)).unwrap();
+        reader.set_position(PAYLOAD_START).unwrap();
+        let Payload::ConferenceDescriptions(page) = conference_descriptions(&mut reader).unwrap()
+        else {
+            panic!("expected conference descriptions");
+        };
+
+        assert!(page.is_last);
+        assert_eq!(page.entries.len(), 39);
+
+        let named = |conference_id: u32| {
+            page.entries
+                .iter()
+                .find(|entry| entry.conference_id == conference_id)
+                .map(|entry| (entry.locale_tag(), entry.channel_name_id, entry.sort_order))
+        };
+        // general is enUS 1028 and sorts first; co-op is 1033 and sorts fifth
+        assert_eq!(named(129_215), Some(("enUS".to_owned(), 1028, 1)));
+        assert_eq!(named(102_194), Some(("enUS".to_owned(), 1028, 1)));
+        assert_eq!(named(102_214), Some(("enUS".to_owned(), 1033, 5)));
+
+        // a channel is served by several conferences, and the same channel
+        // exists per locale — which is what the counts have to be grouped by
+        // a busy channel is spread across numbered rooms — general, general 2,
+        // and so on — which is what the catalogue's `%d` is a placeholder for
+        let general = page
+            .entries
+            .iter()
+            .filter(|entry| entry.channel_name_id == 1028 && entry.locale_tag() == "enUS")
+            .map(|entry| entry.shard)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(general, (1..=12).collect::<std::collections::BTreeSet<u16>>());
+        // a quiet channel has only its first room
+        let cow = page
+            .entries
+            .iter()
+            .filter(|entry| entry.channel_name_id == 1029 && entry.locale_tag() == "enUS")
+            .map(|entry| entry.shard)
+            .collect::<Vec<_>>();
+        assert_eq!(cow, vec![1]);
+        let locales = page
+            .entries
+            .iter()
+            .map(ConferenceDescription::locale_tag)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(locales.contains("enUS") && locales.len() > 1);
+        // only a handful of catalogued channels exist as live rooms at all
+        let channels = page
+            .entries
+            .iter()
+            .map(|entry| entry.channel_name_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(channels.len(), 6);
+        // capacity and fill target come from the configuration now, rather than
+        // being inferred from watching m_isFull flip
+        assert!(page.entries.iter().all(|entry| entry.max_members == 200));
+        let cow = page
+            .entries
+            .iter()
+            .find(|entry| entry.channel_name_id == 1029)
+            .expect("The Cow Level is listed");
+        assert!((cow.target_proportion() - 0.9).abs() < f32::EPSILON);
+        // 200 seats at 0.9 is why the counts page reports full at 181
+        assert_eq!(cow.full_at(), 180);
+        // the walk is arithmetic — every entry's length is computed, so landing
+        // on the payload's last bit is the proof the layout is right
+        assert_eq!(reader.position(), PAYLOAD_START + PAYLOAD_BITS);
+    }
+
+    /// the same retail page decoded a second way — through the codec, walking
+    /// the registered wire layouts — and checked against the hand-written
+    /// decoder field for field.
+    ///
+    /// the two share no code: one is a bit reader in this file, the other is
+    /// the generic reflection walker driven by the permutations in
+    /// `wire_layout.rs`. agreeing on all 39 entries of a 13882-bit page, and
+    /// both landing on its final bit, is what makes the recovered field order
+    /// evidence rather than a plausible story.
+    #[test]
+    fn the_registered_wire_layout_agrees_with_the_hand_written_decoder() {
+        let protocol = Protocol::current().unwrap();
+        let bytes = conference_descriptions_vector();
+        let type_id = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Client::Chat::ConferenceDescriptions")
+            .unwrap();
+
+        let mut reader = BitReader::new(&bytes, Some(3 + 13882)).unwrap();
+        reader.set_position(3).unwrap();
+        let reflected = protocol.codec().decode_from(&mut reader, type_id).unwrap();
+        assert_eq!(reader.position(), 3 + 13882, "the layout consumes the page");
+
+        let mut reader = BitReader::new(&bytes, Some(3 + 13882)).unwrap();
+        reader.set_position(3).unwrap();
+        let Payload::ConferenceDescriptions(page) = conference_descriptions(&mut reader).unwrap()
+        else {
+            panic!("expected conference descriptions");
+        };
+
+        let BsnValue::Struct(root) = &reflected else {
+            panic!("expected a struct");
+        };
+        let Some(BsnValue::Array(list)) = root.get("m_list") else {
+            panic!("expected m_list");
+        };
+        assert_eq!(list.len(), page.entries.len());
+        for (value, entry) in list.iter().zip(&page.entries) {
+            let BsnValue::Struct(described) = value else {
+                panic!("expected a conference");
+            };
+            let integer = |name: &str| match described.get(name) {
+                Some(BsnValue::Integer(number)) => u32::try_from(*number).ok(),
+                _ => None,
+            };
+            assert_eq!(integer("m_id"), Some(entry.conference_id));
+            assert_eq!(integer("m_sortOrder"), Some(u32::from(entry.sort_order)));
+        }
+    }
+
+    /// a retail `Chat/26` record captured from SC2 itself (2026-08-03), stored
+    /// exactly as it came off the wire — the payload starts three bits into the
+    /// first byte, where the routing header left it.
+    ///
+    /// this is the evidence that the route is `ConferenceMemberCounts` and not
+    /// the channel directory it was long labelled as: the counts move between
+    /// samples, and every conference the server marks full sits at the same
+    /// cap, which a sort order would never do.
+    #[test]
+    fn retail_conference_member_counts_decode_at_the_exact_boundary() {
+        const PAYLOAD_START: usize = 3;
+        const PAYLOAD_BITS: usize = 2011;
+        let bytes = hex::decode(
+            "0d00ba80ea6fa771db0ca311000c791800d8c93800000afe0e053518d805000c791d01ded160\
+         01000c791205f5f10805000c791000d0c8f800000c791700c1c93000000c791405f5f1180500\
+         08360f0343c8d003000c7a0200c0d08800000c7a0005d4f87805000c7a0405d4f89805000c79\
+         1a05f5f14805000c791903cae14003000c791f00c0c97000000c791e05f5f168050008421003\
+         9828d803000c791c01d4d15801000c791300d4c91000000c791100c0c90000000fb7100040b9\
+         1000000c791600cdc92800000c791500cbc92000000c7a0300c0d09000000c7a0100c0d08000\
+         000c7a0604dff0a804000c7a0505d4f8a005000c791b0001",
+        )
+        .expect("vector is hex");
+        let mut reader = BitReader::new(&bytes, Some(PAYLOAD_START + PAYLOAD_BITS)).unwrap();
+        reader.set_position(PAYLOAD_START).unwrap();
+        let Payload::ConferenceMemberCounts(page) = conference_member_counts(&mut reader).unwrap()
+        else {
+            panic!("expected conference member counts");
+        };
+
+        assert!(page.is_last);
+        assert_eq!(page.sampled_at, Some(1_785_702_257));
+        assert_eq!(page.entries.len(), 27);
+        assert_eq!(
+            page.entries[..3],
+            [
+                ConferenceMemberCount {
+                    conference_id: 102_200,
+                    members: 24,
+                    full: false,
+                },
+                ConferenceMemberCount {
+                    conference_id: 90_062,
+                    members: 181,
+                    full: true,
+                },
+                ConferenceMemberCount {
+                    conference_id: 102_205,
+                    members: 62,
+                    full: false,
+                },
+            ]
+        );
+        // the server flips `m_isFull` at a fixed cap, so every full conference
+        // reports the same population — the invariant that identifies the field
+        let capped = page
+            .entries
+            .iter()
+            .filter(|entry| entry.full)
+            .map(|entry| entry.members)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(capped, std::collections::BTreeSet::from([181]));
+        assert!(page.entries.iter().all(|entry| entry.members <= 181));
+        assert_eq!(reader.position(), PAYLOAD_START + PAYLOAD_BITS);
+    }
+
+    fn conference_descriptions_vector() -> Vec<u8> {
+        hex::decode(
+            "9d030063cbca033244432b932ffb333346000000010000000200000000000100081041ca\
+             e69a58080a01000600031e2c1e014849195c9b3fd999990a000000010000000200000000\
+             0001000080685734d50840080100040018f2ff020c280000a63290cae46f7ecccc660200\
+             0000010000000200000000000100048064b72aa905020001000100c79494006404000533\
+             428657263ff6666626000000010000000200000000000100002060c1d109121004010001\
+             00063c273c03084932b9373fb3333304000000010000000200000000000100010064adca\
+             aa0381020100060031e5e10519482195c92ffd9999660000000001000001000000000000\
+             01000880656e5553040801000400018f2a2a00c802000a664a0cae4d3feccccc16000000\
+             0100000002000000000001000040702b9a6a182004010001000c796d1906284865726f3f\
+             666666020000000100000002000000000001000200721d10940602020101020063cacb02\
+             3244432b932ffb333346000000010000000200000000000100081041e0e8845208080100\
+             0400020d4f0d0148010014cc3ed999990a00000001000000020000000000030000806856\
+             e5550340090100050015fcfe0c0c180000a6327ecccc6602000000010000000200000000\
+             010102048164b72aa905030001010100842828006404000533428657263ff66666260000\
+             0001000000020000000000070000206095b95513100401000100063d043d034800002999\
+             4832b9373fb3333304000000010000000200000000000800010064adcaaa038004010001\
+             0031e7e407190800014c32fd99996600000000010000010000000000000100088065734d\
+             58040601000300018f383800c802000a664a0cae4d3feccccc1600000001000000020000\
+             00000004000040702b72aa132004010001000c7a631a0648000053324865726f3f666666\
+             020000000100000002000000000101010201665b95540701000100010063d0d100320800\
+             029952432b932ffb333346000000010000000200000000000600301046cadcaa53080401\
+             000100031e421e0148020014cc4a195c9b3fd999990a0000000100000002000000000002\
+             000080685734d50840040100010018f3f7030c180000a6327ecccc660200000001000000\
+             0200000000000200048064b72aa905030001010100c79b9a01640200053332f666662600\
+             0000010000000200000000000100002060c1d10912100901000500063c333c0348000029\
+             994832b9373fb33333040000000100000002000000000001000100740e884a0280040100\
+             010031e6e106191000014c722195c92ffd99996600000000010000010000000000010004\
+             0881656e5553040401000100018f454500c801000a663aeccccc16000000010000000200\
+             0000000004000040702b72aa132006010003000c7a661a0628000053323f666666020000\
+             000100000002000000000004000200665b95540702010101010063cecd02320800029952\
+             432b932ffb333346000000010000000200000000000100081041cae69a58080401000100\
+             031e3f1e0148010014cc3ed999990a00000001000000020000000100014000c06856e555\
+             0340050106040018f3f4030c180000a6327ecccc66020000000100000002000000000003\
+             00048064b72aa905030001010100c79d9c016404000533428657263ff666662600000001\
+             000000020000000000050000206095b95513100401000100063c323c0348000029994832\
+             b9373fb3333304000000010000000200000000000100010064adcaaa0380040100010031\
+             e6e006190800014c32fd999966000000000100000100000000000001000880656e555304\
+             0601000300018f3d3d00c801000a663aeccccc1600000001000000020000000000010000\
+             40702b9a6a182009010005000c797e190648000053324865726f3f666666020000000100\
+             000002000000000003000200665b95540701000100010063cdcd01320400029932fb3333\
+             46000000010000000200000000000100081041e0e88452080601000300031e401e014801\
+             0014cc3ed999990a00000001000000020000000000010000806856e55503400901000500\
+             18f3fb030c180000a6327ecccc6602000000010000000200000000000200048064b72aa9\
+             05040101020100fb787800640200053332f6666626000000010000000200000000000500\
+             00206095b9551310090100050007e2ff220348000029994832b9373fb333330400000001\
+             0000000200000000000a00010064adcaaa038004010001003f181800191000014c722195\
+             c92ffd999966000000000100000100000000000501140885656e555304040100010001f8\
+             c1c100c802000a664a0cae4d3feccccc16000000010000000200000000000c000040702b\
+             72aa132004010001",
+        )
+        .expect("vector is hex")
+    }
+
+    fn field(name: &str, value: BsnValue) -> BsnField {
+        BsnField::named(0, name.to_owned(), value)
+    }
+
+    fn club_struct(fields: Vec<BsnField>) -> BsnValue {
+        BsnValue::Struct(BsnStruct::new(0, fields))
+    }
+
+    #[test]
+    fn club_info_yields_both_the_roster_total_and_who_is_online() {
+        let summary = club_struct(vec![
+            field("m_id", BsnValue::Integer(535_225)),
+            field("m_name", BsnValue::String("cecw".to_owned())),
+            field("m_memberCount", BsnValue::Integer(230)),
+        ]);
+        let status = club_struct(vec![
+            field("m_online", BsnValue::Integer(14)),
+            field("m_ingame", BsnValue::Integer(6)),
+            field("m_inchat", BsnValue::Integer(9)),
+        ]);
+        let response = club_struct(vec![field(
+            "m_clubs",
+            BsnValue::Array(vec![club_struct(vec![
+                field("m_summary", summary),
+                field("m_status", status),
+            ])]),
+        )]);
+
+        let mut counts = BTreeMap::new();
+        collect_club_counts(&response, &mut counts);
+        let found = counts.get(&535_225).copied().expect("club is counted");
+        assert_eq!(found.member_count, Some(230));
+        assert_eq!(found.online, Some(14));
+    }
+
+    #[test]
+    fn a_bare_summary_reports_the_roster_but_not_the_room() {
+        let response = club_struct(vec![field(
+            "m_clubs",
+            BsnValue::Array(vec![club_struct(vec![
+                field("m_id", BsnValue::Integer(7)),
+                field("m_memberCount", BsnValue::Integer(42)),
+            ])]),
+        )]);
+
+        let mut counts = BTreeMap::new();
+        collect_club_counts(&response, &mut counts);
+        let found = counts.get(&7).copied().expect("club is counted");
+        assert_eq!(found.member_count, Some(42));
+        assert_eq!(found.online, None);
+    }
+
+    #[test]
+    fn harvested_counts_reach_the_clubs_they_belong_to() {
+        let mut clubs = vec![
+            ClubSummary {
+                club_id: 7,
+                name: Some("Night Owls".to_owned()),
+                kind: 1,
+                category: 1,
+                private: false,
+                member_count: None,
+                online: None,
+            },
+            ClubSummary {
+                club_id: 9,
+                name: Some("Unlisted".to_owned()),
+                kind: 1,
+                category: 1,
+                private: false,
+                member_count: None,
+                online: None,
+            },
+        ];
+        let counts = BTreeMap::from([(
+            7,
+            ClubCounts {
+                member_count: Some(42),
+                online: Some(5),
+            },
+        )]);
+
+        apply_club_counts(&mut clubs, &counts);
+        assert_eq!(clubs[0].member_count, Some(42));
+        assert_eq!(clubs[0].online, Some(5));
+        // a club the walk never named keeps its unknowns rather than a zero
+        assert_eq!(clubs[1].member_count, None);
+        assert_eq!(clubs[1].online, None);
     }
 }

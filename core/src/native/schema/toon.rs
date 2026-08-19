@@ -24,10 +24,12 @@ pub struct ClientToonFailure {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientToonInitialNotifiesComplete {}
+pub struct ClientToonInitialNotifiesComplete {
+}
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientToonToonCreateCancel {}
+pub struct ClientToonToonCreateCancel {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientToonToonCreateFinal {
@@ -36,10 +38,12 @@ pub struct ClientToonToonCreateFinal {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientToonToonCreateInit {}
+pub struct ClientToonToonCreateInit {
+}
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientToonToonCreateSetup {}
+pub struct ClientToonToonCreateSetup {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientToonToonCreated {
@@ -158,3 +162,4 @@ pub struct ToonUnlockDefinitionFile {
     #[bsn(name = "m_unlockDefinitionFileCacheHandle")]
     pub unlock_definition_file_cache_handle: Bytes,
 }
+

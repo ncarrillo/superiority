@@ -118,6 +118,14 @@ impl SuperiorityView {
             self.channels.chat_entry_reveal = None;
         }
         if self
+            .chat
+            .expanded_digest
+            .as_ref()
+            .is_some_and(|expanded| expanded.is_finished_closing(now))
+        {
+            self.chat.expanded_digest = None;
+        }
+        if self
             .social
             .social_pane_transition
             .as_ref()
@@ -145,6 +153,11 @@ impl SuperiorityView {
             || self.settings.settings_page_transition.is_some()
             || self.roster.roster.animation.is_some()
             || self.channels.chat_entry_reveal.is_some()
+            || self
+                .chat
+                .expanded_digest
+                .as_ref()
+                .is_some_and(|expanded| expanded.is_running(now))
             || self.social.social_pane_transition.is_some()
             || self
                 .settings

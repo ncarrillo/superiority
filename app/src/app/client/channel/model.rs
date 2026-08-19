@@ -11,6 +11,9 @@ pub(in crate::app::client) struct ChannelState {
     pub(in crate::app::client) transcript: Vec<ChatLine>,
     pub(in crate::app::client) users: Vec<UiUser>,
     pub(in crate::app::client) roster_complete: bool,
+    /// whether any transcript event still holds a member the roster could fill
+    /// in. lets the backfill skip the transcript entirely once it is settled.
+    pub(in crate::app::client) identities_pending: bool,
     pub(in crate::app::client) roster_filter: String,
     pub(in crate::app::client) unread: bool,
 }
@@ -34,6 +37,7 @@ impl ChannelState {
             local_member_handle: Some(0),
             transcript: preview::TRANSCRIPT.iter().map(ChatLine::from).collect(),
             users: (0..preview::USERS.len()).map(UiUser::fixture).collect(),
+            identities_pending: false,
             roster_complete: true,
             roster_filter: String::new(),
             unread: false,
@@ -53,6 +57,7 @@ impl ChannelState {
             shard_index: None,
             local_member_handle: Some(0),
             users: (0..preview::USERS.len()).map(UiUser::fixture).collect(),
+            identities_pending: false,
             roster_complete: true,
             roster_filter: String::new(),
             unread: false,
@@ -69,6 +74,7 @@ impl ChannelState {
             local_member_handle: None,
             transcript: Vec::new(),
             users: Vec::new(),
+            identities_pending: false,
             roster_complete: false,
             roster_filter: String::new(),
             unread: false,
@@ -85,10 +91,14 @@ pub(in crate::app::client) struct TabCloseAnimation {
 
 pub(in crate::app::client) fn retitle_notices(transcript: &mut [ChatLine], from: &str, to: &str) {
     for line in transcript {
-        if let ChatLine::Notice { text, .. } = line
-            && text.contains(from)
-        {
-            *text = text.replace(from, to);
+        match line {
+            ChatLine::Notice { text, .. } if text.contains(from) => {
+                *text = text.replace(from, to);
+            }
+            ChatLine::SessionStart { channel, .. } if channel.contains(from) => {
+                *channel = channel.replace(from, to);
+            }
+            _ => {}
         }
     }
 }

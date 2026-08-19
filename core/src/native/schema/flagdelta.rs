@@ -15,9 +15,8 @@ impl sc2_core::bsn::FromBsn for FlagDeltaEnum {
             0i128 => Ok(Self::UNSET),
             1i128 => Ok(Self::SET),
             2i128 => Ok(Self::TOGGLE),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid FlagDeltaEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid FlagDeltaEnum"))),
         }
     }
 }
+

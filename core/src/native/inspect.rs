@@ -19,8 +19,8 @@ use super::{
         AUTH_LOGON_COMMAND, AUTH_PROOF_COMMAND, AUTH_RESUME_COMMAND, AUTH_SINGLE_SIGN_ON_COMMAND,
         AUTHENTICATION_SLOT, CACHE_GET_STREAM_ITEMS_COMMAND, CACHE_SLOT,
         CHAT_CHANNEL_LIST_REQUEST_COMMAND, CHAT_CREATE_AND_INVITE_COMMAND,
-        CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND, CHAT_ENUM_CATEGORIES_COMMAND,
-        CHAT_ENUM_CONFERENCES_COMMAND, CHAT_INVITE_ACCEPT_COMMAND, CHAT_INVITE_DECLINE_COMMAND,
+        CHAT_DATAGRAM_CONNECTION_UPDATE_COMMAND, CHAT_ENUM_CONFERENCE_DESCRIPTIONS_COMMAND,
+        CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND, CHAT_INVITE_ACCEPT_COMMAND, CHAT_INVITE_DECLINE_COMMAND,
         CHAT_JOIN_REQUEST_COMMAND, CHAT_LEAVE_REQUEST_COMMAND, CHAT_MESSAGE_COMMAND,
         CHAT_MODIFY_CHANNEL_LIST_COMMAND, CHAT_SLOT, CHAT_STATUS_CHANGE_COMMAND,
         CHAT_WHISPER_SEND_COMMAND, CONNECTION_ENABLE_ENCRYPTION_COMMAND, CONNECTION_LOGOUT_COMMAND,
@@ -1911,11 +1911,11 @@ fn manual_outgoing_type(route: (u8, u8)) -> Option<&'static str> {
         (CHAT_SLOT, CHAT_CHANNEL_LIST_REQUEST_COMMAND) => {
             "Battlenet::Client::Chat::ChannelListRequest"
         }
-        (CHAT_SLOT, CHAT_ENUM_CONFERENCES_COMMAND) => {
-            "Battlenet::Client::Chat::EnumConferenceDescriptions"
+        (CHAT_SLOT, CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND) => {
+            "Battlenet::Client::Chat::EnumConferenceMemberCounts"
         }
-        (CHAT_SLOT, CHAT_ENUM_CATEGORIES_COMMAND) => {
-            "Battlenet::Client::Chat::EnumCategoryDescriptions"
+        (CHAT_SLOT, CHAT_ENUM_CONFERENCE_DESCRIPTIONS_COMMAND) => {
+            "Battlenet::Client::Chat::EnumConferenceDescriptions"
         }
         (CHAT_SLOT, CHAT_LEAVE_REQUEST_COMMAND) => "Battlenet::Client::Chat::LeaveRequest",
         (CHAT_SLOT, CHAT_INVITE_ACCEPT_COMMAND) => "Battlenet::Client::Chat::InviteAcceptRequest",
@@ -1962,8 +1962,8 @@ fn decode_manual_outgoing(
         | (
             CHAT_SLOT,
             CHAT_CHANNEL_LIST_REQUEST_COMMAND
-            | CHAT_ENUM_CATEGORIES_COMMAND
-            | CHAT_ENUM_CONFERENCES_COMMAND,
+            | CHAT_ENUM_CONFERENCE_DESCRIPTIONS_COMMAND
+            | CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND,
         ) => Ok(()),
         (S2_MASTER_SLOT, S2_MASTER_SITE_LATENCY_INFO_COMMAND) => {
             decode_site_latency_info(reader, fields)
@@ -3810,8 +3810,8 @@ mod tests {
             ),
             (
                 [0x59, 0x05],
-                CHAT_ENUM_CONFERENCES_COMMAND,
-                "EnumConferenceDescriptions",
+                CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND,
+                "EnumConferenceMemberCounts",
             ),
         ] {
             let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
@@ -4440,6 +4440,8 @@ mod tests {
             kind: 1,
             category: 1,
             private: false,
+            member_count: Some(14),
+            online: Some(3),
         }]);
         let mut fields = Vec::new();
 

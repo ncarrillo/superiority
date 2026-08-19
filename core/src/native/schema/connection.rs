@@ -10,7 +10,8 @@ pub struct ClientConnectionBoom {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientConnectionEnableEncryption {}
+pub struct ClientConnectionEnableEncryption {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientConnectionGameSiteInfo {
@@ -21,7 +22,8 @@ pub struct ClientConnectionGameSiteInfo {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientConnectionLogoutRequest {}
+pub struct ClientConnectionLogoutRequest {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientConnectionMessageFrame {
@@ -56,3 +58,4 @@ pub struct ClientConnectionServerVersion {
     #[bsn(name = "m_version")]
     pub version: u32,
 }
+

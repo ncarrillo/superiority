@@ -3,6 +3,10 @@ use super::*;
 const SETTINGS_HEADER: ui_modal::HeaderLayout =
     ui_modal::HeaderLayout::new((84.0, 0.0, 776.0, 90.0), 272.0, 400.0, 20.5);
 
+const NAV_TOP: f32 = 68.0;
+const NAV_ITEM_HEIGHT: f32 = 44.0;
+const NAV_ITEM_GAP: f32 = 6.0;
+
 impl SettingsComponent {
     pub(in crate::app::client) fn modal(
         &self,
@@ -39,86 +43,67 @@ impl SettingsComponent {
                     .w(px(694.0))
                     .h(px(510.0))
                     .border_1()
-                    .border_color(rgba(0x144f78d9))
+                    .border_color(rgba(BORDER_STRUCTURAL))
                     .rounded(px(2.0)),
             )
             .child(chrome.modal_header(SETTINGS_HEADER, "SETTINGS"));
 
-        for (index, title) in ["Appearance", "Chat", "Privacy", "Live"]
+        for (index, title) in ["APPEARANCE", "CHAT", "PRIVACY", "LIVE"]
             .into_iter()
             .enumerate()
         {
             let active = self.active_settings_page == index;
-            let group = [
-                "settings-nav-appearance",
-                "settings-nav-chat",
-                "settings-nav-privacy",
-                "settings-nav-live",
-            ][index];
-            let idle_image = chrome
-                .button_frames
-                .as_ref()
-                .and_then(|frames| frames.image(190.0, 64.0, false, false))
-                .map_or_else(|| img("images/nine-patch/controls/button-idle.png"), img);
-            let active_image = chrome
-                .button_frames
-                .as_ref()
-                .and_then(|frames| frames.image(190.0, 64.0, false, true))
-                .map_or_else(|| img("images/nine-patch/controls/button-active.png"), img);
-            modal = modal.child(
-                div()
-                    .group(group)
-                    .id(("settings-navigation", index))
-                    .absolute()
-                    .left(px(28.0))
-                    .top(px(68.0 + index as f32 * 74.0))
-                    .w(px(190.0))
-                    .h(px(64.0))
-                    .flex()
-                    .items_center()
-                    .justify_start()
-                    .pl(px(18.0))
-                    .cursor_pointer()
-                    .hover(|style| style.shadow_lg())
+            let mut item = div()
+                .id(("settings-navigation", index))
+                .absolute()
+                .left(px(28.0))
+                .top(px(NAV_TOP + index as f32 * (NAV_ITEM_HEIGHT + NAV_ITEM_GAP)))
+                .w(px(190.0))
+                .h(px(NAV_ITEM_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_start()
+                .pl(px(18.0))
+                .cursor_pointer()
+                .border_1()
+                .font_family(FONT_NAVIGATION)
+                .text_size(px(12.0))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if this.settings.active_settings_page == index {
+                        return;
+                    }
+                    this.settings.settings_page_transition = Some(SettingsPageTransition {
+                        outgoing: this.settings.active_settings_page,
+                        started: Instant::now(),
+                    });
+                    this.settings.active_settings_page = index;
+                    this.settings.settings_tooltip = None;
+                    cx.notify();
+                }))
+                .child(div().relative().child(title));
+            // only the selected page earns the fill, the bright stroke, and the
+            // glow; the rest of the rail stays flat so it stops competing with
+            // the page content and the footer button.
+            item = if active {
+                item.bg(rgba(0x12315e8c))
+                    .border_color(rgb(BORDER_FOCUSED))
+                    .shadow(focus_glow())
+                    .text_color(rgb(0xe6f9ff))
                     .child(
-                        idle_image
+                        div()
                             .absolute()
                             .left_0()
-                            .top(px(-BUTTON_ART_VERTICAL_BLEED))
-                            .w_full()
-                            .h(px(64.0 + BUTTON_ART_VERTICAL_BLEED * 2.0))
-                            .opacity(if active { 0.0 } else { 1.0 })
-                            .object_fit(ObjectFit::Fill),
+                            .top(px(6.0))
+                            .bottom(px(6.0))
+                            .w(px(2.0))
+                            .bg(rgb(0x6bc2f2)),
                     )
-                    .child(
-                        active_image
-                            .absolute()
-                            .left_0()
-                            .top(px(-BUTTON_ART_VERTICAL_BLEED))
-                            .w_full()
-                            .h(px(64.0 + BUTTON_ART_VERTICAL_BLEED * 2.0))
-                            .opacity(if active { 1.0 } else { 0.0 })
-                            .group_hover(group, |style| style.opacity(1.0))
-                            .group_active(group, |style| style.opacity(1.0))
-                            .object_fit(ObjectFit::Fill),
-                    )
-                    .font_family(FONT_NAVIGATION)
-                    .text_size(px(12.0))
-                    .text_color(if active { rgb(0xd6e0f0) } else { rgb(0x6bc2f2) })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if this.settings.active_settings_page == index {
-                            return;
-                        }
-                        this.settings.settings_page_transition = Some(SettingsPageTransition {
-                            outgoing: this.settings.active_settings_page,
-                            started: Instant::now(),
-                        });
-                        this.settings.active_settings_page = index;
-                        this.settings.settings_tooltip = None;
-                        cx.notify();
-                    }))
-                    .child(div().relative().child(title)),
-            );
+            } else {
+                item.border_color(rgba(0x12315e00))
+                    .text_color(rgb(0x7d8fa8))
+                    .hover(|style| style.bg(rgba(0x12315e47)))
+            };
+            modal = modal.child(item);
         }
 
         let now = Instant::now();
@@ -165,19 +150,8 @@ impl SettingsComponent {
 
         modal = modal
             .child(
-                div()
-                    .absolute()
-                    .left(px(254.0))
-                    .top(px(561.0))
-                    .w(px(500.0))
-                    .h(px(16.0))
-                    .text_size(px(10.5))
-                    .text_color(rgb(0x7d8fa8))
-                    .child("Changes apply immediately and are remembered across launches."),
-            )
-            .child(
                 chrome
-                    .action_button("settings-done", "DONE", 142.0, 42.0, true)
+                    .action_button("settings-close-action", "CLOSE", 142.0, 42.0, true)
                     .absolute()
                     .left(px(774.0))
                     .top(px(549.0))

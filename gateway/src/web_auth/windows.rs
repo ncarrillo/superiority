@@ -205,7 +205,7 @@ fn create_window(reply: ReplySlot) -> std::result::Result<HWND, String> {
         hInstance: instance,
         hCursor: unsafe { LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW) }
             .unwrap_or_default(),
-        lpszClassName: w!("Sc2GatewayWebAuthenticator"),
+        lpszClassName: w!("SC2GatewayWebAuthenticator"),
         ..WNDCLASSEXW::default()
     };
     unsafe {
@@ -232,7 +232,7 @@ fn create_window(reply: ReplySlot) -> std::result::Result<HWND, String> {
     let window = unsafe {
         CreateWindowExW(
             ex_style,
-            w!("Sc2GatewayWebAuthenticator"),
+            w!("SC2GatewayWebAuthenticator"),
             w!("SC2 Gateway — Battle.net Authentication"),
             style,
             (screen_width - width).max(0) / 2,

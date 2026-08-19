@@ -4,7 +4,8 @@ use bsn_derive::FromBsn;
 use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientS2MasterCurrentSeason {}
+pub struct ClientS2MasterCurrentSeason {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientS2MasterCurrentSeasonResponse {
@@ -23,11 +24,7 @@ impl sc2_core::bsn::FromBsn for ClientS2MasterCurrentSeasonResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientS2MasterCurrentSeasonResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientS2MasterCurrentSeasonResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::s2master::ClientS2MasterCurrentSeasonResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -52,7 +49,8 @@ pub struct ClientS2MasterMMQAnnounce {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientS2MasterMMQGetInfo {}
+pub struct ClientS2MasterMMQGetInfo {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientS2MasterMMQGetInfoRequest {
@@ -65,7 +63,8 @@ pub struct ClientS2MasterMMQGetInfoRequest {
 }
 
 #[derive(Clone, Debug, FromBsn)]
-pub struct ClientS2MasterMMQGetList {}
+pub struct ClientS2MasterMMQGetList {
+}
 
 #[derive(Clone, Debug, FromBsn)]
 pub struct ClientS2MasterMMQGetListResponse {
@@ -86,11 +85,7 @@ impl sc2_core::bsn::FromBsn for ClientS2MasterMMQGetListResponseResult {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ClientS2MasterMMQGetListResponseResult, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ClientS2MasterMMQGetListResponseResult, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Success(<super::s2master::ClientS2MasterMMQGetListResponseResultSuccess as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -130,9 +125,7 @@ impl sc2_core::bsn::FromBsn for S2MasterAdvertPostModeEnum {
             3i128 => Ok(Self::CREATEPUBLIC),
             4i128 => Ok(Self::CREATEPRIVATE),
             5i128 => Ok(Self::RANDOMHOTORNOT),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid S2MasterAdvertPostModeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid S2MasterAdvertPostModeEnum"))),
         }
     }
 }
@@ -144,3 +137,4 @@ pub struct S2MasterReplayFileData {
     #[bsn(name = "m_archiveHandles")]
     pub archive_handles: Vec<Bytes>,
 }
+

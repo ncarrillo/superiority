@@ -86,18 +86,7 @@ impl ChannelComponent {
         let tabs = ui_navigation::ChannelTabs::new(tabs, chrome.ui_assets.clone())
             .leading(tab_leading)
             .on_add(cx.listener(|this, _, window, cx| {
-                this.composer.composer_focused = false;
-                this.roster.roster.focused = false;
-                this.join.join_focused = true;
-                this.join.join_input.clear();
-                this.join.join_input.focus(window, cx);
-                this.join.join_query.clear();
-                this.join.join_selected = 0;
-                this.join.group_search_due = None;
-                this.join.group_search.clear();
-                this.overlays.active = Some(Overlay::Join);
-                this.overlays.closing = false;
-                cx.notify();
+                this.open_join_command(window, cx);
             }));
         let control_end = tab_leading + tabs.tail() + 47.0;
 

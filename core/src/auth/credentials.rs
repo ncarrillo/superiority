@@ -18,7 +18,7 @@ pub struct AuthenticationOutcome {
 
 pub fn authenticate_cached(
     client: &mut Client,
-    store: &impl CredentialStore,
+    store: &(impl CredentialStore + ?Sized),
     browser: &mut impl ChallengeHandler,
     force_interactive: bool,
 ) -> Result<AuthenticationOutcome> {

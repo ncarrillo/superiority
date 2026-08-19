@@ -39,9 +39,11 @@ impl SuperiorityView {
     ) -> Self {
         let resources = platform::resource_directory();
         let preview_toast = std::env::var_os("SUPERIORITY_PREVIEW_TOAST").is_some();
-        let preview_join = std::env::var_os("SUPERIORITY_PREVIEW_JOIN").is_some();
         let preview_update = std::env::var_os("SUPERIORITY_PREVIEW_UPDATE").is_some();
-        let live_mode = !preview_toast && !preview_join && !preview_update;
+        // seeds a catalogue so the /join popup has something to autocomplete
+        // without a live session behind it
+        let preview_join = std::env::var_os("SUPERIORITY_PREVIEW_JOIN").is_some();
+        let live_mode = !preview_toast && !preview_update && !preview_join;
         let preferences = preferences::UserPreferences::load();
         let remembered_group_names = preferences::load_group_names();
         let restored_channels = preferences::load_open_channels(DEFAULT_PUBLIC_CHANNEL);
@@ -113,14 +115,13 @@ impl SuperiorityView {
             );
         }
         let composer = ui_text_input::TextInput::new("Press Enter to chat", cx);
-        let join_input = ui_text_input::TextInput::new("Search, or type a channel name", cx);
         let roster_input = ui_text_input::TextInput::new("Filter members", cx);
         let conversation_input = ui_text_input::TextInput::new("Write a message", cx);
-        let input_subscriptions = [&composer, &join_input, &roster_input, &conversation_input]
+        let input_subscriptions = [&composer, &roster_input, &conversation_input]
             .into_iter()
             .map(|input| {
                 input.subscribe(cx, |this, cx| {
-                    this.sync_text_inputs();
+                    this.sync_text_inputs(cx);
                     cx.notify();
                 })
             })
@@ -178,20 +179,49 @@ impl SuperiorityView {
             composer: ComposerComponent {
                 composer_focused: false,
                 composer,
+                command_line: String::new(),
+                command_selected: 0,
+                command_dismissed: false,
+                command_closing: None,
+                command_close_epoch: 0,
+                command_epoch: 0,
+                command_focused: false,
+                command_cursor: 0,
             },
             join: JoinComponent {
-                join_focused: false,
-                join_input,
-                join_query: String::new(),
-                join_selected: 0,
-                join_scroll: ScrollHandle::new(),
                 awaiting_joins: Vec::new(),
                 group_search_due: None,
-                public_channels: BTreeMap::new(),
-                groups: BTreeMap::new(),
+                public_channels: if preview_join {
+                    preview::CATALOGUE
+                        .iter()
+                        .map(|(identifier, name, _)| (*identifier, (*name).to_owned()))
+                        .collect()
+                } else {
+                    BTreeMap::new()
+                },
+                groups: if preview_join {
+                    let (club_id, name, members, online) = preview::CATALOGUE_GROUP;
+                    BTreeMap::from([(
+                        club_id,
+                        UiGroupSummary {
+                            name: name.to_owned(),
+                            private: false,
+                            kind: 1,
+                            category: 1,
+                            member_count: Some(members),
+                            online: Some(online),
+                        },
+                    )])
+                } else {
+                    BTreeMap::new()
+                },
                 remembered_group_names,
                 member_groups: BTreeSet::new(),
-                group_search: Vec::new(),
+                group_search: if preview_join {
+                    vec![preview::CATALOGUE_GROUP.0]
+                } else {
+                    Vec::new()
+                },
                 invitations: preview_toast
                     .then(|| {
                         vec![UiInvitation {
@@ -204,8 +234,23 @@ impl SuperiorityView {
                     })
                     .unwrap_or_default(),
                 next_invitation_id: if preview_toast { 2 } else { 1 },
-                join_assets_warming: true,
-                join_warmup_started: false,
+                channel_conferences: if preview_join {
+                    preview::CATALOGUE
+                        .iter()
+                        .map(|(identifier, _, _)| (*identifier, vec![u32::from(*identifier)]))
+                        .collect()
+                } else {
+                    BTreeMap::new()
+                },
+                conference_members: if preview_join {
+                    preview::CATALOGUE
+                        .iter()
+                        .map(|(identifier, _, online)| (u32::from(*identifier), *online))
+                        .collect()
+                } else {
+                    BTreeMap::new()
+                },
+                directory_complete: preview_join,
             },
             channels: ChannelComponent {
                 navigation: ui_workspace::NavigationState::default(),
@@ -224,6 +269,7 @@ impl SuperiorityView {
             },
             chat: ChatComponent {
                 transcript: ui_workspace::TranscriptState::default(),
+                expanded_digest: None,
             },
             roster: RosterComponent {
                 roster: ui_workspace::RosterState::default(),
@@ -237,7 +283,7 @@ impl SuperiorityView {
                 portraits: PortraitRegistry::load(&resources),
             },
             overlays: OverlayComponent {
-                active: preview_join.then_some(Overlay::Join),
+                active: None,
                 closing: false,
                 epoch: 0,
             },
@@ -266,6 +312,7 @@ impl SuperiorityView {
                 conversation_scroll: ScrollHandle::new(),
                 conversations: BTreeMap::new(),
                 whisper_unread: BTreeMap::new(),
+                whisper_targets: BTreeMap::new(),
             },
             _input_subscriptions: input_subscriptions,
             chrome: ChromeComponent {
@@ -273,6 +320,8 @@ impl SuperiorityView {
                 button_frames: ButtonFrames::load(&resources),
                 top_nav_background: load_top_nav_background(&resources),
                 ui_assets: UiAssets::native(),
+                modal_assets_warming: true,
+                modal_warmup_started: false,
             },
         };
         if live_mode {

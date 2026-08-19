@@ -15,6 +15,7 @@ impl RosterComponent {
         &self,
         channels: &ChannelComponent,
         channel: Option<&ChannelState>,
+        friends: &[UiFriend],
         selected_user: Option<u32>,
         interactive: bool,
         assets: &UiAssets,
@@ -29,7 +30,15 @@ impl RosterComponent {
                 })
             });
         let rows = if animating || !interactive {
-            self.row_slots(channels, channel, selected_user, interactive, assets, cx)
+            self.row_slots(
+                channels,
+                channel,
+                friends,
+                selected_user,
+                interactive,
+                assets,
+                cx,
+            )
         } else {
             Vec::new()
         };
@@ -45,7 +54,6 @@ impl RosterComponent {
                     cx.listener(|this, _, window, cx| {
                         this.roster.roster_input.focus(window, cx);
                         this.composer.composer_focused = false;
-                        this.join.join_focused = false;
                         this.roster.roster.focused = true;
                         cx.notify();
                     }),
@@ -71,38 +79,45 @@ impl RosterComponent {
                     .children(rows)
             } else {
                 let item_count = channels.active().map_or(0, |channel| {
-                    filtered_roster_count(&channel.users, &channel.roster_filter)
+                    presented_roster_entry_count(
+                        &channels.tabs,
+                        friends,
+                        channel,
+                        &channel.roster_filter,
+                    )
                 });
                 layer.child(
                     uniform_list(
                         "roster-users",
                         item_count,
                         cx.processor(|this, range: Range<usize>, _, cx| {
-                            let users = this
+                            let entries = this
                                 .channels
                                 .active()
                                 .map(|channel| {
                                     presented_roster_range(
                                         &this.channels.tabs,
+                                        &this.social.friends,
                                         channel,
                                         &channel.roster_filter,
                                         range,
                                     )
                                 })
                                 .unwrap_or_default();
-                            users
+                            let selected = this.selected_user();
+                            let title = this
+                                .channels
+                                .active()
+                                .map_or_else(String::new, |channel| channel.title.clone());
+                            entries
                                 .into_iter()
-                                .map(|user| {
-                                    let selected = this.selected_user() == Some(user.handle);
+                                .map(|entry| {
                                     ui_roster::virtual_row_slot(
-                                        this.roster.row(
-                                            &user,
+                                        this.roster.entry(
+                                            &entry,
                                             selected,
-                                            this.channels
-                                                .active()
-                                                .map_or_else(String::new, |channel| {
-                                                    channel.title.clone()
-                                                }),
+                                            &title,
+                                            true,
                                             &this.chrome.ui_assets,
                                             cx,
                                         ),
@@ -178,7 +193,6 @@ impl RosterComponent {
         .on_focus(cx.listener(|this, _, window, cx| {
             this.roster.roster_input.focus(window, cx);
             this.composer.composer_focused = false;
-            this.join.join_focused = false;
             this.roster.roster.focused = true;
             cx.notify();
         }));
@@ -215,6 +229,7 @@ impl RosterComponent {
     pub(in crate::app::client) fn panel(
         &self,
         channels: &ChannelComponent,
+        friends: &[UiFriend],
         selected_user: Option<u32>,
         assets: &UiAssets,
         window: &mut Window,
@@ -226,6 +241,7 @@ impl RosterComponent {
             self.scroll_layer(
                 channels,
                 channels.active(),
+                friends,
                 selected_user,
                 true,
                 assets,
@@ -239,6 +255,7 @@ impl RosterComponent {
                 self.scroll_layer(
                     channels,
                     transition.outgoing.as_ref(),
+                    friends,
                     transition.outgoing_selected_user,
                     false,
                     assets,

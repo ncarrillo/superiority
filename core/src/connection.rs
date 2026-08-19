@@ -83,19 +83,44 @@ pub enum ClientEvent {
 pub struct ClientHandle {
     pub commands: Sender<ClientCommand>,
     pub events: Receiver<ClientEvent>,
+    /// closed when the session thread has finished. nothing is ever sent on it;
+    /// the worker owns the sender, so a receive failing is the signal that the
+    /// thread is gone. lets an embedder wait for teardown — with a timeout,
+    /// which a `JoinHandle` could not offer — instead of guessing.
+    pub finished: Receiver<Finished>,
 }
 
+/// uninhabited: `finished` only ever reports that the sender was dropped.
+pub enum Finished {}
+
+/// signs in against the Superiority app's own credential cache. embedders that
+/// are not the app should use [`spawn_client_with`] and name their own store.
 #[must_use]
 pub fn spawn_client(observer: Box<dyn SessionObserverFactory>) -> ClientHandle {
+    spawn_client_with(observer, Box::new(FileCredentialStore::default()))
+}
+
+/// signs in against `credentials`, so an embedder decides where the cached
+/// session lives rather than inheriting the app's.
+#[must_use]
+pub fn spawn_client_with(
+    observer: Box<dyn SessionObserverFactory>,
+    credentials: Box<dyn CredentialStore + Send>,
+) -> ClientHandle {
     let (command_tx, command_rx) = mpsc::channel();
     let (event_tx, event_rx) = mpsc::channel();
+    let (finished_tx, finished_rx) = mpsc::channel::<Finished>();
     thread::Builder::new()
         .name("sc2-network".into())
-        .spawn(move || run_worker(&command_rx, &event_tx, observer.as_ref()))
+        .spawn(move || {
+            run_worker(&command_rx, &event_tx, observer.as_ref(), credentials.as_ref());
+            drop(finished_tx);
+        })
         .expect("network thread must start");
     ClientHandle {
         commands: command_tx,
         events: event_rx,
+        finished: finished_rx,
     }
 }
 
@@ -103,6 +128,7 @@ fn run_worker(
     commands: &Receiver<ClientCommand>,
     events: &Sender<ClientEvent>,
     observer: &dyn SessionObserverFactory,
+    credentials: &dyn CredentialStore,
 ) {
     while let Ok(command) = commands.recv() {
         match command {
@@ -110,8 +136,14 @@ fn run_worker(
                 force_interactive,
                 channels,
             } => {
-                if let Err(error) =
-                    connect_once(commands, events, observer, force_interactive, channels)
+                if let Err(error) = connect_once(
+                    commands,
+                    events,
+                    observer,
+                    credentials,
+                    force_interactive,
+                    channels,
+                )
                 {
                     trace_connection(format_args!("connection ended: {error:?}"));
                     emit(events, ClientEvent::Error(error.to_string()));
@@ -119,7 +151,7 @@ fn run_worker(
                 }
             }
             ClientCommand::SignOut => {
-                if let Err(error) = FileCredentialStore::default().delete() {
+                if let Err(error) = credentials.delete() {
                     emit(events, ClientEvent::Error(error.to_string()));
                 }
                 emit(events, ClientEvent::Stage(ConnectionStage::Disconnected));
@@ -141,6 +173,7 @@ fn connect_once(
     commands: &Receiver<ClientCommand>,
     events: &Sender<ClientEvent>,
     observer: &dyn SessionObserverFactory,
+    credentials: &dyn CredentialStore,
     force_interactive: bool,
     channels: Vec<ChatChannel>,
 ) -> Result<()> {
@@ -163,12 +196,8 @@ fn connect_once(
             .map_err(|_| application_closed())?;
         response.recv().map_err(|_| application_closed())?
     };
-    let authentication = authenticate_cached(
-        &mut bgs,
-        &FileCredentialStore::default(),
-        &mut browser,
-        force_interactive,
-    )?;
+    let authentication =
+        authenticate_cached(&mut bgs, credentials, &mut browser, force_interactive)?;
     emit(events, ClientEvent::Stage(ConnectionStage::GameUtilities));
     let bootstrap = bgs.process_client_request(&authentication.session)?;
     emit(
@@ -189,7 +218,7 @@ fn connect_once(
         emit(events, ClientEvent::Chat(event));
     }
     emit(events, ClientEvent::Stage(ConnectionStage::Connected));
-    run_live(commands, events, chat, tap.as_mut())
+    run_live(commands, events, chat, tap.as_mut(), credentials)
 }
 
 fn normalized_channels(channels: Vec<ChatChannel>) -> Vec<ChatChannel> {
@@ -211,6 +240,7 @@ fn run_live(
     events: &Sender<ClientEvent>,
     mut chat: LiveChat,
     tap: &mut dyn SessionObserver,
+    credentials: &dyn CredentialStore,
 ) -> Result<()> {
     let mut next_keep_alive = Instant::now() + KEEP_ALIVE_INTERVAL;
     let mut next_observer_heartbeat = Instant::now() + OBSERVER_HEARTBEAT_INTERVAL;
@@ -228,7 +258,7 @@ fn run_live(
                 Ok(ClientCommand::SignOut) => {
                     tap.end_session();
                     let _ = chat.close();
-                    FileCredentialStore::default().delete()?;
+                    credentials.delete()?;
                     emit(events, ClientEvent::Stage(ConnectionStage::Disconnected));
                     return Ok(());
                 }

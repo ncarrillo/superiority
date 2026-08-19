@@ -5,8 +5,9 @@ mod state;
 mod view;
 
 pub(in crate::app::client) use model::{
-    UiUser, filtered_roster_count, presence_kind, presented_roster_range, presented_roster_users,
-    shared_roster_user,
+    RosterAffinity, RosterEntry, UiUser, filtered_roster_count, presence_kind,
+    presented_roster_entries, presented_roster_entry_count, presented_roster_range,
+    presented_roster_users, shared_roster_user,
 };
 
 pub(in crate::app::client) const ROSTER_DEBOUNCE_BASE: Duration = Duration::from_millis(45);
@@ -15,7 +16,7 @@ pub(in crate::app::client) const ROSTER_DEBOUNCE_MAX_LATENCY: Duration = Duratio
 pub(in crate::app::client) const ROSTER_HOVER_DEFER_MAX: Duration = Duration::from_secs(10);
 pub(in crate::app::client) const ROSTER_HOVER_RECHECK: Duration = Duration::from_millis(400);
 pub(super) struct RosterComponent {
-    pub(super) roster: ui_workspace::RosterState<u64, UiUser, Instant>,
+    pub(super) roster: ui_workspace::RosterState<u64, RosterEntry, Instant>,
     pub(super) roster_input: ui_text_input::TextInput,
     pub(super) roster_hovered: bool,
     pub(super) roster_defer_started: Option<Instant>,
@@ -48,7 +49,6 @@ impl RosterComponent {
         .on_click(cx.listener(move |this, _, window, cx| {
             this.roster.roster_input.focus(window, cx);
             this.composer.composer_focused = false;
-            this.join.join_focused = false;
             this.roster.roster.focused = true;
             this.set_selected_user(Some(handle));
             cx.stop_propagation();
@@ -60,18 +60,46 @@ impl RosterComponent {
         ui_roster::static_row(&shared_roster_user(user, assets), assets, selected)
     }
 
+    pub(super) fn entry(
+        &self,
+        entry: &RosterEntry,
+        selected_user: Option<u32>,
+        channel_title: &str,
+        interactive: bool,
+        assets: &UiAssets,
+        cx: &mut Context<SuperiorityView>,
+    ) -> AnyElement {
+        match entry {
+            RosterEntry::Segment { segment, count } => {
+                ui_roster::segment_header(*segment, *count).into_any_element()
+            }
+            RosterEntry::User(user) => {
+                let selected = selected_user == Some(user.handle);
+                if interactive {
+                    self.row(user, selected, channel_title.to_owned(), assets, cx)
+                        .into_any_element()
+                } else {
+                    self.row_snapshot(user, selected, assets).into_any_element()
+                }
+            }
+        }
+    }
+
     pub(super) fn row_slots(
         &self,
         channels: &ChannelComponent,
         channel: Option<&ChannelState>,
+        friends: &[UiFriend],
         selected_user: Option<u32>,
         interactive: bool,
         assets: &UiAssets,
         cx: &mut Context<SuperiorityView>,
     ) -> Vec<AnyElement> {
         let now = Instant::now();
-        let users = channel
-            .map(|channel| presented_roster_users(&channels.tabs, channel, &channel.roster_filter))
+        let entries = channel
+            .map(|channel| {
+                presented_roster_entries(&channels.tabs, friends, channel, &channel.roster_filter)
+            })
             .unwrap_or_default();
         let animation = interactive
             .then_some((channel, self.roster.animation.as_ref()))
@@ -81,27 +109,16 @@ impl RosterComponent {
                 }
                 _ => None,
             });
+        let title = channel.map_or_else(String::new, |channel| channel.title.clone());
         ui_roster::animated_rows(
-            users,
+            entries,
             animation,
             now,
-            |user| user.handle,
+            RosterEntry::handle,
             ROSTER_ROW_GAP,
-            |user, motion| {
-                let selected = selected_user == Some(user.handle);
-                let row: AnyElement = if interactive && motion != ui_roster::RowMotion::Removed {
-                    self.row(
-                        user,
-                        selected,
-                        channel.map_or_else(String::new, |channel| channel.title.clone()),
-                        assets,
-                        cx,
-                    )
-                    .into_any_element()
-                } else {
-                    self.row_snapshot(user, selected, assets).into_any_element()
-                };
-                row
+            |entry, motion| {
+                let live = interactive && motion != ui_roster::RowMotion::Removed;
+                self.entry(entry, selected_user, &title, live, assets, cx)
             },
         )
     }

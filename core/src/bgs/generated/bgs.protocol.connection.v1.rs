@@ -32,6 +32,13 @@ pub struct ConnectResponse {
     pub binary_content_handle_array: ::core::option::Option<
         ConnectionMeteringContentHandles,
     >,
+    /// SC2-specific ConnectResponse extensions (tags 9, 10), recovered by
+    /// capture — not in the public bnet proto. SC2 rejects connect if absent.
+    /// tag 9 is a product/config manifest id (varies per connection); tag 10 a flag.
+    #[prost(string, optional, tag = "9")]
+    pub server_config_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, optional, tag = "10")]
+    pub server_config_present: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BoundService {

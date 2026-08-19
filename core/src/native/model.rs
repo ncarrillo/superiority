@@ -15,8 +15,8 @@ pub enum Payload {
     ClubInfo(Vec<ClubSummary>),
     ClubSummaries(Vec<ClubSummary>),
     CacheStreamItems(CacheStreamItems),
-    CategoryDescriptions(ConferenceDescriptions),
     ConferenceDescriptions(ConferenceDescriptions),
+    ConferenceMemberCounts(ConferenceMemberCounts),
     ChannelList(ChannelList),
     ChatJoin(ChatJoin),
     ChatMembership(ChatMembership),
@@ -152,6 +152,11 @@ pub struct ClubSummary {
     pub kind: u8,
     pub category: u8,
     pub private: bool,
+    /// everyone on the roster, from `ClubSummaryInfo::m_memberCount`.
+    pub member_count: Option<u32>,
+    /// members online right now, from `ClubOnlineStatus::m_online`. only the
+    /// club-info response carries this; a plain summary does not.
+    pub online: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
@@ -197,17 +202,86 @@ pub struct CacheStreamItems {
     pub token: u32,
 }
 
+/// `Battlenet::Conference::FullConferenceDescription`, reduced to the fields
+/// that name a conference.
+///
+/// a public chat channel is served by one or more conferences; this is what
+/// ties a conference back to the channel it serves. only the public arm of
+/// `Conference::LocatorKey` is decoded — a private or club conference is not a
+/// listed channel and is skipped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct ConferenceDescription {
-    pub identifier: u32,
+    pub conference_id: u32,
+    /// `Battlenet::Locale::Id`, a `FourCC` such as `enUS`.
+    pub locale: u32,
+    /// the catalogue id the public-channel name table is keyed by.
+    pub channel_name_id: u16,
+    /// which room of that channel this is — `General`, `General 2`, and so on,
+    /// which is what the `%d` in the catalogue's name template is for. numbered
+    /// from one and contiguous per channel.
+    pub shard: u16,
     pub sort_order: u16,
-    pub marker: bool,
+    /// the room's capacity, from `ConferenceConfiguration`. observed at 200.
+    pub max_members: u16,
+    /// how full the server lets a room get before it reports `m_isFull`, as
+    /// raw `f32` bits so the record stays comparable. observed at 0.9, which is
+    /// why a 200-seat room fills at 181.
+    pub target_proportion_bits: u32,
 }
 
+impl ConferenceDescription {
+    #[must_use]
+    pub fn target_proportion(&self) -> f32 {
+        f32::from_bits(self.target_proportion_bits)
+    }
+
+    /// the population at which the server starts reporting the room full.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the proportion is bounded to 0..=1 just above, so the product \
+                  cannot leave the range of max_members"
+    )]
+    pub fn full_at(&self) -> u16 {
+        let proportion = self.target_proportion();
+        if !proportion.is_finite() || !(0.0..=1.0).contains(&proportion) {
+            return self.max_members;
+        }
+        (f32::from(self.max_members) * proportion).round() as u16
+    }
+
+    #[must_use]
+    pub fn locale_tag(&self) -> String {
+        String::from_utf8_lossy(&self.locale.to_be_bytes()).into_owned()
+    }
+}
+
+/// one page of `Battlenet::Client::Chat::ConferenceDescriptions`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ConferenceDescriptions {
     pub entries: Vec<ConferenceDescription>,
     pub is_last: bool,
+}
+
+/// `Battlenet::Conference::MembershipInfo` — how many people are in one
+/// conference right now. a public chat channel is served by one or more
+/// conferences; `full` is the server's own verdict, which it sets at the cap
+/// rather than leaving the client to compare against a maximum.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct ConferenceMemberCount {
+    pub conference_id: u32,
+    pub members: u16,
+    pub full: bool,
+}
+
+/// one page of `Battlenet::Client::Chat::ConferenceMemberCounts`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ConferenceMemberCounts {
+    pub entries: Vec<ConferenceMemberCount>,
+    pub is_last: bool,
+    /// the server's stamp for the sample, when it sends one.
+    pub sampled_at: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

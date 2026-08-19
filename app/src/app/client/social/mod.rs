@@ -5,7 +5,9 @@ mod model;
 mod rows;
 mod view;
 
-pub(in crate::app::client) use model::{ConversationLine, SocialPaneTransition, UiFriend};
+pub(in crate::app::client) use model::{
+    ConversationLine, SocialPaneTransition, UiFriend, friend_order, online_summary,
+};
 
 pub(in crate::app::client) const SOCIAL_PANE_SLIDE_DURATION: Duration = Duration::from_millis(260);
 const SOCIAL_CONTENT_GUTTER: f32 = 24.0;
@@ -15,6 +17,16 @@ const SOCIAL_BODY_TOP: f32 = 80.0;
 const SOCIAL_BODY_HEIGHT: f32 = 342.0;
 const SOCIAL_GROUP_WHISPERS: usize = 0;
 const SOCIAL_GROUP_FRIENDS: usize = 1;
+/// the list is inset the same distance as a member row, so the two panels line
+/// their portraits up with each other.
+const SOCIAL_ROW_INSET: f32 = 14.0;
+const SOCIAL_SECTION_HEIGHT: f32 = 26.0;
+/// a whisper row carries a second line the member rows do not, so it is taller
+/// than the 40px people rows around it.
+const SOCIAL_WHISPER_ROW_HEIGHT: f32 = 44.0;
+const SOCIAL_DIMMED_OPACITY: f32 = 0.45;
+/// whispers wear the same purple as `/w` in the composer popup.
+const WHISPER_ACCENT: u32 = 0x00c0_84e8;
 
 pub(super) struct SocialComponent {
     pub(super) social_collapsed: [bool; 2],
@@ -30,11 +42,17 @@ pub(super) struct SocialComponent {
     pub(super) conversation_scroll: ScrollHandle,
     pub(super) conversations: BTreeMap<String, Vec<ConversationLine>>,
     pub(super) whisper_unread: BTreeMap<String, usize>,
+    /// how to reach each peer, remembered from the row that opened the thread.
+    /// a `/w` result carries the handle the service answers to; a name alone
+    /// makes it resolve the person all over again.
+    pub(super) whisper_targets: BTreeMap<String, WhisperTarget>,
 }
 
 impl SocialComponent {
     pub(super) fn open_conversation(&mut self, peer: String, window: &mut Window, cx: &mut App) {
         self.whisper_unread.remove(&peer);
+        self.conversation_input
+            .set_placeholder(format!("Whisper {peer}"));
         self.conversation_peer = Some(peer);
         self.social_detail_open = true;
         self.social_pane_transition = Some(SocialPaneTransition {
@@ -44,6 +62,24 @@ impl SocialComponent {
         self.conversation_focused = true;
         self.conversation_input.focus(window, cx);
         self.conversation_scroll.scroll_to_bottom();
+    }
+
+    /// opens the panel straight onto a conversation, the way `/w` arrives at
+    /// one. there is nothing to slide away from when the panel was not already
+    /// showing the list, so in that case it simply starts on the thread.
+    pub(super) fn present_conversation(
+        &mut self,
+        peer: WhisperPeer,
+        sliding: bool,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.whisper_targets
+            .insert(peer.display.clone(), peer.target);
+        self.open_conversation(peer.display, window, cx);
+        if !sliding {
+            self.social_pane_transition = None;
+        }
     }
 
     pub(super) fn close_conversation(
@@ -119,13 +155,16 @@ impl SocialComponent {
             return false;
         }
         let target = self
-            .friends
-            .iter()
-            .find(|friend| friend.name == peer)
-            .map_or_else(
-                || WhisperTarget::Name(peer.clone()),
-                |friend| friend.target.clone(),
-            );
+            .whisper_targets
+            .get(&peer)
+            .or_else(|| {
+                self.friends
+                    .iter()
+                    .find(|friend| friend.name == peer)
+                    .map(|friend| &friend.target)
+            })
+            .cloned()
+            .unwrap_or_else(|| WhisperTarget::Name(peer.clone()));
         let Some(commands) = commands else {
             return false;
         };

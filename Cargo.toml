@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "core",
+    "stimpak",
+    "stimpak/auth-window",
     "ui",
     "app",
     "updater",

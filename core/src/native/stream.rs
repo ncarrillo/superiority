@@ -17,6 +17,7 @@ pub struct RecordStream<S> {
     buffer: Vec<u8>,
     inbound_cipher: Option<Rc4State>,
     outbound_cipher: Option<Rc4State>,
+    server_mode: bool,
 }
 
 impl<S> RecordStream<S> {
@@ -28,6 +29,19 @@ impl<S> RecordStream<S> {
             buffer: Vec::new(),
             inbound_cipher: None,
             outbound_cipher: None,
+            server_mode: false,
+        }
+    }
+
+    /// like [`RecordStream::new`], but inbound records are decoded as the
+    /// messages a client *sends* (`ResumeRequest`, `ProofResponse`,
+    /// `EnableEncryption`) rather than the messages a client receives. use this
+    /// when acting as the native server.
+    #[must_use]
+    pub fn new_server(stream: S, protocol: Protocol) -> Self {
+        Self {
+            server_mode: true,
+            ..Self::new(stream, protocol)
         }
     }
 
@@ -75,6 +89,24 @@ impl<S> RecordStream<S> {
         Ok(())
     }
 
+    /// server-side counterpart of [`RecordStream::enable_protection`]. the two
+    /// RC4 directions are mirrored: what the client derives as its inbound key
+    /// is our outbound key, and vice versa.
+    pub fn enable_protection_server(&mut self, transport_key: &[u8]) -> Result<()> {
+        if self.inbound_cipher.is_some() || self.outbound_cipher.is_some() {
+            return Err(native_error(
+                "native transport protection is already enabled",
+            ));
+        }
+        let (client_inbound_key, client_outbound_key) = derive_transport_rc4_keys(transport_key)?;
+        let mut inbound_cipher = Rc4State::new(&client_outbound_key)?;
+        let outbound_cipher = Rc4State::new(&client_inbound_key)?;
+        inbound_cipher.apply_in_place(&mut self.buffer);
+        self.inbound_cipher = Some(inbound_cipher);
+        self.outbound_cipher = Some(outbound_cipher);
+        Ok(())
+    }
+
     fn decode_buffer(&mut self) -> Result<Record> {
         let mut reader = BitReader::new(&self.buffer, None)?;
         let command_id = u8::try_from(reader.read(6)?).expect("six bits fit in u8");
@@ -91,9 +123,12 @@ impl<S> RecordStream<S> {
             bit_count: reader.position(),
         };
         let payload_start = reader.position();
-        let (type_id, value) = self
-            .protocol
-            .decode_incoming_from(&mut reader, header)
+        let decoded = if self.server_mode {
+            self.protocol.decode_client_request_from(&mut reader, header)
+        } else {
+            self.protocol.decode_incoming_from(&mut reader, header)
+        };
+        let (type_id, value) = decoded
             .inspect_err(|error| {
                 if !matches!(error, Error::IncompleteFrame(_))
                     && (std::env::var_os("SUPERIORITY_TRACE").is_some()
@@ -168,6 +203,54 @@ impl<S> RecordStream<S> {
 }
 
 impl<S: Read + Write> RecordStream<S> {
+    /// the decrypted, not-yet-consumed inbound bytes. pair with
+    /// [`RecordStream::read_more`] and [`RecordStream::consume_buffered`] to decode
+    /// records with an external decoder (e.g. `inspect_native_record`).
+    pub fn buffered(&self) -> &[u8] {
+        &self.buffer
+    }
+
+    /// drop `count` decoded bytes from the front of the decrypted buffer.
+    pub fn consume_buffered(&mut self, count: usize) {
+        let n = count.min(self.buffer.len());
+        self.buffer.drain(..n);
+    }
+
+    /// read one chunk from the peer, decrypt it (if protection is on), and append
+    /// it to the decrypted buffer. returns false when the peer closes the socket.
+    pub fn read_more(&mut self) -> Result<bool> {
+        let mut chunk = [0_u8; READ_CHUNK_SIZE];
+        let read = self.stream.read(&mut chunk)?;
+        if read == 0 {
+            return Ok(false);
+        }
+        let chunk = &mut chunk[..read];
+        if let Some(cipher) = &mut self.inbound_cipher {
+            cipher.apply_in_place(chunk);
+        }
+        self.buffer.extend_from_slice(chunk);
+        Ok(true)
+    }
+
+    /// read and discard raw client bytes, keeping the protected connection open
+    /// after a replay without BSN-decoding what the client sends. idle read
+    /// timeouts are tolerated; returns when the peer closes the socket.
+    pub fn drain_raw(&mut self) -> Result<()> {
+        let mut chunk = [0_u8; 8192];
+        loop {
+            match self.stream.read(&mut chunk) {
+                Ok(0) => return Ok(()),
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        ErrorKind::WouldBlock | ErrorKind::TimedOut
+                    ) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
     pub fn send(&mut self, data: &[u8]) -> Result<()> {
         if let Some(cipher) = &mut self.outbound_cipher {
             let protected = cipher.apply(data);
@@ -195,6 +278,21 @@ impl<S: Read + Write> RecordStream<S> {
                                 continue;
                             }
                         } else {
+                            // the command-id probe deliberately provokes routes
+                            // the client has no mapping for, and this is where
+                            // the answer surfaces: the route and enough of the
+                            // record to decode by hand. the connection still
+                            // ends here — the record's length is unknown, so the
+                            // stream cannot be resynchronised past it.
+                            if std::env::var_os("SUPERIORITY_CHAT_PROBE").is_some() {
+                                let head = self.buffer.len().min(64);
+                                eprintln!(
+                                    "superiority: probe <- UNMAPPED slot={slot} command={command} \
+                                     buffered={} head={}",
+                                    self.buffer.len(),
+                                    hex::encode(&self.buffer[..head]),
+                                );
+                            }
                             return Err(Error::UnmappedNativeRoute { slot, command });
                         }
                     }
@@ -203,6 +301,17 @@ impl<S: Read + Write> RecordStream<S> {
             }
             let mut chunk = [0_u8; READ_CHUNK_SIZE];
             let read = self.stream.read(&mut chunk)?;
+            if read == 0 && std::env::var_os("SUPERIORITY_CHAT_PROBE").is_some() {
+                // the probe's most valuable moment: whatever the service said
+                // before it hung up. an empty buffer means it closed without
+                // answering; bytes here are the reply we failed to route.
+                let head = self.buffer.len().min(96);
+                eprintln!(
+                    "superiority: probe <- EOF with {} buffered byte(s) head={}",
+                    self.buffer.len(),
+                    hex::encode(&self.buffer[..head]),
+                );
+            }
             if read == 0 {
                 return Err(std::io::Error::new(
                     ErrorKind::UnexpectedEof,

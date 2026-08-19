@@ -57,11 +57,7 @@ impl sc2_core::bsn::FromBsn for ConferenceLocatorKey {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for ConferenceLocatorKey, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for ConferenceLocatorKey, found {other:?}"))),
         };
         match index {
             0i128 => Ok(Self::Private(<String as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
@@ -70,6 +66,16 @@ impl sc2_core::bsn::FromBsn for ConferenceLocatorKey {
             other => Err(sc2_core::Error::BsnWire(format!("{other} is not a ConferenceLocatorKey variant"))),
         }
     }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ConferenceMembershipInfo {
+    #[bsn(name = "m_id")]
+    pub id: u32,
+    #[bsn(name = "m_numMembers")]
+    pub num_members: u16,
+    #[bsn(name = "m_isFull")]
+    pub is_full: bool,
 }
 
 #[derive(Clone, Debug, FromBsn)]
@@ -87,3 +93,4 @@ pub struct ConferenceShardName {
     #[bsn(name = "m_index")]
     pub index: u16,
 }
+

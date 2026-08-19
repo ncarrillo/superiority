@@ -2,10 +2,10 @@ use std::{cell::RefCell, ops::Range, rc::Rc, time::Duration};
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, Element, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, EventEmitter, FocusHandle, GlobalElementId, InspectorElementId, KeyBinding,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ShapedLine, Style, Subscription, Task, TextRun, UTF16Selection, UnderlineStyle, Window,
-    actions, div, fill, point, prelude::*, px, relative, rgb, rgba, size,
+    EntityInputHandler, EventEmitter, FocusHandle, GlobalElementId, Hsla, InspectorElementId,
+    KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
+    Pixels, Point, ShapedLine, Style, Subscription, Task, TextRun, UTF16Selection, UnderlineStyle,
+    Window, actions, div, fill, point, prelude::*, px, relative, rgb, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -202,8 +202,21 @@ impl InputState {
 pub struct TextInput {
     state: Rc<RefCell<InputState>>,
     placeholder: Rc<RefCell<String>>,
+    accents: Rc<RefCell<Vec<AccentSpan>>>,
     focus_handle: FocusHandle,
     view: Entity<TextInputView>,
+}
+
+/// a run of the line painted apart from the rest — the `/join` word of a
+/// command, or a `@mention` token mid-message. the composer shows at a glance
+/// which part of what you typed is an instruction and which is the message.
+#[derive(Clone)]
+pub struct AccentSpan {
+    pub range: Range<usize>,
+    pub color: u32,
+    /// a token is a solid block rather than coloured text, so a mention reads
+    /// as one object you cannot type into the middle of.
+    pub background: Option<u32>,
 }
 
 impl TextInput {
@@ -211,15 +224,18 @@ impl TextInput {
     pub fn new(placeholder: impl Into<String>, cx: &mut App) -> Self {
         let state = Rc::new(RefCell::new(InputState::default()));
         let placeholder = Rc::new(RefCell::new(placeholder.into()));
+        let accents = Rc::new(RefCell::new(Vec::new()));
         let focus_handle = cx.focus_handle();
         let view = cx.new({
             let state = state.clone();
             let placeholder = placeholder.clone();
+            let accents = accents.clone();
             let focus_handle = focus_handle.clone();
             move |_| TextInputView {
                 state,
                 focus_handle,
                 placeholder,
+                accents,
                 cursor_visible: false,
                 cursor_blinking: false,
                 cursor_blink_task: Task::ready(()),
@@ -229,6 +245,7 @@ impl TextInput {
         Self {
             state,
             placeholder,
+            accents,
             focus_handle,
             view,
         }
@@ -242,6 +259,13 @@ impl TextInput {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.state.borrow().content.is_empty()
+    }
+
+    /// where the caret sits, as a byte offset. what is being typed is the token
+    /// under it, which is not always the last one on the line.
+    #[must_use]
+    pub fn cursor(&self) -> usize {
+        self.state.borrow().cursor()
     }
 
     #[must_use]
@@ -284,8 +308,23 @@ impl TextInput {
         state.composition_origin = None;
     }
 
+    /// puts the caret at a byte offset. setting content alone parks it at the
+    /// end, which is wrong for text spliced into the middle of a line.
+    pub fn set_cursor(&self, offset: usize) {
+        let mut state = self.state.borrow_mut();
+        let offset = valid_boundary(&state.content, offset);
+        state.selection = offset..offset;
+        state.selection_reversed = false;
+    }
+
     pub fn set_placeholder(&self, placeholder: impl Into<String>) {
         *self.placeholder.borrow_mut() = placeholder.into();
+    }
+
+    /// paints the given runs of the line apart from the rest. an empty list
+    /// returns the line to one colour.
+    pub fn set_accents(&self, accents: Vec<AccentSpan>) {
+        *self.accents.borrow_mut() = accents;
     }
 
     pub fn subscribe<V: 'static>(
@@ -338,6 +377,7 @@ struct TextInputView {
     state: Rc<RefCell<InputState>>,
     focus_handle: FocusHandle,
     placeholder: Rc<RefCell<String>>,
+    accents: Rc<RefCell<Vec<AccentSpan>>>,
     cursor_visible: bool,
     cursor_blinking: bool,
     cursor_blink_task: Task<()>,
@@ -814,6 +854,7 @@ impl Render for TextInputView {
             .child(TextElement {
                 input: cx.entity(),
                 placeholder: self.placeholder.borrow().clone(),
+                accents: self.accents.borrow().clone(),
             })
     }
 }
@@ -821,6 +862,7 @@ impl Render for TextInputView {
 struct TextElement {
     input: Entity<TextInputView>,
     placeholder: String,
+    accents: Vec<AccentSpan>,
 }
 
 impl IntoElement for TextElement {
@@ -915,6 +957,21 @@ impl Element for TextElement {
         } else {
             vec![run]
         };
+        // accents are applied after the fact rather than shaped separately, so
+        // they compose with an in-flight IME range instead of fighting it.
+        let runs = if state.content.is_empty() {
+            runs
+        } else {
+            self.accents.iter().fold(runs, |runs, accent| {
+                restyle(
+                    runs,
+                    valid_boundary(&text, accent.range.start)
+                        ..valid_boundary(&text, accent.range.end),
+                    rgb(accent.color).into(),
+                    accent.background.map(|color| rgba(color).into()),
+                )
+            })
+        };
         let font_size = style.font_size.to_pixels(window.rem_size());
         let line = window
             .text_system()
@@ -993,6 +1050,51 @@ impl Element for TextElement {
             input.scroll_x = state.scroll_x;
         });
     }
+}
+
+/// repaints one byte range of an already-split run list, cutting the runs it
+/// straddles rather than replacing them, so an IME underline survives it.
+fn restyle(
+    runs: Vec<TextRun>,
+    range: Range<usize>,
+    color: Hsla,
+    background: Option<Hsla>,
+) -> Vec<TextRun> {
+    if range.is_empty() {
+        return runs;
+    }
+    let mut restyled = Vec::with_capacity(runs.len() + 2);
+    let mut offset = 0;
+    for run in runs {
+        let end = offset + run.len;
+        let start = range.start.max(offset);
+        let stop = range.end.min(end);
+        if start >= stop {
+            offset = end;
+            restyled.push(run);
+            continue;
+        }
+        if start > offset {
+            restyled.push(TextRun {
+                len: start - offset,
+                ..run.clone()
+            });
+        }
+        restyled.push(TextRun {
+            len: stop - start,
+            color,
+            background_color: background,
+            ..run.clone()
+        });
+        if stop < end {
+            restyled.push(TextRun {
+                len: end - stop,
+                ..run.clone()
+            });
+        }
+        offset = end;
+    }
+    restyled
 }
 
 fn single_line(text: &str) -> String {

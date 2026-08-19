@@ -12,3 +12,4 @@ pub struct VersionRecord {
     #[bsn(name = "m_version")]
     pub version: u32,
 }
+

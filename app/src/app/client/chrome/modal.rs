@@ -17,7 +17,9 @@ impl ChromeComponent {
         ui_modal::header(layout, title, &self.ui_assets)
     }
 
-    pub(in crate::app::client) fn join_asset_warmup(&self) -> Div {
+    /// pulls the shared modal textures and the header font through the cache
+    /// at startup, so the first dialog to open does not build them on screen.
+    pub(in crate::app::client) fn modal_asset_warmup(&self) -> Div {
         let mut warmup = div()
             .absolute()
             .top_0()
@@ -71,7 +73,7 @@ impl ChromeComponent {
                     .font_family(FONT_NAVIGATION)
                     .font_weight(FontWeight::BOLD)
                     .text_size(px(20.0))
-                    .child("JOIN A CHANNEL  CANCEL  JOIN"),
+                    .child("JOIN A CHANNEL  CANCEL  JOIN  CREATE & JOIN"),
             )
             .child(
                 div()
@@ -81,7 +83,9 @@ impl ChromeComponent {
                     .w(px(640.0))
                     .font_family(FONT_INTERNATIONAL)
                     .text_size(px(14.0))
-                    .child("Search, or type a channel name  No channels match."),
+                    .child(
+                        "Search, or type a channel name  No channels match.                           GROUPS  BATTLE.NET CHANNELS  COMMUNITIES  JOINED  online",
+                    ),
             )
     }
 }

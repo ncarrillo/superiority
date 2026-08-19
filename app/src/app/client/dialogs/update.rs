@@ -85,7 +85,7 @@ impl UpdateComponent {
                     .h(px(258.0))
                     .bg(rgb(0x060a0f))
                     .border_1()
-                    .border_color(rgba(0x144f78d9))
+                    .border_color(rgba(BORDER_STRUCTURAL))
                     .rounded(px(1.0)),
             )
             .child(

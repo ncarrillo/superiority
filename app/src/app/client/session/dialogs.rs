@@ -66,7 +66,7 @@ impl SuperiorityView {
         if self.warnings.warning_dialog.is_some()
             || self.connection.dialog_visible
             || self.updates.update_dialog_visible
-            || matches!(self.overlays.active, Some(Overlay::Friends | Overlay::Join))
+            || matches!(self.overlays.active, Some(Overlay::Friends))
         {
             return;
         }

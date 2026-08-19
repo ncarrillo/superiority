@@ -10,6 +10,9 @@ mod reconnect;
 mod roster;
 mod updates;
 
+#[cfg(test)]
+pub(in crate::app::client) use roster::adopt_identity;
+
 const CHAT_LEAVE_BANNED: u16 = 315;
 const CONNECTION_CONNECTED_HOLD: Duration = Duration::from_millis(900);
 const STARTUP_UPDATE_TIMEOUT: Duration = Duration::from_secs(12);

@@ -1,8 +1,10 @@
 use super::*;
 use crate::app::client::ChannelState;
+use crate::app::client::UiFriend;
 use crate::app::client::{roster::*, ui_roster};
 use crate::chat::ChatChannel;
-use superiority_ui::RosterUserTone;
+use crate::native::{PresenceState, WhisperTarget};
+use superiority_ui::{RosterSegment, RosterUserTone};
 
 #[test]
 fn roster_filter_matches_display_names_case_insensitively() {
@@ -25,7 +27,7 @@ fn roster_filters_are_scoped_to_channel_tabs() {
 }
 
 #[test]
-fn roster_segments_follow_clan_party_normal_away_precedence() {
+fn roster_segments_band_clan_party_friends_and_everyone() {
     let mut general = ChannelState::fixture_joined(1, "General".into());
     general.channel = Some(ChatChannel::Public(1028));
     general.local_member_handle = Some(1);
@@ -35,6 +37,7 @@ fn roster_segments_follow_clan_party_normal_away_precedence() {
         roster_user(3, "Party", Some(30), None, PresenceKind::Away),
         roster_user(4, "Online", Some(40), None, PresenceKind::Available),
         roster_user(5, "Away", Some(50), None, PresenceKind::Away),
+        roster_user(6, "Buddy", Some(60), None, PresenceKind::Available),
     ];
     let mut party = ChannelState::pending_live(2, ChatChannel::Party);
     party.users = vec![
@@ -42,22 +45,91 @@ fn roster_segments_follow_clan_party_normal_away_precedence() {
         roster_user(30, "Party", Some(30), None, PresenceKind::Away),
     ];
     let channels = vec![general.clone(), party];
+    let friends = vec![friend("Buddy")];
 
-    let presented = presented_roster_users(&channels, &general, "");
+    let presented = presented_roster_users(&channels, &friends, &general, "");
     assert_eq!(
         presented
             .iter()
             .map(|user| user.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["Clanmate", "Local", "Party", "Online", "Away"]
+        vec!["Local", "Clanmate", "Party", "Buddy", "Online", "Away"]
     );
-    assert_eq!(presented[0].tone, RosterUserTone::Clan);
-    assert_eq!(presented[1].tone, RosterUserTone::Party);
-    assert_eq!(presented[2].tone, RosterUserTone::Party);
-    assert!(presented[1].segment_start);
-    assert!(!presented[2].segment_start);
-    assert!(presented[3].segment_start);
-    assert!(presented[4].segment_start);
+    assert_eq!(
+        presented
+            .iter()
+            .map(|user| user.segment)
+            .collect::<Vec<_>>(),
+        vec![
+            RosterSegment::Clan,
+            RosterSegment::Clan,
+            RosterSegment::Party,
+            RosterSegment::Friends,
+            RosterSegment::Everyone,
+            RosterSegment::Everyone,
+        ]
+    );
+    // you stand with your own clan even though your own name is never tinted
+    assert_eq!(presented[0].tone, RosterUserTone::Party);
+    assert_eq!(presented[1].tone, RosterUserTone::Clan);
+    // present before away inside a band, then alphabetical
+    assert_eq!(presented[4].name, "Online");
+    assert_eq!(presented[5].name, "Away");
+    // your own tag and a clanmate's both read as your clan; a stranger's does not
+    assert!(presented[0].own_clan);
+    assert!(presented[1].own_clan);
+    assert!(!presented[4].own_clan);
+}
+
+#[test]
+fn roster_entries_carry_one_counted_header_per_band() {
+    let mut general = ChannelState::fixture_joined(1, "General".into());
+    general.channel = Some(ChatChannel::Public(1028));
+    general.local_member_handle = Some(1);
+    general.users = vec![
+        roster_user(1, "Local", Some(10), Some("SC2"), PresenceKind::Available),
+        roster_user(
+            2,
+            "Clanmate",
+            Some(20),
+            Some("SC2"),
+            PresenceKind::Available,
+        ),
+        roster_user(4, "Online", Some(40), None, PresenceKind::Available),
+        roster_user(5, "Zulu", Some(50), None, PresenceKind::Available),
+    ];
+    let entries = presented_roster_entries(&[general.clone()], &[], &general, "");
+    let headers = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            RosterEntry::Segment { segment, count } => Some((*segment, *count)),
+            RosterEntry::User(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        headers,
+        vec![(RosterSegment::Clan, 2), (RosterSegment::Everyone, 2)]
+    );
+    assert_eq!(entries.len(), 6);
+    // a header is never selectable, so it never lands under the keyboard cursor
+    assert!(matches!(entries[0], RosterEntry::Segment { .. }));
+    assert_eq!(
+        entries[1].user().map(|user| user.name.as_str()),
+        Some("Clanmate")
+    );
+}
+
+#[test]
+fn one_band_needs_no_header() {
+    let mut general = ChannelState::fixture_joined(1, "General".into());
+    general.channel = Some(ChatChannel::Public(1028));
+    general.users = vec![
+        roster_user(4, "Online", Some(40), None, PresenceKind::Available),
+        roster_user(5, "Zulu", Some(50), None, PresenceKind::Available),
+    ];
+    let entries = presented_roster_entries(&[general.clone()], &[], &general, "");
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(|entry| entry.user().is_some()));
 }
 
 #[test]
@@ -67,7 +139,7 @@ fn party_roster_keeps_wire_order_without_segments() {
         roster_user(2, "Zulu", Some(20), None, PresenceKind::Away),
         roster_user(1, "Alpha", Some(10), Some("SC2"), PresenceKind::Available),
     ];
-    let presented = presented_roster_users(&[party.clone()], &party, "");
+    let presented = presented_roster_users(&[party.clone()], &[], &party, "");
     assert_eq!(
         presented
             .iter()
@@ -80,7 +152,17 @@ fn party_roster_keeps_wire_order_without_segments() {
             .iter()
             .all(|user| user.tone == RosterUserTone::Party)
     );
-    assert!(presented.iter().all(|user| !user.segment_start));
+    let entries = presented_roster_entries(&[party.clone()], &[], &party, "");
+    assert!(entries.iter().all(|entry| entry.user().is_some()));
+}
+
+fn friend(name: &str) -> UiFriend {
+    UiFriend {
+        name: name.to_owned(),
+        presence: PresenceState::Available,
+        portrait: None,
+        target: WhisperTarget::Name(name.to_owned()),
+    }
 }
 
 fn roster_user(
@@ -98,7 +180,8 @@ fn roster_user(
         presence,
         portrait: None,
         tone: RosterUserTone::Normal,
-        segment_start: false,
+        segment: RosterSegment::Everyone,
+        own_clan: false,
     }
 }
 
@@ -135,4 +218,23 @@ fn animated_roster_merge_keeps_removed_and_inserted_rows_in_place() {
     );
     assert_eq!(rows[1].1, ui_roster::RowMotion::Removed);
     assert_eq!(rows[2].1, ui_roster::RowMotion::Inserted);
+}
+
+#[test]
+fn a_member_is_addressed_by_their_name_not_by_their_clan() {
+    // `name` carries the tag because that is how the transcript says it, but a
+    // whisper, a mention, and the tag chip beside a row all want the person
+    let tagged = roster_user(
+        1,
+        "<BNU> Tagban",
+        None,
+        Some("BNU"),
+        PresenceKind::Available,
+    );
+    assert_eq!(tagged.bare_name(), "Tagban");
+    let plain = roster_user(2, "Nova", None, None, PresenceKind::Available);
+    assert_eq!(plain.bare_name(), "Nova");
+    // a tag that is not actually the prefix leaves the name alone
+    let mismatched = roster_user(3, "Zeratul", None, Some("BNU"), PresenceKind::Available);
+    assert_eq!(mismatched.bare_name(), "Zeratul");
 }

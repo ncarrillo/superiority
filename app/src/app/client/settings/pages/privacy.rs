@@ -19,7 +19,7 @@ impl SettingsComponent {
             .track_scroll(&self.privacy_scroll)
             .bg(rgba(0x04070bc7))
             .border_1()
-            .border_color(rgba(0x144f78d9));
+            .border_color(rgba(BORDER_STRUCTURAL));
         if blocked_accounts.is_empty() {
             blocked_list = blocked_list.child(
                 div()

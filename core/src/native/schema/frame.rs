@@ -35,55 +35,21 @@ impl sc2_core::bsn::FromBsn for FrameHeaderData {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for FrameHeaderData, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for FrameHeaderData, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::Content(
-                <super::frame::FrameHeaderDataContent as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            1i128 => Ok(Self::Route(
-                <super::frame::FrameHeaderDataRoute as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            2i128 => Ok(Self::Target(
-                <super::frame::FrameHeaderDataTarget as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            3i128 => Ok(Self::Correlation(
-                <super::frame::FrameHeaderDataCorrelation as sc2_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            4i128 => Ok(Self::Client(
-                <super::frame::FrameHeaderDataClient as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            5i128 => Ok(Self::Service(
-                <super::frame::FrameHeaderDataService as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            6i128 => Ok(Self::Error(
-                <super::frame::FrameHeaderDataError as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            7i128 => Ok(Self::Replicate(
-                <super::frame::FrameHeaderDataReplicate as sc2_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            8i128 => Ok(Self::Timestamp(<i32 as sc2_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            9i128 => Ok(Self::Stream(
-                <super::frame::FrameHeaderDataStream as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            10i128 => Ok(Self::TraceRoute(
-                <super::frame::FrameHeaderDataTraceRoute as sc2_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a FrameHeaderData variant"
-            ))),
+            0i128 => Ok(Self::Content(<super::frame::FrameHeaderDataContent as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Route(<super::frame::FrameHeaderDataRoute as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::Target(<super::frame::FrameHeaderDataTarget as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            3i128 => Ok(Self::Correlation(<super::frame::FrameHeaderDataCorrelation as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            4i128 => Ok(Self::Client(<super::frame::FrameHeaderDataClient as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            5i128 => Ok(Self::Service(<super::frame::FrameHeaderDataService as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            6i128 => Ok(Self::Error(<super::frame::FrameHeaderDataError as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            7i128 => Ok(Self::Replicate(<super::frame::FrameHeaderDataReplicate as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            8i128 => Ok(Self::Timestamp(<i32 as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            9i128 => Ok(Self::Stream(<super::frame::FrameHeaderDataStream as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            10i128 => Ok(Self::TraceRoute(<super::frame::FrameHeaderDataTraceRoute as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a FrameHeaderData variant"))),
         }
     }
 }
@@ -186,43 +152,17 @@ impl sc2_core::bsn::FromBsn for FrameHeaderDataTargetIds {
     fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {
         let (index, inner) = match value {
             sc2_core::bsn::value::BsnValue::Choice { index, value } => (*index, value.as_ref()),
-            other => {
-                return Err(sc2_core::Error::BsnWire(format!(
-                    "expected a choice for FrameHeaderDataTargetIds, found {other:?}"
-                )));
-            }
+            other => return Err(sc2_core::Error::BsnWire(format!("expected a choice for FrameHeaderDataTargetIds, found {other:?}"))),
         };
         match index {
-            0i128 => Ok(Self::ClientId(
-                <Vec<u32> as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            1i128 => Ok(Self::AccountId(
-                <Vec<u32> as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            2i128 => Ok(Self::ProgramId(
-                <Vec<FourCc> as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            3i128 => Ok(Self::GameAccount(<Vec<
-                super::gameaccount::GameAccountHandle,
-            > as sc2_core::bsn::FromBsn>::from_bsn(
-                inner
-            )?)),
-            4i128 => Ok(Self::AccountProgram(<Vec<
-                super::frame::FrameAccountProgram,
-            > as sc2_core::bsn::FromBsn>::from_bsn(
-                inner
-            )?)),
-            5i128 => Ok(Self::MatchmakerQueue(<Vec<
-                super::matchmaker::MatchMakerHandle,
-            > as sc2_core::bsn::FromBsn>::from_bsn(
-                inner
-            )?)),
-            6i128 => Ok(Self::ToonHandle(
-                <Vec<super::toon::ToonHandle> as sc2_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a FrameHeaderDataTargetIds variant"
-            ))),
+            0i128 => Ok(Self::ClientId(<Vec<u32> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::AccountId(<Vec<u32> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::ProgramId(<Vec<FourCc> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            3i128 => Ok(Self::GameAccount(<Vec<super::gameaccount::GameAccountHandle> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            4i128 => Ok(Self::AccountProgram(<Vec<super::frame::FrameAccountProgram> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            5i128 => Ok(Self::MatchmakerQueue(<Vec<super::matchmaker::MatchMakerHandle> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            6i128 => Ok(Self::ToonHandle(<Vec<super::toon::ToonHandle> as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a FrameHeaderDataTargetIds variant"))),
         }
     }
 }
@@ -251,9 +191,7 @@ impl sc2_core::bsn::FromBsn for FrameReplicationCommandEnum {
         match sc2_core::bsn::FromBsn::from_bsn(value)? {
             1i128 => Ok(Self::REPLICATECOPYONLINE),
             2i128 => Ok(Self::REPLICATECOPYOFFLINE),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid FrameReplicationCommandEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid FrameReplicationCommandEnum"))),
         }
     }
 }
@@ -286,9 +224,7 @@ impl sc2_core::bsn::FromBsn for FrameTargetTypeEnum {
             9i128 => Ok(Self::MATCHMAKERQUEUE),
             10i128 => Ok(Self::TOONHANDLEINSUNKEN),
             11i128 => Ok(Self::TOONHANDLE),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid FrameTargetTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid FrameTargetTypeEnum"))),
         }
     }
 }
@@ -313,9 +249,8 @@ impl sc2_core::bsn::FromBsn for FrameTypeEnum {
             65i128 => Ok(Self::SCERROR),
             66i128 => Ok(Self::SCROUTED),
             67i128 => Ok(Self::SCBROADCAST),
-            other => Err(sc2_core::Error::BsnWire(format!(
-                "{other} is not a valid FrameTypeEnum"
-            ))),
+            other => Err(sc2_core::Error::BsnWire(format!("{other} is not a valid FrameTypeEnum"))),
         }
     }
 }
+

@@ -35,9 +35,9 @@ impl SuperiorityView {
                 if transcript_was_empty {
                     self.append_chat_line(
                         index,
-                        ChatLine::Notice {
+                        ChatLine::SessionStart {
                             time: Self::current_timestamp(),
-                            text: format!("Joined {title}."),
+                            channel: title.clone(),
                         },
                     );
                 }
@@ -61,13 +61,8 @@ impl SuperiorityView {
                     .iter()
                     .position(|tab| tab.channel_index == Some(channel_index))
                 {
-                    self.append_chat_line(
-                        index,
-                        ChatLine::Membership {
-                            time: Self::current_timestamp(),
-                            text: format!("{} joined the channel.", user.visible_name()),
-                        },
-                    );
+                    let member = UiUser::live(&user, &mut self.roster.portraits);
+                    self.append_membership(index, MembershipKind::Joined, member);
                 }
             }
             ChatEvent::MemberLeft {
@@ -81,13 +76,8 @@ impl SuperiorityView {
                     .iter()
                     .position(|tab| tab.channel_index == Some(channel_index))
                 {
-                    self.append_chat_line(
-                        index,
-                        ChatLine::Membership {
-                            time: Self::current_timestamp(),
-                            text: format!("{} left the channel.", user.visible_name()),
-                        },
-                    );
+                    let member = UiUser::live(&user, &mut self.roster.portraits);
+                    self.append_membership(index, MembershipKind::Left, member);
                 }
             }
             ChatEvent::Removed {
@@ -147,6 +137,8 @@ impl SuperiorityView {
                 category,
                 private,
                 member,
+                member_count,
+                online,
             } => {
                 if member {
                     self.join.member_groups.insert(club_id);
@@ -159,6 +151,12 @@ impl SuperiorityView {
                             invitation.destination = Some(name.clone());
                         }
                     }
+                    // the summary announces a group before the club-info
+                    // lookup answers, so a later event fills the online count
+                    // in rather than clearing what is already known.
+                    let known = self.join.groups.get(&club_id);
+                    let member_count = member_count.or_else(|| known.and_then(|g| g.member_count));
+                    let online = online.or_else(|| known.and_then(|group| group.online));
                     self.join.groups.insert(
                         club_id,
                         UiGroupSummary {
@@ -166,6 +164,8 @@ impl SuperiorityView {
                             private,
                             kind,
                             category,
+                            member_count,
+                            online,
                         },
                     );
                     self.join
@@ -188,7 +188,49 @@ impl SuperiorityView {
                     self.retitle_public_tabs();
                 }
             }
-            ChatEvent::ConferenceDirectory { .. } => {}
+            ChatEvent::ConferenceDescriptions {
+                conferences,
+                complete,
+            } => {
+                Self::trace(format_args!(
+                    "conference directory entries={} complete={complete} channels={}",
+                    conferences.len(),
+                    conferences
+                        .iter()
+                        .map(|conference| conference.channel_name_id)
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                ));
+                // we always join with enUS, so those are the rooms we would
+                // actually land in; other locales are other people's channels
+                for conference in conferences
+                    .iter()
+                    .filter(|conference| conference.locale_tag() == JOIN_LOCALE)
+                {
+                    self.join
+                        .channel_conferences
+                        .entry(conference.channel_name_id)
+                        .or_default()
+                        .push(conference.conference_id);
+                }
+                if complete {
+                    self.join.directory_complete = true;
+                }
+            }
+            ChatEvent::ConferenceMemberCounts { counts, complete } => {
+                // live per-conference head counts. nothing SC2 asks for maps a
+                // conference back to the channel it serves, so these are kept
+                // for the protocol viewer and traced, not shown in the UI.
+                Self::trace(format_args!(
+                    "conference member counts entries={} complete={complete} occupied={}",
+                    counts.len(),
+                    counts.iter().filter(|count| count.members > 0).count()
+                ));
+                self.join.conference_members = counts
+                    .iter()
+                    .map(|count| (count.conference_id, count.members))
+                    .collect();
+            }
             ChatEvent::Friends(friends) => {
                 if self.social.friends_snapshot != friends {
                     Self::trace(format_args!("friends snapshot={}", friends.len()));
@@ -202,7 +244,6 @@ impl SuperiorityView {
             ChatEvent::GroupSearch { club_ids } => {
                 Self::trace(format_args!("group search results={}", club_ids.len()));
                 self.join.group_search = club_ids;
-                self.join.join_selected = 0;
             }
             ChatEvent::Whisper {
                 peer,

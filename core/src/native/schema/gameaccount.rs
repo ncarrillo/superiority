@@ -12,3 +12,4 @@ pub struct GameAccountHandle {
     #[bsn(name = "m_id")]
     pub id: u32,
 }
+

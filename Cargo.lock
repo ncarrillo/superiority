@@ -6880,6 +6880,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stimpak"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "superiority-core",
+]
+
+[[package]]
+name = "stimpak-auth-window"
+version = "0.1.0"
+dependencies = [
+ "tao",
+ "url",
+ "wry",
+]
+
+[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6976,6 +6994,21 @@ dependencies = [
  "rayon",
  "tracing",
  "ztracing",
+]
+
+[[package]]
+name = "sunken-server"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "native-tls",
+ "prost",
+ "rand 0.8.7",
+ "rsa",
+ "sha2",
+ "superiority-core",
+ "tungstenite",
+ "url",
 ]
 
 [[package]]

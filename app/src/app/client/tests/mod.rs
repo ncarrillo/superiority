@@ -2,9 +2,12 @@ use super::{ChatLine, PresenceKind, UiUser};
 
 mod channel;
 mod chrome;
+mod composer;
 mod join;
 mod navigation;
 mod roster;
+mod social;
+mod transcript;
 
 fn user(handle: u32, name: &str) -> UiUser {
     UiUser {
@@ -15,6 +18,7 @@ fn user(handle: u32, name: &str) -> UiUser {
         presence: PresenceKind::Available,
         portrait: None,
         tone: superiority_ui::RosterUserTone::Normal,
-        segment_start: false,
+        segment: superiority_ui::RosterSegment::Everyone,
+        own_clan: false,
     }
 }

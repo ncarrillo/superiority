@@ -448,7 +448,8 @@ impl Session {
                 self.friends = friends;
                 Ok(Some(Event::FriendsChanged))
             }
-            ChatEvent::ConferenceDirectory { .. }
+            ChatEvent::ConferenceDescriptions { .. }
+            | ChatEvent::ConferenceMemberCounts { .. }
             | ChatEvent::BlockedAccounts(_)
             | ChatEvent::Activity { .. }
             | ChatEvent::GroupInvitation { .. }
