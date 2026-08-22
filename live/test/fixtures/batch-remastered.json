@@ -1,0 +1,110 @@
+{
+  "v": 1,
+  "session": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "product": "scr",
+    "client_version": "0.1.34",
+    "started_at": 1754700400000
+  },
+  "events": [
+    { "seq": 1, "ts": 1754700401000, "kind": "session_started" },
+    {
+      "seq": 2,
+      "ts": 1754700402000,
+      "kind": "joined",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" }
+    },
+    { "seq": 3, "ts": 1754700403000, "kind": "sync_started" },
+    {
+      "seq": 4,
+      "ts": 1754700404000,
+      "kind": "roster",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "complete": true,
+      "count": 2,
+      "users": [
+        {
+          "handle": 71,
+          "name": "Bisu",
+          "clan_tag": null,
+          "presence": "available",
+          "avatar": "protoss-praetor",
+          "is_operator": true,
+          "is_local": true,
+          "joined_order": 0
+        },
+        {
+          "handle": 72,
+          "name": "Flash",
+          "clan_tag": "KT",
+          "presence": "in_lobby",
+          "avatar": "terran-marine",
+          "is_operator": false,
+          "joined_order": 1
+        }
+      ]
+    },
+    { "seq": 5, "ts": 1754700405000, "kind": "session_synced" },
+    {
+      "seq": 6,
+      "ts": 1754700406000,
+      "kind": "message",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "sender": { "handle": 72, "name": "Flash", "clan_tag": "KT" },
+      "body": "gg"
+    },
+    {
+      "seq": 7,
+      "ts": 1754700407000,
+      "kind": "message",
+      "subkind": "emote",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "sender": { "handle": 71, "name": "Bisu", "clan_tag": null },
+      "body": "bows respectfully"
+    },
+    {
+      "seq": 8,
+      "ts": 1754700408000,
+      "kind": "notice",
+      "subkind": "broadcast",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "body": "Server maintenance in 10 minutes."
+    },
+    {
+      "seq": 9,
+      "ts": 1754700409000,
+      "kind": "notice",
+      "subkind": "information",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "body": "Welcome to Brood War USA-9."
+    },
+    {
+      "seq": 10,
+      "ts": 1754700410000,
+      "kind": "message",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "body": "no sender on this one"
+    },
+    {
+      "seq": 11,
+      "ts": 1754700411000,
+      "kind": "member_joined",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "user": {
+        "handle": 73,
+        "name": "Jaedong",
+        "clan_tag": null,
+        "presence": "in_lobby",
+        "avatar": "zerg-hunter",
+        "is_operator": false
+      }
+    },
+    {
+      "seq": 12,
+      "ts": 1754700412000,
+      "kind": "member_left",
+      "channel": { "key": "public:9", "name": "Brood War USA-9" },
+      "user": { "handle": 72, "name": "Flash", "clan_tag": "KT" }
+    }
+  ]
+}

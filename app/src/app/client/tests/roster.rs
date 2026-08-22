@@ -3,8 +3,8 @@ use crate::app::client::ChannelState;
 use crate::app::client::UiFriend;
 use crate::app::client::{roster::*, ui_roster};
 use crate::chat::ChatChannel;
-use crate::native::{PresenceState, WhisperTarget};
-use superiority_ui::{RosterSegment, RosterUserTone};
+use superiority_core::native::{PresenceState, WhisperTarget};
+use superiority_ui::products::sc2::{RosterSegment, RosterUserTone};
 
 #[test]
 fn roster_filter_matches_display_names_case_insensitively() {

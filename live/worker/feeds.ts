@@ -19,11 +19,16 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   }
 
   let clientVersion = "";
+  let product = "sc2";
   try {
     const body: unknown = await request.json();
     if (typeof body === "object" && body !== null && "client_version" in body) {
       const value = (body as Record<string, unknown>).client_version;
       if (typeof value === "string") clientVersion = value.slice(0, 32);
+    }
+    if (typeof body === "object" && body !== null && "product" in body) {
+      const value = (body as Record<string, unknown>).product;
+      if (value === "sc2" || value === "scr" || value === "wc3") product = value;
     }
   } catch {
     // An empty or non-JSON body is fine; client_version is a courtesy.
@@ -39,10 +44,10 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     const id = randomSlug();
     try {
       await env.DB.prepare(
-        `INSERT INTO feeds (id, token_hash, client_version, created_at, last_seen_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)`,
+        `INSERT INTO feeds (id, token_hash, product, client_version, created_at, last_seen_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)`,
       )
-        .bind(id, tokenHash, clientVersion, now)
+        .bind(id, tokenHash, product, clientVersion, now)
         .run();
       const url = new URL(request.url);
       return json(201, { feed: { id, token, url: `${url.origin}/${id}` } });

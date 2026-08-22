@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sc2_core::Error as ProtocolError;
+use superiority_core::Error as ProtocolError;
 
 use crate::{
     bncs::{

@@ -1,14 +1,14 @@
 #![cfg(target_arch = "wasm32")]
 
-mod api;
-mod view;
+mod products;
+mod shell;
 
 use std::borrow::Cow;
 
 use gpui::{App, AppCell, AppContext as _, Application, WindowOptions};
 use wasm_bindgen::prelude::*;
 
-use view::LiveView;
+use shell::LiveShell;
 
 #[wasm_bindgen]
 pub fn run(feed_id: String, backend: String, asset_root: String) -> Result<(), JsValue> {
@@ -23,14 +23,20 @@ pub fn run(feed_id: String, backend: String, asset_root: String) -> Result<(), J
                 include_bytes!("../../assets/fonts/game/eurostileext-med.otf").as_slice(),
             ),
             Cow::Borrowed(include_bytes!("../../assets/fonts/game/eurostile-reg.otf").as_slice()),
+            // the SC:R card title asks for Eurostile Bold; without the bold face
+            // the browser falls back to a plain sans, so embed it too
+            Cow::Borrowed(include_bytes!("../../assets/fonts/game/eurostile-bol.otf").as_slice()),
             Cow::Borrowed(include_bytes!("../../assets/fonts/game/bl.ttf").as_slice()),
+            // Reforged's UI face (Friz Quadrata), extracted from the WC3:R client,
+            // so the WC3 card and realm read in the game's own type, not a fallback
+            Cow::Borrowed(include_bytes!("../../assets/fonts/game/frizqt.ttf").as_slice()),
         ];
         cx.text_system()
             .add_fonts(fonts)
             .expect("superiority fonts must load");
 
         cx.open_window(WindowOptions::default(), |_, cx| {
-            cx.new(|cx| LiveView::new(backend, feed_id, asset_root, cx))
+            cx.new(|cx| LiveShell::new(backend, feed_id, asset_root, cx))
         })
         .expect("the browser window must open");
         cx.activate(true);

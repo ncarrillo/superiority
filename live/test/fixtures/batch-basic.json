@@ -2,6 +2,7 @@
   "v": 1,
   "session": {
     "id": "00112233445566778899aabbccddeeff",
+    "product": "sc2",
     "client_version": "0.1.19",
     "started_at": 1754700251000
   },

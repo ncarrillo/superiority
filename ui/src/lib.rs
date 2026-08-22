@@ -1,16 +1,9 @@
-pub mod animation;
-pub mod assets;
-pub mod components;
-pub mod model;
-pub mod theme;
+//! Reusable GPUI for Superiority's native and browser hosts.
+//!
+//! Product-neutral mechanisms live in [`foundation`] and [`patterns`]. A
+//! renderer or presentation model that speaks a game's vocabulary is named
+//! under [`products`] even when more than one host consumes it.
 
-pub use assets::UiAssets;
-pub use components::scrollbar::{
-    ScrollableHandle, ScrollbarAutoHide, ScrollbarAxes, ScrollbarColors, ScrollbarRevealPolicy,
-    ScrollbarStyle, Scrollbars, ShowScrollbar, WithScrollbar,
-};
-pub use model::{
-    DigestEvent, MembershipEvent, MembershipKind, Portrait, PresenceKind, RosterChannelKind,
-    RosterPresentation, RosterRelationship, RosterSegment, RosterUser, RosterUserTone,
-    TranscriptLine,
-};
+pub mod foundation;
+pub mod patterns;
+pub mod products;

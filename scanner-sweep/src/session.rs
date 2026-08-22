@@ -9,7 +9,9 @@ use std::{
 };
 
 use hmac::{Hmac, Mac};
-use sc2_core::{
+use serde::Deserialize;
+use sha2::Sha256;
+use superiority_core::{
     Error as ProtocolError,
     bgs::NativeHandoff,
     bsn::codec::WireLayoutSupport,
@@ -26,8 +28,6 @@ use sc2_core::{
         },
     },
 };
-use serde::Deserialize;
-use sha2::Sha256;
 
 use crate::{Error, Result, packet::TcpDirection, packet::TcpPacket};
 
@@ -73,7 +73,24 @@ impl std::fmt::Display for UnknownPacket {
         writeln!(formatter, "flow: {}", self.flow)?;
         writeln!(formatter, "direction: {}", direction_arrow(self.direction))?;
         writeln!(formatter, "stream offset: {}", self.stream_offset)?;
-        writeln!(formatter, "route: {route}")?;
+        let named = self
+            .route
+            .and_then(|(slot, command)| superiority_core::native::known_route_name(slot, command));
+        match named {
+            Some(name) => writeln!(formatter, "route: {route}  ({name})")?,
+            None => writeln!(formatter, "route: {route}")?,
+        }
+        if let Some((Some(slot), command)) = self.route {
+            writeln!(
+                formatter,
+                "retail client: {}",
+                if superiority_core::native::client_handles_route(slot, command) {
+                    "registers a handler for this route — a real message we cannot decode yet"
+                } else {
+                    "registers no handler for this route"
+                }
+            )?;
+        }
         writeln!(formatter, "reason: {}", self.reason)?;
         writeln!(
             formatter,
@@ -657,7 +674,7 @@ fn server_proof_data(value: &BsnValue) -> Result<&[u8]> {
         let Some(identifier) = module.get("m_id").and_then(expect_bytes) else {
             continue;
         };
-        if identifier == sc2_core::native::auth::SESSION_PROOF_MODULE_ID {
+        if identifier == superiority_core::native::auth::SESSION_PROOF_MODULE_ID {
             let data = module
                 .get("m_data")
                 .and_then(expect_bytes)

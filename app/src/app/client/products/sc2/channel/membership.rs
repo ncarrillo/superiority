@@ -1,0 +1,221 @@
+use super::*;
+
+impl SuperiorityView {
+    pub(in crate::app::client) fn channel_label(&self, channel: &ChatChannel) -> String {
+        if let ChatChannel::Public(identifier) = channel
+            && let Some(name) = self.session.join.public_channels.get(identifier)
+        {
+            return name.clone();
+        }
+        if let ChatChannel::Club(club_id) = channel {
+            if let Some(group) = self.session.join.groups.get(club_id) {
+                return group.name.clone();
+            }
+            if let Some(name) = self.session.join.remembered_group_names.get(club_id) {
+                return name.clone();
+            }
+        }
+        channel_title(channel)
+    }
+
+    pub(in crate::app::client) fn persist_open_channels(&self) {
+        if !self.runtime.live_mode {
+            return;
+        }
+        preferences::save_open_channels(
+            &self
+                .session
+                .channels
+                .tabs
+                .iter()
+                .filter_map(|tab| tab.channel.clone())
+                .filter(|channel| *channel != ChatChannel::Party)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    pub(in crate::app::client) fn reject_pending_join(
+        &mut self,
+        channel: Option<&ChatChannel>,
+        reason: Option<u16>,
+    ) {
+        if let Some(channel) = channel {
+            self.session
+                .join
+                .awaiting_joins
+                .retain(|(awaited, _)| awaited != channel);
+        }
+        let name = channel.map_or_else(
+            || "that channel".to_owned(),
+            |channel| self.channel_label(channel),
+        );
+        let pending = self
+            .session
+            .channels
+            .tabs
+            .iter()
+            .position(|tab| tab.channel.as_ref() == channel && tab.channel_index.is_none());
+        self.show_channel_warning("CHANNEL", join_rejection_notice(&name, reason), None);
+        if let Some(position) = pending {
+            self.session.channels.tabs.remove(position);
+            if self.session.channels.tabs.is_empty() {
+                let id = self.session.channels.next_tab_id;
+                self.session.channels.next_tab_id =
+                    self.session.channels.next_tab_id.wrapping_add(1);
+                self.session.channels.tabs.push(ChannelState::pending_live(
+                    id,
+                    ChatChannel::Public(DEFAULT_PUBLIC_CHANNEL),
+                ));
+            }
+            if self.session.channels.active_tab >= position && self.session.channels.active_tab > 0
+            {
+                self.session.channels.active_tab -= 1;
+            }
+            self.session.channels.active_tab = self
+                .session
+                .channels
+                .active_tab
+                .min(self.session.channels.tabs.len().saturating_sub(1));
+            self.sync_roster_filter_input();
+            self.persist_open_channels();
+        }
+    }
+
+    pub(in crate::app::client) fn expire_awaited_joins(&mut self) -> bool {
+        let now = Instant::now();
+        let expired = self
+            .session
+            .join
+            .awaiting_joins
+            .iter()
+            .filter(|(_, started)| now.saturating_duration_since(*started) >= JOIN_TIMEOUT)
+            .map(|(channel, _)| channel.clone())
+            .collect::<Vec<_>>();
+        for channel in &expired {
+            self.reject_pending_join(Some(channel), None);
+        }
+        !expired.is_empty()
+    }
+
+    pub(in crate::app::client) fn retitle_club_tabs(&mut self, club_id: u32, name: &str) {
+        for tab in self
+            .session
+            .channels
+            .tabs
+            .iter_mut()
+            .filter(|tab| tab.channel.as_ref() == Some(&ChatChannel::Club(club_id)))
+        {
+            if tab.title == name {
+                continue;
+            }
+            retitle_notices(&mut tab.transcript, &tab.title, name);
+            tab.title = name.to_owned();
+        }
+    }
+
+    pub(in crate::app::client) fn retitle_public_tabs(&mut self) {
+        let public_channels = self.session.join.public_channels.clone();
+        for tab in &mut self.session.channels.tabs {
+            let Some(ChatChannel::Public(identifier)) = tab.channel else {
+                continue;
+            };
+            let Some(name) = public_channels.get(&identifier) else {
+                continue;
+            };
+            if tab.title == *name {
+                continue;
+            }
+            retitle_notices(&mut tab.transcript, &tab.title, name);
+            tab.title.clone_from(name);
+        }
+    }
+
+    pub(in crate::app::client) fn join_channel_target(
+        &mut self,
+        target: ChatChannel,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.channel_label(&target);
+        if self.runtime.live_mode {
+            if let Some(index) = self
+                .session
+                .channels
+                .tabs
+                .iter()
+                .position(|tab| tab.channel.as_ref() == Some(&target))
+            {
+                self.session.channels.active_tab = index;
+            } else {
+                if self.session.channels.tabs.len() >= MAX_JOINED_CHANNELS {
+                    self.show_channel_warning(
+                        "CHANNEL",
+                        format!(
+                            "You can be in {MAX_JOINED_CHANNELS} channels at once. Close one to join another."
+                        ),
+                        None,
+                    );
+                    cx.notify();
+                    return;
+                }
+                let id = self.session.channels.next_tab_id;
+                self.session.channels.next_tab_id =
+                    self.session.channels.next_tab_id.wrapping_add(1);
+                let mut tab = ChannelState::pending_live(id, target.clone());
+                tab.title.clone_from(&title);
+                self.session.channels.tabs.push(tab);
+                self.session.channels.active_tab = self.session.channels.tabs.len() - 1;
+                self.session
+                    .join
+                    .awaiting_joins
+                    .push((target.clone(), Instant::now()));
+                self.persist_open_channels();
+                if let Some(commands) = &self.session.commands {
+                    if commands
+                        .send(ClientCommand::JoinChannel(target.clone()))
+                        .is_err()
+                    {
+                        self.reject_pending_join(Some(&target), None);
+                    }
+                }
+            }
+            self.sync_roster_filter_input();
+            self.overlays.active = None;
+            self.overlays.closing = false;
+            self.session.channels.tab_selection_started = Some(Instant::now());
+            cx.notify();
+            return;
+        }
+        let previous = self.session.channels.active().map(|channel| channel.id);
+        let outgoing = self.session.channels.active().cloned();
+        let outgoing_selected_user = self.selected_user();
+        if let Some(index) = self
+            .session
+            .channels
+            .tabs
+            .iter()
+            .position(|tab| tab.title == title)
+        {
+            self.session.channels.active_tab = index;
+        } else {
+            let id = self.session.channels.next_tab_id;
+            self.session.channels.next_tab_id = self.session.channels.next_tab_id.wrapping_add(1);
+            self.session
+                .channels
+                .tabs
+                .push(ChannelState::fixture_joined(id, title));
+            self.session.channels.active_tab = self.session.channels.tabs.len() - 1;
+        }
+        self.sync_roster_filter_input();
+        self.session.channels.tab_selection_started = Some(Instant::now());
+        if self.session.channels.active().map(|channel| channel.id) != previous {
+            self.begin_channel_transition(outgoing, outgoing_selected_user);
+        }
+        self.overlays.active = None;
+        self.overlays.closing = false;
+        Self::trace(format_args!(
+            "joined tab {}",
+            self.session.channels.active_tab
+        ));
+        cx.notify();
+    }
+}

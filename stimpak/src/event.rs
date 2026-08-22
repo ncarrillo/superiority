@@ -1,17 +1,17 @@
 //! the wire shape the host sees.
 //!
-//! deliberately not `sc2_core`'s own types. core's `ChatEvent` moves as the
+//! deliberately not `superiority_core`'s own types. core's `ChatEvent` moves as the
 //! protocol work moves; this is the seam where we decide what a binding is
 //! promised, so adding a variant is a decision rather than a side effect.
 
 use std::collections::HashMap;
 
-use sc2_core::{
+use serde::Serialize;
+use superiority_core::{
     chat::{ChatChannel, ChatEvent, ChatFriend, ChatUser, RosterSnapshot, channel_title},
     connection::{ClientEvent, ConnectionStage},
     native::PresenceState,
 };
-use serde::Serialize;
 
 /// names arrive separately from the channels that use them: the public catalog
 /// and group summaries turn up as their own events, so a channel is only
@@ -32,8 +32,7 @@ impl Names {
         match chat {
             ChatEvent::PublicChannelCatalog(channels) => {
                 for channel in channels {
-                    self.public
-                        .insert(channel.identifier, channel.name.clone());
+                    self.public.insert(channel.identifier, channel.name.clone());
                 }
                 true
             }
@@ -156,17 +155,24 @@ impl From<&ChatFriend> for Friend {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
-    Stage { stage: &'static str },
+    Stage {
+        stage: &'static str,
+    },
     /// only fires when there is no cached credential, so a bot with a warm
     /// cache never sees it.
-    AuthenticationRequired { auth_id: u64, url: String },
+    AuthenticationRequired {
+        auth_id: u64,
+        url: String,
+    },
     Joined {
         channel_index: u8,
         channel: Channel,
         local_handle: u32,
     },
     /// the channels this account may join, by name. arrives once per session.
-    PublicChannels { channels: Vec<Channel> },
+    PublicChannels {
+        channels: Vec<Channel>,
+    },
     JoinRejected {
         channel: Option<Channel>,
         reason: Option<u16>,
@@ -181,8 +187,14 @@ pub enum Event {
         complete: bool,
         users: Vec<User>,
     },
-    MemberJoined { channel_index: u8, user: User },
-    MemberLeft { channel_index: u8, user: User },
+    MemberJoined {
+        channel_index: u8,
+        user: User,
+    },
+    MemberLeft {
+        channel_index: u8,
+        user: User,
+    },
     Message {
         channel_index: u8,
         sender: User,
@@ -194,22 +206,35 @@ pub enum Event {
         /// true for whispers this client sent, echoed back.
         outgoing: bool,
     },
-    WhisperFailed { peer: String, reason: String },
-    Friends { friends: Vec<Friend> },
-    GroupInvitation { club_id: u32 },
+    WhisperFailed {
+        peer: String,
+        reason: String,
+    },
+    Friends {
+        friends: Vec<Friend>,
+    },
+    GroupInvitation {
+        club_id: u32,
+    },
     PartyInvitation {
         inviter: Option<String>,
         channel_index: u8,
     },
     /// the session is still up.
-    CommandError { message: String },
+    CommandError {
+        message: String,
+    },
     /// expect `stage: "disconnected"` to follow.
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// decoded, but with no binding-level meaning yet. only the variant is
     /// named: these carry block lists and group names, and debug-formatting
     /// them would put personal data — and core's internal shape — into a
     /// public contract.
-    Other { kind: &'static str },
+    Other {
+        kind: &'static str,
+    },
     /// the session thread has finished; this client will report nothing more.
     SessionEnded,
 }
@@ -265,6 +290,44 @@ pub fn translate(event: &ClientEvent, auth_id: u64, names: &Names) -> Event {
         ClientEvent::Stage(stage) => Event::Stage {
             stage: stage_name(*stage),
         },
+        // stimpak's event vocabulary is StarCraft II's; Remastered has no
+        // translation here yet, so it is reported rather than silently dropped
+        ClientEvent::ClassicChannel(channel) => Event::Error {
+            message: format!("unhandled classic channel: {}", channel.label()),
+        },
+        ClientEvent::Classic(event) => Event::Error {
+            message: format!("unhandled classic chat event: {:?}", event.kind),
+        },
+        ClientEvent::ClassicFriends(friends) => Event::Error {
+            message: format!(
+                "unhandled classic friends snapshot: {} entries",
+                friends.len()
+            ),
+        },
+        ClientEvent::ClassicWhisperSent { peer, .. } => Event::Error {
+            message: format!("unhandled classic whisper confirmation for {peer}"),
+        },
+        ClientEvent::WarcraftChannel(channel) => Event::Error {
+            message: format!("unhandled Reforged channel: {}", channel.name),
+        },
+        ClientEvent::Warcraft(event) => Event::Error {
+            message: format!("unhandled Reforged chat event: {event:?}"),
+        },
+        ClientEvent::WarcraftChannels(channels) => Event::Error {
+            message: format!(
+                "unhandled Reforged channel directory: {} entries",
+                channels.len()
+            ),
+        },
+        ClientEvent::WarcraftFriends(friends) => Event::Error {
+            message: format!(
+                "unhandled Reforged friends snapshot: {} entries",
+                friends.len()
+            ),
+        },
+        ClientEvent::WarcraftClan(clan) => Event::Error {
+            message: format!("unhandled Reforged clan snapshot: {:?}", clan.membership),
+        },
         ClientEvent::Authentication { url, .. } => Event::AuthenticationRequired {
             auth_id,
             url: url.to_string(),
@@ -276,6 +339,10 @@ pub fn translate(event: &ClientEvent, auth_id: u64, names: &Names) -> Event {
             message: message.clone(),
         },
         ClientEvent::Chat(chat) => translate_chat(chat, names),
+        ClientEvent::Account(_) => Event::Other { kind: "account" },
+        ClientEvent::ProductCredential { .. } => Event::Other {
+            kind: "product-credential",
+        },
     }
 }
 
@@ -355,9 +422,7 @@ fn translate_chat(event: &ChatEvent, names: &Names) -> Event {
         ChatEvent::Friends(friends) => Event::Friends {
             friends: friends.iter().map(Friend::from).collect(),
         },
-        ChatEvent::GroupInvitation { club_id } => Event::GroupInvitation {
-            club_id: *club_id,
-        },
+        ChatEvent::GroupInvitation { club_id } => Event::GroupInvitation { club_id: *club_id },
         ChatEvent::PartyInvitation {
             inviter,
             channel_index,
@@ -365,14 +430,16 @@ fn translate_chat(event: &ChatEvent, names: &Names) -> Event {
             inviter: inviter.clone(),
             channel_index: *channel_index,
         },
-        other => Event::Other { kind: name_of(other) },
+        other => Event::Other {
+            kind: name_of(other),
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sc2_core::chat::PublicChannel;
+    use superiority_core::chat::PublicChannel;
 
     fn catalog(entries: &[(u16, &str)]) -> ClientEvent {
         ClientEvent::Chat(ChatEvent::PublicChannelCatalog(

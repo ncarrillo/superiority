@@ -1,7 +1,7 @@
 use std::sync::mpsc::Receiver;
 
 use serde_json::Value;
-use superiority_ui::components::release_notes::ReleaseNotesDocument;
+use superiority_ui::products::sc2::components::release_notes::ReleaseNotesDocument;
 
 #[cfg(feature = "rust-updater")]
 const UPDATE_FEED_URL: &str = "https://superiority-sc2-updates.pages.dev/appcast.xml";

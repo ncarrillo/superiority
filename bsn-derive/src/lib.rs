@@ -24,27 +24,27 @@ pub fn derive_from_bsn(input: TokenStream) -> TokenStream {
         let ident = field.ident.as_ref().expect("named field");
         let get = match accessor(field, &ident.to_string()) {
             Accessor::Name(wire) => quote! {
-                s.get(#wire).ok_or_else(|| ::sc2_core::bsn::missing_field(#wire))?
+                s.get(#wire).ok_or_else(|| ::superiority_core::bsn::missing_field(#wire))?
             },
             Accessor::Index(index) => {
                 let literal = proc_macro2::Literal::i128_unsuffixed(index);
                 let label = format!("#{index}");
                 quote! {
-                    s.get_index(#literal).ok_or_else(|| ::sc2_core::bsn::missing_field(#label))?
+                    s.get_index(#literal).ok_or_else(|| ::superiority_core::bsn::missing_field(#label))?
                 }
             }
         };
-        quote! { #ident: ::sc2_core::bsn::FromBsn::from_bsn(#get)?, }
+        quote! { #ident: ::superiority_core::bsn::FromBsn::from_bsn(#get)?, }
     });
 
     quote! {
-        impl ::sc2_core::bsn::FromBsn for #name {
+        impl ::superiority_core::bsn::FromBsn for #name {
             fn from_bsn(
-                value: &::sc2_core::bsn::value::BsnValue,
-            ) -> ::sc2_core::Result<Self> {
+                value: &::superiority_core::bsn::value::BsnValue,
+            ) -> ::superiority_core::Result<Self> {
                 let s = value
                     .as_struct()
-                    .ok_or_else(|| ::sc2_core::bsn::expected_struct(stringify!(#name)))?;
+                    .ok_or_else(|| ::superiority_core::bsn::expected_struct(stringify!(#name)))?;
                 ::core::result::Result::Ok(Self { #(#inits)* })
             }
         }

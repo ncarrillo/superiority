@@ -39,7 +39,7 @@ function showLanding(boot) {
   const title = document.createElement("h1");
   title.textContent = "SUPERIORITY LIVE";
   const copy = document.createElement("p");
-  copy.textContent = "Watch a StarCraft II channel shared from Superiority.";
+  copy.textContent = "Watch a Battle.net channel shared from Superiority.";
   const form = document.createElement("form");
   const input = document.createElement("input");
   input.type = "text";

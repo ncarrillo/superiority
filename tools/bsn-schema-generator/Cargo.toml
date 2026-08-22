@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-sc2-core = { package = "superiority-core", path = "../../core" }
+superiority-core = { path = "../../core" }

@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use sc2_core::metadata::find_metadata_blobs;
+use superiority_core::metadata::find_metadata_blobs;
 
 fn usage() -> io::Error {
     io::Error::new(

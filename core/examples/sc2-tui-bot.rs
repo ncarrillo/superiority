@@ -14,7 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph, Wrap},
 };
-use sc2_core::{
+use superiority_core::{
     Error as CoreError, Result as CoreResult,
     bgs::SecretBytes,
     chat::{ChatChannel, ChatEvent, ChatUser, channel_title},
@@ -23,6 +23,7 @@ use sc2_core::{
         spawn_client,
     },
     observer::NoObserver,
+    product::Product,
 };
 use tao::{
     dpi::LogicalSize,
@@ -241,6 +242,8 @@ impl App {
     fn connect(&mut self, force_interactive: bool) -> AnyResult<()> {
         self.commands.send(ClientCommand::Connect {
             force_interactive,
+            expected_account_id: None,
+            expected_battle_tag: None,
             channels: vec![ChatChannel::Public(DEFAULT_PUBLIC_CHANNEL)],
         })?;
         self.push_message(MessageKind::System, "connecting to Battle.net");
@@ -287,6 +290,17 @@ impl App {
 
     fn handle_client_event(&mut self, event_loop: &EventLoop<()>, event: ClientEvent) {
         match event {
+            // this example is StarCraft II's, as its name says
+            ClientEvent::Classic(_)
+            | ClientEvent::ClassicChannel(_)
+            | ClientEvent::ClassicFriends(_)
+            | ClientEvent::ClassicWhisperSent { .. }
+            | ClientEvent::Warcraft(_)
+            | ClientEvent::WarcraftChannel(_)
+            | ClientEvent::WarcraftChannels(_)
+            | ClientEvent::WarcraftFriends(_)
+            | ClientEvent::WarcraftClan(_)
+            | ClientEvent::ProductCredential { .. } => {}
             ClientEvent::Stage(stage) => {
                 self.stage = stage;
                 self.push_message(MessageKind::System, format!("connection stage: {stage:?}"));
@@ -294,7 +308,17 @@ impl App {
                     self.authentication.take();
                 }
             }
-            ClientEvent::Authentication { url, reply } => {
+            ClientEvent::Account(account) => self.push_message(
+                MessageKind::System,
+                format!(
+                    "account licenses: {}",
+                    account
+                        .games
+                        .as_deref()
+                        .map_or("unavailable".to_owned(), |games| games.join(", "))
+                ),
+            ),
+            ClientEvent::Authentication { url, reply, .. } => {
                 if let Some(authentication) = self.authentication.take() {
                     authentication.cancel();
                 }
@@ -395,7 +419,7 @@ impl App {
             ChatEvent::JoinRejected { reason, .. } => {
                 let reason = reason.map_or_else(
                     || "unspecified error".to_owned(),
-                    sc2_core::native::errors::description,
+                    superiority_core::native::errors::description,
                 );
                 self.push_message(
                     MessageKind::Error,
@@ -809,7 +833,7 @@ fn main() -> AnyResult<()> {
         .skip(1)
         .any(|argument| argument == "--reauth");
     let mut event_loop = EventLoop::new();
-    let client = spawn_client(Box::new(NoObserver));
+    let client = spawn_client(Product::StarCraft2, Box::new(NoObserver));
     let mut app = App::new(client);
     app.connect(force_interactive)?;
 

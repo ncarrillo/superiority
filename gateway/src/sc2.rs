@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sc2_core::{
+use superiority_core::{
     Error, Result,
     chat::{ChatChannel, ChatEvent, ChatUser, PublicChannel, channel_title, strip_character_code},
     connection::{
@@ -12,6 +12,7 @@ use sc2_core::{
     },
     native::{PresenceState, WhisperTarget},
     observer::NoObserver,
+    product::Product,
 };
 
 use crate::web_auth::{Cancellation, Requester};
@@ -109,11 +110,13 @@ impl Session {
         login_timeout: Duration,
         progress: &mut dyn FnMut(&str),
     ) -> Result<Self> {
-        let handle = spawn_client(Box::new(NoObserver));
+        let handle = spawn_client(Product::StarCraft2, Box::new(NoObserver));
         handle
             .commands
             .send(ClientCommand::Connect {
                 force_interactive,
+                expected_account_id: None,
+                expected_battle_tag: None,
                 channels: vec![ChatChannel::Public(DEFAULT_PUBLIC_CHANNEL)],
             })
             .map_err(|_| Error::Transport("SC2 network worker did not start".into()))?;
@@ -159,6 +162,18 @@ impl Session {
                 }
             };
             match event {
+                // who signed in and what they own: nothing the gateway serves
+                ClientEvent::Account(_) | ClientEvent::ProductCredential { .. } => {}
+                // the gateway serves StarCraft II only
+                ClientEvent::Classic(_)
+                | ClientEvent::ClassicChannel(_)
+                | ClientEvent::ClassicFriends(_)
+                | ClientEvent::ClassicWhisperSent { .. }
+                | ClientEvent::Warcraft(_)
+                | ClientEvent::WarcraftChannel(_)
+                | ClientEvent::WarcraftFriends(_)
+                | ClientEvent::WarcraftClan(_)
+                | ClientEvent::WarcraftChannels(_) => {}
                 ClientEvent::Stage(stage) => {
                     progress(stage_label(stage));
                     connected = stage == ConnectionStage::Connected;
@@ -169,7 +184,7 @@ impl Session {
                         ));
                     }
                 }
-                ClientEvent::Authentication { url, reply } => {
+                ClientEvent::Authentication { url, reply, .. } => {
                     let result =
                         session
                             .authentication
@@ -352,7 +367,10 @@ impl Session {
                 Err(Error::Transport("SC2 session disconnected".into()))
             }
             ClientEvent::Stage(_) => Ok(None),
-            ClientEvent::Authentication { url, reply } => {
+            // who signed in and what they own; the gateway serves one account
+            // and has no use for either
+            ClientEvent::Account(_) | ClientEvent::ProductCredential { .. } => Ok(None),
+            ClientEvent::Authentication { url, reply, .. } => {
                 let result =
                     self.authentication
                         .request(&url, self.login_timeout, &self.cancellation);
@@ -362,6 +380,17 @@ impl Session {
                 Ok(None)
             }
             ClientEvent::Chat(event) => self.apply_chat(event),
+            // the gateway serves StarCraft II only; its bridge has no shape for
+            // Remastered's chat, and inventing one here would be a guess
+            ClientEvent::Classic(_)
+            | ClientEvent::ClassicChannel(_)
+            | ClientEvent::ClassicFriends(_)
+            | ClientEvent::ClassicWhisperSent { .. }
+            | ClientEvent::Warcraft(_)
+            | ClientEvent::WarcraftChannel(_)
+            | ClientEvent::WarcraftFriends(_)
+            | ClientEvent::WarcraftClan(_)
+            | ClientEvent::WarcraftChannels(_) => Ok(None),
             ClientEvent::CommandError(message) => Ok(Some(Event::Error(message))),
             ClientEvent::Error(message) => Err(Error::Transport(message)),
         }
@@ -486,7 +515,7 @@ impl Session {
         Ok(None)
     }
 
-    fn apply_roster(&mut self, snapshot: sc2_core::chat::RosterSnapshot) -> Option<Event> {
+    fn apply_roster(&mut self, snapshot: superiority_core::chat::RosterSnapshot) -> Option<Event> {
         let channel_index = snapshot.channel_index;
         let initial_complete = snapshot.initial_complete;
         let state = self.channels.entry(snapshot.channel_index).or_default();
@@ -708,7 +737,7 @@ mod tests {
         assert_eq!(session.pending_announcement, Some(7));
 
         assert_eq!(
-            session.apply_roster(sc2_core::chat::RosterSnapshot {
+            session.apply_roster(superiority_core::chat::RosterSnapshot {
                 channel_index: 7,
                 initial_complete: false,
                 users: Vec::new(),
@@ -718,7 +747,7 @@ mod tests {
         assert_eq!(session.pending_announcement, Some(7));
 
         assert_eq!(
-            session.apply_roster(sc2_core::chat::RosterSnapshot {
+            session.apply_roster(superiority_core::chat::RosterSnapshot {
                 channel_index: 7,
                 initial_complete: true,
                 users: Vec::new(),
@@ -727,7 +756,7 @@ mod tests {
         );
         assert_eq!(session.pending_announcement, None);
         assert_eq!(
-            session.apply_roster(sc2_core::chat::RosterSnapshot {
+            session.apply_roster(superiority_core::chat::RosterSnapshot {
                 channel_index: 7,
                 initial_complete: true,
                 users: Vec::new(),
@@ -797,7 +826,7 @@ mod tests {
             },
         );
 
-        let event = session.apply_roster(sc2_core::chat::RosterSnapshot {
+        let event = session.apply_roster(superiority_core::chat::RosterSnapshot {
             channel_index: 7,
             initial_complete: true,
             users: vec![chat_user(42, "Raynor#123", PresenceState::Available)],
@@ -823,7 +852,7 @@ mod tests {
             },
         );
 
-        let event = session.apply_roster(sc2_core::chat::RosterSnapshot {
+        let event = session.apply_roster(superiority_core::chat::RosterSnapshot {
             channel_index: 7,
             initial_complete: true,
             users: vec![chat_user(42, "Kerrigan#456", PresenceState::Unknown)],

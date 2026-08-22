@@ -1,8 +1,8 @@
-use sc2_core::bsn::value::{BsnBitArray, BsnField, BsnStruct, BsnValue};
-use sc2_core::bsn::{FourCc, FromBsn};
-use sc2_core::metadata::{IntegerRange, Schema, TypeKind};
-use sc2_core::native::Protocol;
-use sc2_core::native::schema;
+use superiority_core::bsn::value::{BsnBitArray, BsnField, BsnStruct, BsnValue};
+use superiority_core::bsn::{FourCc, FromBsn};
+use superiority_core::metadata::{IntegerRange, Schema, TypeKind};
+use superiority_core::native::Protocol;
+use superiority_core::native::schema;
 
 fn min_count(range: Option<IntegerRange>) -> usize {
     usize::try_from(range.map_or(0, |r| r.minimum).max(0)).unwrap_or(0)

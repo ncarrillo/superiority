@@ -6,6 +6,10 @@ pub enum Error {
     BgsWire(String),
     #[error("bsn protocol error: {0}")]
     BsnWire(String),
+    /// Remastered's classic channel: its descriptor-free protobuf, its RPC
+    /// framing, and the check-value envelope around both.
+    #[error("classic protocol error: {0}")]
+    ClassicWire(String),
     #[error("metadata error: {0}")]
     Metadata(String),
     #[error("authentication error: {0}")]
@@ -32,6 +36,8 @@ pub enum Error {
     ProtobufDecode(#[from] prost::DecodeError),
     #[error(transparent)]
     Url(#[from] url::ParseError),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

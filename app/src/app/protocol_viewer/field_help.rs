@@ -1,4 +1,4 @@
-use crate::native::inspect::Field;
+use superiority_core::native::inspect::Field;
 
 fn normalized_name(path: &str) -> String {
     let leaf = path.rsplit('.').next().unwrap_or(path);
@@ -202,7 +202,7 @@ pub(super) fn tooltip_detail(field: &Field, container: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native::inspect::FieldRole;
+    use superiority_core::native::inspect::FieldRole;
 
     fn field(path: &str, kind: &'static str, exact_range: bool) -> Field {
         Field {

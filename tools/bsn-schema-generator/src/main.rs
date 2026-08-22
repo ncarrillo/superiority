@@ -7,8 +7,19 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-use sc2_core::metadata::{IntegerRange, Metadata, TypeKind, TypeShape, read_metadata};
-const OUT_DIR: &str = "core/src/native/schema";
+use superiority_core::metadata::{IntegerRange, Metadata, TypeKind, TypeShape, read_metadata};
+/// Where StarCraft II's schema is written when nothing says otherwise. Another
+/// product that turns out to use BSN writes somewhere else — see `--out`.
+const DEFAULT_OUT_DIR: &str = "core/src/games/sc2/native/schema";
+/// StarCraft II's metadata blob, likewise.
+const DEFAULT_METADATA: &str = "protocol/bsn/sc2-97364-metadata.bin";
+
+const USAGE: &str = "usage: bsn-schema-generator [--metadata <blob>] [--out <dir>]
+
+  --metadata <blob>  BSN metadata to generate from
+                     (default: SC2_CODEGEN_METADATA, else StarCraft II's)
+  --out <dir>        where to write the schema modules
+                     (default: StarCraft II's, under core/src/games/sc2)";
 
 const ROOTS: &[&str] = &[
     "Battlenet::Client::Achievement::ListenRequest",
@@ -71,6 +82,7 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Connection::RegulatorUpdate",
     "Battlenet::Client::Connection::ServerVersion",
     "Battlenet::Client::Friends::AccountBlockAddedNotify",
+    "Battlenet::Client::Friends::FriendInvitationAddedNotify",
     "Battlenet::Client::Friends::FriendsListNotify5",
     "Battlenet::Client::Friends::ToonBlockNotify",
     "Battlenet::Client::Friends::ToonsOfFriendsNotify",
@@ -130,13 +142,39 @@ const KEYWORDS: &[&str] = &[
     "use", "where", "while", "async", "await", "box", "gen", "try", "union", "yield",
 ];
 
+/// `--metadata <path>` and `--out <dir>`, so a second product's blob generates
+/// into its own module rather than over StarCraft II's. `SC2_CODEGEN_METADATA`
+/// still works and is what `--metadata` defaults to.
+fn arguments() -> (PathBuf, PathBuf) {
+    let mut metadata = None;
+    let mut out = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--metadata" => metadata = args.next().map(PathBuf::from),
+            "--out" => out = args.next().map(PathBuf::from),
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                std::process::exit(0);
+            }
+            other => panic!("unknown argument {other:?}\n{USAGE}"),
+        }
+    }
+    let metadata = metadata
+        .or_else(|| std::env::var_os("SC2_CODEGEN_METADATA").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_METADATA));
+    (
+        metadata,
+        out.unwrap_or_else(|| PathBuf::from(DEFAULT_OUT_DIR)),
+    )
+}
+
 fn main() {
-    let input = std::env::var_os("SC2_CODEGEN_METADATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("protocol/bsn/sc2-97364-metadata.bin"));
+    let (input, out_dir) = arguments();
+    let out_dir = out_dir.display().to_string();
     let meta = read_metadata(&input).unwrap_or_else(|error| {
         panic!(
-            "could not read local BSN codegen input {}: {error}; set SC2_CODEGEN_METADATA",
+            "could not read BSN codegen input {}: {error}; pass --metadata <blob>",
             input.display()
         )
     });
@@ -191,8 +229,8 @@ fn main() {
         }
     }
 
-    let _ = std::fs::remove_dir_all(OUT_DIR);
-    std::fs::create_dir_all(OUT_DIR).unwrap();
+    let _ = std::fs::remove_dir_all(&out_dir);
+    std::fs::create_dir_all(&out_dir).unwrap();
     let mut root = String::from(
         "#![expect(\n\
          \x20   clippy::struct_excessive_bools,\n\
@@ -200,15 +238,15 @@ fn main() {
          )]\n\n",
     );
     for (module, body) in &modules {
-        std::fs::write(format!("{OUT_DIR}/{module}.rs"), body).unwrap();
+        std::fs::write(format!("{out_dir}/{module}.rs"), body).unwrap();
         writeln!(root, "pub mod {module};").unwrap();
     }
     root.push_str("pub(crate) mod wire;\n");
-    std::fs::write(format!("{OUT_DIR}/wire.rs"), emit_wire_schema(&meta, &seen)).unwrap();
-    std::fs::write(format!("{OUT_DIR}/mod.rs"), &root).unwrap();
+    std::fs::write(format!("{out_dir}/wire.rs"), emit_wire_schema(&meta, &seen)).unwrap();
+    std::fs::write(format!("{out_dir}/mod.rs"), &root).unwrap();
 
     eprintln!(
-        "wrote {} modules to {OUT_DIR}: {structs} structs, {enums} enums, {choices} choices \
+        "wrote {} modules to {out_dir}: {structs} structs, {enums} enums, {choices} choices \
          from a {}-type closure",
         modules.len(),
         seen.len()
@@ -262,7 +300,7 @@ fn file_header() -> String {
     String::from(
         "#![allow(dead_code, unused_imports, clippy::all)]\n\n\
          use bsn_derive::FromBsn;\n\
-         use sc2_core::bsn::{BsnBitArray, Bytes, FourCc};\n\n",
+         use superiority_core::bsn::{BsnBitArray, Bytes, FourCc};\n\n",
     )
 }
 
@@ -313,15 +351,15 @@ fn emit_enum(out: &mut String, meta: &Metadata, id: u32, shape: &TypeShape) {
         writeln!(out, "    {ident},").unwrap();
     }
     writeln!(out, "}}").unwrap();
-    writeln!(out, "impl sc2_core::bsn::FromBsn for {name} {{").unwrap();
+    writeln!(out, "impl superiority_core::bsn::FromBsn for {name} {{").unwrap();
     writeln!(
         out,
-        "    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {{"
+        "    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {{"
     )
     .unwrap();
     writeln!(
         out,
-        "        match sc2_core::bsn::FromBsn::from_bsn(value)? {{"
+        "        match superiority_core::bsn::FromBsn::from_bsn(value)? {{"
     )
     .unwrap();
     for (index, ident) in &variants {
@@ -329,7 +367,7 @@ fn emit_enum(out: &mut String, meta: &Metadata, id: u32, shape: &TypeShape) {
     }
     writeln!(
         out,
-        "            other => Err(sc2_core::Error::BsnWire(format!(\"{{other}} is not a valid {name}\"))),"
+        "            other => Err(superiority_core::Error::BsnWire(format!(\"{{other}} is not a valid {name}\"))),"
     )
     .unwrap();
     writeln!(out, "        }}\n    }}\n}}\n").unwrap();
@@ -355,21 +393,21 @@ fn emit_choice(out: &mut String, meta: &Metadata, id: u32, shape: &TypeShape) {
         writeln!(out, "    {ident}({payload}),").unwrap();
     }
     writeln!(out, "}}").unwrap();
-    writeln!(out, "impl sc2_core::bsn::FromBsn for {name} {{").unwrap();
+    writeln!(out, "impl superiority_core::bsn::FromBsn for {name} {{").unwrap();
     writeln!(
         out,
-        "    fn from_bsn(value: &sc2_core::bsn::value::BsnValue) -> sc2_core::Result<Self> {{"
+        "    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {{"
     )
     .unwrap();
     writeln!(out, "        let (index, inner) = match value {{").unwrap();
     writeln!(
         out,
-        "            sc2_core::bsn::value::BsnValue::Choice {{ index, value }} => (*index, value.as_ref()),"
+        "            superiority_core::bsn::value::BsnValue::Choice {{ index, value }} => (*index, value.as_ref()),"
     )
     .unwrap();
     writeln!(
         out,
-        "            other => return Err(sc2_core::Error::BsnWire(format!(\"expected a choice for {name}, found {{other:?}}\"))),"
+        "            other => return Err(superiority_core::Error::BsnWire(format!(\"expected a choice for {name}, found {{other:?}}\"))),"
     )
     .unwrap();
     writeln!(out, "        }};").unwrap();
@@ -377,13 +415,13 @@ fn emit_choice(out: &mut String, meta: &Metadata, id: u32, shape: &TypeShape) {
     for (index, ident, payload) in &variants {
         writeln!(
             out,
-            "            {index}i128 => Ok(Self::{ident}(<{payload} as sc2_core::bsn::FromBsn>::from_bsn(inner)?)),"
+            "            {index}i128 => Ok(Self::{ident}(<{payload} as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),"
         )
         .unwrap();
     }
     writeln!(
         out,
-        "            other => Err(sc2_core::Error::BsnWire(format!(\"{{other}} is not a {name} variant\"))),"
+        "            other => Err(superiority_core::Error::BsnWire(format!(\"{{other}} is not a {name} variant\"))),"
     )
     .unwrap();
     writeln!(out, "        }}\n    }}\n}}\n").unwrap();

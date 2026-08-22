@@ -14,7 +14,7 @@ name = "superiority"
 path = "src/main.rs"
 
 [dependencies]
-sc2-core = { package = "superiority-core", path = "../core" }
+superiority-core = { path = "../core" }
 hex = "0.4"
 pulldown-cmark = "0.13"
 rand = "0.9"

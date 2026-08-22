@@ -101,7 +101,8 @@ mod tests {
 
     #[test]
     fn an_explicit_path_is_preferred_over_everything_else() {
-        let candidates = AuthWindow::candidates(Some(PathBuf::from("/somewhere/stimpak-auth-window")));
+        let candidates =
+            AuthWindow::candidates(Some(PathBuf::from("/somewhere/stimpak-auth-window")));
         assert_eq!(
             candidates.first(),
             Some(&PathBuf::from("/somewhere/stimpak-auth-window"))

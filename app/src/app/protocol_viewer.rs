@@ -12,15 +12,18 @@ use gpui::{
     uniform_list,
 };
 use superiority_ui::{
-    UiAssets, WithScrollbar as _,
-    components::{
-        controls as ui_controls, inspector as ui_inspector, roster as ui_roster,
-        text_input as ui_text_input, workspace as ui_workspace,
+    foundation::{WithScrollbar as _, text_input as ui_text_input},
+    products::sc2::{
+        Sc2Assets,
+        components::{
+            controls as ui_controls, inspector as ui_inspector, roster as ui_roster,
+            workspace as ui_workspace,
+        },
+        theme::{FONT_INTERFACE, FONT_INTERNATIONAL},
     },
-    theme::{FONT_INTERFACE, FONT_INTERNATIONAL},
 };
 
-use crate::native::inspect::{
+use superiority_core::native::inspect::{
     Capture, Direction, Field, FieldRole, capture_paused, clear_capture, live_capture_after,
     sample_capture, set_capture_paused,
 };
@@ -102,7 +105,7 @@ enum PaneResize {
 struct InspectorTooltip {
     title: String,
     detail: String,
-    assets: UiAssets,
+    assets: Sc2Assets,
 }
 
 impl gpui::Render for InspectorTooltip {
@@ -151,7 +154,7 @@ fn with_inspector_tooltip(
     element: impl StatefulInteractiveElement + IntoElement,
     title: impl Into<String>,
     detail: impl Into<String>,
-    assets: UiAssets,
+    assets: Sc2Assets,
 ) -> impl IntoElement {
     let title = title.into();
     let detail = detail.into();
@@ -340,7 +343,7 @@ fn field_value_color(value: &str, active: bool) -> Rgba {
 /// set of services, the search narrows what is left. neither drops a record
 /// from the capture — the header keeps counting all of them.
 fn record_matches(
-    record: &crate::native::inspect::Record,
+    record: &superiority_core::native::inspect::Record,
     filter: &str,
     services: &HashSet<String>,
 ) -> bool {
@@ -357,7 +360,7 @@ fn record_matches(
 /// every service present in the capture, busiest first. chips are a legend as
 /// much as a filter, so the order has to hold still while traffic arrives —
 /// ties break alphabetically rather than by arrival.
-fn service_counts(records: &[crate::native::inspect::Record]) -> Vec<(String, usize)> {
+fn service_counts(records: &[superiority_core::native::inspect::Record]) -> Vec<(String, usize)> {
     let mut counts: Vec<(String, usize)> = Vec::new();
     for record in records {
         match counts
@@ -453,7 +456,7 @@ struct ProtocolViewer {
     bit_scroll: UniformListScrollHandle,
     byte_scroll: UniformListScrollHandle,
     field_scroll: UniformListScrollHandle,
-    ui_assets: UiAssets,
+    ui_assets: Sc2Assets,
     live: bool,
     following: bool,
     paused: bool,
@@ -502,7 +505,7 @@ impl ProtocolViewer {
             bit_scroll: UniformListScrollHandle::new(),
             byte_scroll: UniformListScrollHandle::new(),
             field_scroll: UniformListScrollHandle::new(),
-            ui_assets: UiAssets::native(),
+            ui_assets: Sc2Assets::load(&superiority_ui::foundation::assets::NativeAssetResolver),
             live: has_live_records,
             following: true,
             paused: capture_paused(),
@@ -531,7 +534,7 @@ impl ProtocolViewer {
         this
     }
 
-    fn selected_record(&self) -> &crate::native::inspect::Record {
+    fn selected_record(&self) -> &superiority_core::native::inspect::Record {
         &self.capture.records[self.selected_record]
     }
 
@@ -2123,7 +2126,7 @@ mod filter_tests {
     use std::collections::HashSet;
 
     use super::{Direction, record_matches, service_counts};
-    use crate::native::inspect::Record;
+    use superiority_core::native::inspect::Record;
 
     fn record(service: &str, command: &str, direction: Direction) -> Record {
         Record {

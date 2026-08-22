@@ -1,0 +1,545 @@
+#![allow(dead_code, unused_imports, clippy::all)]
+
+use bsn_derive::FromBsn;
+use superiority_core::bsn::{BsnBitArray, Bytes, FourCc};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatChannelType2Enum {
+    UNKNOWN,
+    NAMED,
+    CONVO,
+    PARTY,
+    PUBLIC,
+    CLUB,
+}
+impl superiority_core::bsn::FromBsn for ChatChannelType2Enum {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        match superiority_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::UNKNOWN),
+            1i128 => Ok(Self::NAMED),
+            2i128 => Ok(Self::CONVO),
+            3i128 => Ok(Self::PARTY),
+            4i128 => Ok(Self::PUBLIC),
+            5i128 => Ok(Self::CLUB),
+            other => Err(superiority_core::Error::BsnWire(format!(
+                "{other} is not a valid ChatChannelType2Enum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatDatagramConnectionInfo {
+    #[bsn(name = "m_instance")]
+    pub instance: FourCc,
+    #[bsn(name = "m_natType")]
+    pub nat_type: super::datagramconnection::DatagramConnectionNATTypeEnum,
+    #[bsn(name = "m_addressPort")]
+    pub address_port: super::ip4::IP4AddressPort,
+    #[bsn(name = "m_boundAddressPort")]
+    pub bound_address_port: super::ip4::IP4AddressPort,
+    #[bsn(name = "m_arbitrationNotify")]
+    pub arbitration_notify: super::datagramconnection::DatagramConnectionArbitrationNotifyEnum,
+    #[bsn(name = "m_token")]
+    pub token: u8,
+    #[bsn(name = "m_connectAttemptToken")]
+    pub connect_attempt_token: u8,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatFullName {
+    #[bsn(name = "m_shard")]
+    pub shard: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ChatJoinNotifyResult2 {
+    Success(super::chat::ChatJoinNotifyResult2Success),
+    Failed(super::chat::ChatJoinNotifyResult2Failed),
+}
+impl superiority_core::bsn::FromBsn for ChatJoinNotifyResult2 {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        let (index, inner) = match value {
+            superiority_core::bsn::value::BsnValue::Choice { index, value } => {
+                (*index, value.as_ref())
+            }
+            other => {
+                return Err(superiority_core::Error::BsnWire(format!(
+                    "expected a choice for ChatJoinNotifyResult2, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Success(
+                <super::chat::ChatJoinNotifyResult2Success as superiority_core::bsn::FromBsn>::from_bsn(
+                    inner,
+                )?,
+            )),
+            1i128 => Ok(Self::Failed(
+                <super::chat::ChatJoinNotifyResult2Failed as superiority_core::bsn::FromBsn>::from_bsn(
+                    inner,
+                )?,
+            )),
+            other => Err(superiority_core::Error::BsnWire(format!(
+                "{other} is not a ChatJoinNotifyResult2 variant"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatJoinNotifyResult2Failed {
+    #[bsn(name = "m_reason")]
+    pub reason: u16,
+    #[bsn(name = "m_channelType")]
+    pub channel_type: Option<super::chat::ChatChannelType2Enum>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatJoinNotifyResult2Success {
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_voiceSessionId")]
+    pub voice_session_id: super::comsat::ComSatSessionIdUnion,
+    #[bsn(name = "m_channelType")]
+    pub channel_type: super::chat::ChatChannelType2Enum,
+    #[bsn(name = "m_name")]
+    pub name: Option<super::conference::ConferenceShardName>,
+    #[bsn(name = "m_config")]
+    pub config: Option<super::conference::ConferenceConferenceConfiguration>,
+    #[bsn(name = "m_inviterMemberHandle")]
+    pub inviter_member_handle: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ChatMemberStatusSingle {
+    Other(super::chat::ChatMemberStatusSingleOther),
+    Party(super::chat::ChatMemberStatusSingleParty),
+    TalkerNetworkId(super::chat::ChatMemberStatusSingleTalkerNetworkId),
+    TalkerInfo(super::chat::ChatMemberStatusSingleTalkerInfo),
+    VoiceEnabled(bool),
+    Display(super::chat::ChatMemberStatusSingleDisplay),
+    Active(bool),
+    Sentinel(()),
+}
+impl superiority_core::bsn::FromBsn for ChatMemberStatusSingle {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        let (index, inner) = match value {
+            superiority_core::bsn::value::BsnValue::Choice { index, value } => {
+                (*index, value.as_ref())
+            }
+            other => {
+                return Err(superiority_core::Error::BsnWire(format!(
+                    "expected a choice for ChatMemberStatusSingle, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Other(<super::chat::ChatMemberStatusSingleOther as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Party(<super::chat::ChatMemberStatusSingleParty as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::TalkerNetworkId(<super::chat::ChatMemberStatusSingleTalkerNetworkId as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            3i128 => Ok(Self::TalkerInfo(<super::chat::ChatMemberStatusSingleTalkerInfo as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            4i128 => Ok(Self::VoiceEnabled(<bool as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            5i128 => Ok(Self::Display(<super::chat::ChatMemberStatusSingleDisplay as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            6i128 => Ok(Self::Active(<bool as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            7i128 => Ok(Self::Sentinel(<() as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a ChatMemberStatusSingle variant"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMemberStatusSingleDisplay {
+    #[bsn(name = "m_toonName")]
+    pub toon_name: super::toon::ToonFullName,
+}
+
+#[derive(Clone, Debug)]
+pub enum ChatMemberStatusSingleOther {
+    ClubData(super::chat::ChatMemberStatusSingleOtherClubData),
+    Licenses(Vec<u32>),
+}
+impl superiority_core::bsn::FromBsn for ChatMemberStatusSingleOther {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        let (index, inner) = match value {
+            superiority_core::bsn::value::BsnValue::Choice { index, value } => {
+                (*index, value.as_ref())
+            }
+            other => {
+                return Err(superiority_core::Error::BsnWire(format!(
+                    "expected a choice for ChatMemberStatusSingleOther, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::ClubData(<super::chat::ChatMemberStatusSingleOtherClubData as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Licenses(<Vec<u32> as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a ChatMemberStatusSingleOther variant"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMemberStatusSingleOtherClubData {
+    #[bsn(name = "m_rank")]
+    pub rank: super::club::ClubMemberRankEnum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMemberStatusSingleParty {
+    #[bsn(name = "m_partyStatus")]
+    pub party_status: super::chat::ChatPartyMemberStatusEnum,
+    #[bsn(name = "m_expansionLevel")]
+    pub expansion_level: Option<super::starcraft2::Starcraft2ExpansionLevelEnum>,
+    #[bsn(name = "m_captain")]
+    pub captain: bool,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMemberStatusSingleTalkerInfo {
+    #[bsn(name = "m_talkerInfo")]
+    pub talker_info: super::comsat::ClientComSatTalkerInfo,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMemberStatusSingleTalkerNetworkId {
+    #[bsn(name = "m_talkerNetworkId")]
+    pub talker_network_id: u8,
+}
+
+#[derive(Clone, Debug)]
+pub enum ChatMembershipChange {
+    LeaveChannel(super::chat::ChatMembershipChangeLeaveChannel),
+    JoinChannel(super::chat::ChatMembershipChangeJoinChannel),
+    UpdateStatus(super::chat::ChatMembershipChangeUpdateStatus),
+}
+impl superiority_core::bsn::FromBsn for ChatMembershipChange {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        let (index, inner) = match value {
+            superiority_core::bsn::value::BsnValue::Choice { index, value } => {
+                (*index, value.as_ref())
+            }
+            other => {
+                return Err(superiority_core::Error::BsnWire(format!(
+                    "expected a choice for ChatMembershipChange, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::LeaveChannel(<super::chat::ChatMembershipChangeLeaveChannel as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::JoinChannel(<super::chat::ChatMembershipChangeJoinChannel as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::UpdateStatus(<super::chat::ChatMembershipChangeUpdateStatus as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a ChatMembershipChange variant"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMembershipChangeJoinChannel {
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_id")]
+    pub id: u32,
+    #[bsn(name = "m_memberStatus")]
+    pub member_status: Vec<super::chat::ChatMemberStatusSingle>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMembershipChangeLeaveChannel {
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_reason")]
+    pub reason: u16,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ChatMembershipChangeUpdateStatus {
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_memberStatus")]
+    pub member_status: super::chat::ChatMemberStatusSingle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatPartyMemberStatusEnum {
+    INVALID,
+    ONLINE,
+    OFFLINE,
+    INVITED,
+}
+impl superiority_core::bsn::FromBsn for ChatPartyMemberStatusEnum {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        match superiority_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::INVALID),
+            1i128 => Ok(Self::ONLINE),
+            2i128 => Ok(Self::OFFLINE),
+            3i128 => Ok(Self::INVITED),
+            other => Err(superiority_core::Error::BsnWire(format!(
+                "{other} is not a valid ChatPartyMemberStatusEnum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatCategoryDescriptions {
+    #[bsn(name = "m_list")]
+    pub list: Vec<super::conference::ConferenceCategoryDescription>,
+    #[bsn(name = "m_isLast")]
+    pub is_last: bool,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatChannelList {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatChannelListRequest {
+    #[bsn(name = "ChannelList")]
+    pub channel_list: super::chat::ClientChatChannelList,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatChannelListResponse {
+    #[bsn(name = "ChannelList")]
+    pub channel_list: super::chat::ClientChatChannelList,
+    #[bsn(name = "m_channels")]
+    pub channels: Vec<super::chat::ChatFullName>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClientChatChannelListTypeEnum {
+    AUTOJOIN,
+    RECENTLYJOINED,
+}
+impl superiority_core::bsn::FromBsn for ClientChatChannelListTypeEnum {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        match superiority_core::bsn::FromBsn::from_bsn(value)? {
+            0i128 => Ok(Self::AUTOJOIN),
+            1i128 => Ok(Self::RECENTLYJOINED),
+            other => Err(superiority_core::Error::BsnWire(format!(
+                "{other} is not a valid ClientChatChannelListTypeEnum"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatConferenceDescriptions {
+    #[bsn(name = "m_list")]
+    pub list: Vec<super::conference::ConferenceFullConferenceDescription>,
+    #[bsn(name = "m_isLast")]
+    pub is_last: bool,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatConferenceMemberCounts {
+    #[bsn(name = "m_list")]
+    pub list: Vec<super::conference::ConferenceMembershipInfo>,
+    #[bsn(name = "m_isLast")]
+    pub is_last: bool,
+    #[bsn(name = "m_time")]
+    pub time: Option<i32>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatCreateAndInviteRequest {
+    #[bsn(name = "m_createToken")]
+    pub create_token: u32,
+    #[bsn(name = "m_inviteToken")]
+    pub invite_token: u32,
+    #[bsn(name = "m_channelType")]
+    pub channel_type: super::chat::ChatChannelType2Enum,
+    #[bsn(name = "m_target")]
+    pub target: super::defines::ClientDefinesPlayerTarget,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatDatagramConnectionUpdate {
+    #[bsn(name = "m_target")]
+    pub target: super::defines::ClientDefinesPlayerTarget,
+    #[bsn(name = "m_info")]
+    pub info: super::chat::ChatDatagramConnectionInfo,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatEnumCategoryDescriptions {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatEnumConferenceDescriptions {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatEnumConferenceMemberCounts {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatInviteAccept {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatInviteDecline {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatInviteNotify {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_inviterPresence")]
+    pub inviter_presence: u32,
+    #[bsn(name = "m_channelType")]
+    pub channel_type: super::chat::ChatChannelType2Enum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatJoinNotify2 {
+    #[bsn(name = "m_token")]
+    pub token: Option<u32>,
+    #[bsn(name = "m_result")]
+    pub result: super::chat::ChatJoinNotifyResult2,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatJoinRequest2 {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_key")]
+    pub key: super::conference::ConferenceLocatorKey,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatMembershipChangeNotify {
+    #[bsn(name = "m_endOfInitial")]
+    pub end_of_initial: bool,
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_changes")]
+    pub changes: Vec<super::chat::ChatMembershipChange>,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatMessage {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatMessageRecv {
+    #[bsn(name = "Message")]
+    pub message: super::chat::ClientChatMessage,
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_body")]
+    pub body: String,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatMessageSend {
+    #[bsn(name = "Message")]
+    pub message: super::chat::ClientChatMessage,
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_body")]
+    pub body: String,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatModifyChannelListRequest {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_index")]
+    pub index: u8,
+    #[bsn(name = "m_name")]
+    pub name: String,
+    #[bsn(name = "m_type")]
+    pub type_: super::chat::ClientChatChannelListTypeEnum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatModifyChannelListRequest2 {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_index")]
+    pub index: u8,
+    #[bsn(name = "m_key")]
+    pub key: super::conference::ConferenceLocatorKey,
+    #[bsn(name = "m_type")]
+    pub type_: super::chat::ClientChatChannelListTypeEnum,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatModifyChannelListResponse2 {
+    #[bsn(name = "m_token")]
+    pub token: u32,
+    #[bsn(name = "m_result")]
+    pub result: super::chat::ClientChatModifyChannelListResponse2Result,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClientChatModifyChannelListResponse2Result {
+    Success(i32),
+    Failure(u16),
+}
+impl superiority_core::bsn::FromBsn for ClientChatModifyChannelListResponse2Result {
+    fn from_bsn(value: &superiority_core::bsn::value::BsnValue) -> superiority_core::Result<Self> {
+        let (index, inner) = match value {
+            superiority_core::bsn::value::BsnValue::Choice { index, value } => {
+                (*index, value.as_ref())
+            }
+            other => {
+                return Err(superiority_core::Error::BsnWire(format!(
+                    "expected a choice for ClientChatModifyChannelListResponse2Result, found {other:?}"
+                )));
+            }
+        };
+        match index {
+            0i128 => Ok(Self::Success(
+                <i32 as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            1i128 => Ok(Self::Failure(
+                <u16 as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
+            )),
+            other => Err(superiority_core::Error::BsnWire(format!(
+                "{other} is not a ClientChatModifyChannelListResponse2Result variant"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatStatusChangeRequest {
+    #[bsn(name = "m_channelIndex")]
+    pub channel_index: u8,
+    #[bsn(name = "m_memberHandle")]
+    pub member_handle: u32,
+    #[bsn(name = "m_statusChange")]
+    pub status_change: super::chat::ChatMemberStatusSingle,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatWhisper {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatWhisperEcho {}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatWhisperEchoRecv {
+    #[bsn(name = "WhisperEcho")]
+    pub whisper_echo: super::chat::ClientChatWhisperEcho,
+    #[bsn(name = "m_sender")]
+    pub sender: super::toon::ToonFullName,
+    #[bsn(name = "m_body")]
+    pub body: String,
+}
+
+#[derive(Clone, Debug, FromBsn)]
+pub struct ClientChatWhisperRecv {
+    #[bsn(name = "Whisper")]
+    pub whisper: super::chat::ClientChatWhisper,
+    #[bsn(name = "m_sender")]
+    pub sender: super::toon::ToonFullName,
+    #[bsn(name = "m_body")]
+    pub body: String,
+}

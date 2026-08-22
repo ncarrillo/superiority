@@ -12,6 +12,7 @@ mod macos {
     use objc2::{
         DefinedClass, MainThreadOnly, define_class, msg_send,
         rc::{Retained, Weak},
+        sel,
     };
     use objc2_app_kit::{
         NSAutoresizingMaskOptions, NSBackingStoreType, NSView, NSWindow, NSWindowDelegate,
@@ -19,7 +20,7 @@ mod macos {
     };
     use objc2_foundation::{
         MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
-        NSString,
+        NSString, NSTimer,
     };
     use url::Url;
     use wry::raw_window_handle::{
@@ -30,12 +31,20 @@ mod macos {
         dpi::{LogicalPosition, LogicalSize},
     };
 
-    use crate::{Error, Result, bgs::SecretBytes};
+    use crate::{Error, Result};
+    use superiority_core::{Product, bgs::SecretBytes};
 
+    // Every product mints a different credential, but all authorizations must
+    // inherit one Battle.net SSO identity. A single persistent WKWebView store
+    // is the browser side of that invariant.
     const AUTHENTICATION_STORE_IDENTIFIER: [u8; 16] = [
         0x7A, 0x48, 0xAF, 0x1D, 0x4B, 0x08, 0x4F, 0x37, 0x9F, 0x4F, 0x5D, 0x6E, 0x81, 0x3F, 0xE2,
         0xA4,
     ];
+    /// Give the shared Battle.net SSO store time to complete a redirect before
+    /// presenting chrome. A real login still appears; an automatic product
+    /// authorization never flashes a window for a page nobody has to read.
+    const SILENT_SSO_GRACE_SECONDS: f64 = 1.0;
 
     type WebViewSlot = Rc<RefCell<Option<Rc<WebView>>>>;
 
@@ -54,6 +63,17 @@ mod macos {
 
         unsafe impl NSObjectProtocol for WebAuthenticator {}
 
+        impl WebAuthenticator {
+            #[unsafe(method(showIfAuthenticationIsPending:))]
+            fn show_if_authentication_is_pending(&self, _timer: &NSTimer) {
+                if self.ivars().reply.borrow().is_some()
+                    && let Some(window) = self.ivars().window.get()
+                {
+                    window.makeKeyAndOrderFront(None);
+                }
+            }
+        }
+
         unsafe impl NSWindowDelegate for WebAuthenticator {
             #[unsafe(method(windowWillClose:))]
             fn window_will_close(&self, _notification: &NSNotification) {
@@ -66,6 +86,8 @@ mod macos {
         pub(crate) fn present(
             authentication_url: &Url,
             reply: Sender<Result<SecretBytes>>,
+            _product: Product,
+            fresh_account: bool,
         ) -> Retained<Self> {
             let mtm = MainThreadMarker::new().expect("the application must run on the main thread");
             let this = Self::alloc(mtm).set_ivars(WebAuthenticatorIvars {
@@ -110,8 +132,13 @@ mod macos {
             let popup_web_view = Rc::downgrade(&this.ivars().web_view);
             let navigation_authenticator = Weak::new(&*this);
             let process_authenticator = Weak::new(&*this);
+            let initial_url = if fresh_account {
+                "about:blank"
+            } else {
+                authentication_url.as_str()
+            };
             let builder = WebViewBuilder::new()
-                .with_url(authentication_url.as_str())
+                .with_url(initial_url)
                 .with_bounds(Rect {
                     position: LogicalPosition::new(0, 0).into(),
                     size: LogicalSize::new(980, 760).into(),
@@ -156,6 +183,29 @@ mod macos {
                     return this;
                 }
             };
+            if fresh_account {
+                let cookies = match web_view.cookies() {
+                    Ok(cookies) => cookies,
+                    Err(error) => {
+                        this.fail(&format!("Battle.net cookie reset failed: {error}"));
+                        return this;
+                    }
+                };
+                for cookie in &cookies {
+                    if let Err(error) = web_view.delete_cookie(cookie) {
+                        this.fail(&format!("Battle.net cookie reset failed: {error}"));
+                        return this;
+                    }
+                }
+                if let Err(error) = web_view.clear_all_browsing_data() {
+                    this.fail(&format!("Battle.net session reset failed: {error}"));
+                    return this;
+                }
+                if let Err(error) = web_view.load_url(authentication_url.as_str()) {
+                    this.fail(&format!("Battle.net authentication page failed: {error}"));
+                    return this;
+                }
+            }
             let native_web_view = web_view.webview();
             native_web_view.setAutoresizingMask(
                 NSAutoresizingMaskOptions::ViewWidthSizable
@@ -163,8 +213,23 @@ mod macos {
             );
             *this.ivars().web_view.borrow_mut() = Some(web_view);
 
-            if let Some(window) = this.ivars().window.get() {
-                window.makeKeyAndOrderFront(None);
+            if fresh_account {
+                if let Some(window) = this.ivars().window.get() {
+                    window.makeKeyAndOrderFront(None);
+                }
+            } else {
+                // SAFETY: the selector is implemented above with NSTimer's
+                // single target argument, and the scheduled timer retains the
+                // authenticator until this one-shot callback has fired.
+                let _timer = unsafe {
+                    NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+                        SILENT_SSO_GRACE_SECONDS,
+                        &this,
+                        sel!(showIfAuthenticationIsPending:),
+                        None,
+                        false,
+                    )
+                };
             }
             this
         }
@@ -245,24 +310,28 @@ mod windows {
             System::LibraryLoader::GetModuleHandleW,
             UI::WindowsAndMessaging::{
                 AdjustWindowRectEx, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW,
-                DestroyWindow, GetSystemMetrics, IsWindow, LoadCursorW, RegisterClassExW,
-                SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW, SetForegroundWindow, ShowWindow,
-                WINDOW_EX_STYLE, WM_CLOSE, WM_NCDESTROY, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+                DestroyWindow, GetSystemMetrics, IsWindow, KillTimer, LoadCursorW,
+                RegisterClassExW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW, SetForegroundWindow,
+                SetTimer, ShowWindow, WINDOW_EX_STYLE, WM_CLOSE, WM_NCDESTROY, WM_TIMER,
+                WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
             },
         },
         core::w,
     };
     use wry::{
-        NewWindowResponse, WebView, WebViewBuilder,
+        NewWindowResponse, WebView, WebViewBuilder, WebViewBuilderExtWindows,
         raw_window_handle::{
             HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
         },
     };
 
-    use crate::{Error, Result, bgs::SecretBytes};
+    use crate::{Error, Result};
+    use superiority_core::{Product, bgs::SecretBytes};
 
     const WINDOW_WIDTH: i32 = 980;
     const WINDOW_HEIGHT: i32 = 760;
+    const AUTHENTICATION_REVEAL_TIMER: usize = 1;
+    const SILENT_SSO_GRACE_MILLIS: u32 = 1_000;
 
     type ReplySlot = Rc<RefCell<Option<Sender<Result<SecretBytes>>>>>;
     type WebViewSlot = Rc<RefCell<Option<Rc<WebView>>>>;
@@ -281,6 +350,8 @@ mod windows {
         pub(crate) fn present(
             authentication_url: &Url,
             reply: Sender<Result<SecretBytes>>,
+            _product: Product,
+            fresh_account: bool,
         ) -> Self {
             let reply = Rc::new(RefCell::new(Some(reply)));
             let web_view = Rc::new(RefCell::new(None));
@@ -302,8 +373,14 @@ mod windows {
             let navigation_reply = Rc::clone(&reply);
             let popup_reply = Rc::clone(&reply);
             let popup_web_view = Rc::downgrade(&web_view);
+            let initial_url = if fresh_account {
+                "about:blank"
+            } else {
+                authentication_url.as_str()
+            };
             let builder = WebViewBuilder::new()
-                .with_url(authentication_url.as_str())
+                .with_url(initial_url)
+                .with_profile_name("superiority-battle-net")
                 .with_navigation_handler(move |location| {
                     !complete_callback(&navigation_reply, window, &location)
                 })
@@ -327,10 +404,74 @@ mod windows {
             let native_window = NativeWindowHandle(window);
             match builder.build(&native_window) {
                 Ok(view) => {
+                    if fresh_account {
+                        let cookies = match view.cookies() {
+                            Ok(cookies) => cookies,
+                            Err(error) => {
+                                fail_reply(
+                                    &reply,
+                                    &format!("Battle.net cookie reset failed: {error}"),
+                                );
+                                destroy_window(window, &web_view);
+                                return Self {
+                                    window: None,
+                                    web_view,
+                                    reply,
+                                };
+                            }
+                        };
+                        for cookie in &cookies {
+                            if let Err(error) = view.delete_cookie(cookie) {
+                                fail_reply(
+                                    &reply,
+                                    &format!("Battle.net cookie reset failed: {error}"),
+                                );
+                                destroy_window(window, &web_view);
+                                return Self {
+                                    window: None,
+                                    web_view,
+                                    reply,
+                                };
+                            }
+                        }
+                        if let Err(error) = view.clear_all_browsing_data() {
+                            fail_reply(
+                                &reply,
+                                &format!("Battle.net session reset failed: {error}"),
+                            );
+                            destroy_window(window, &web_view);
+                            return Self {
+                                window: None,
+                                web_view,
+                                reply,
+                            };
+                        }
+                        if let Err(error) = view.load_url(authentication_url.as_str()) {
+                            fail_reply(
+                                &reply,
+                                &format!("Battle.net authentication page failed: {error}"),
+                            );
+                            destroy_window(window, &web_view);
+                            return Self {
+                                window: None,
+                                web_view,
+                                reply,
+                            };
+                        }
+                    }
                     *web_view.borrow_mut() = Some(Rc::new(view));
                     unsafe {
-                        let _ = ShowWindow(window, SW_SHOW);
-                        let _ = SetForegroundWindow(window);
+                        if fresh_account {
+                            let _ = ShowWindow(window, SW_SHOW);
+                            let _ = SetForegroundWindow(window);
+                        } else {
+                            let _ = SetTimer(
+                                Some(window),
+                                AUTHENTICATION_REVEAL_TIMER,
+                                SILENT_SSO_GRACE_MILLIS,
+                                None,
+                            );
+                        }
                     }
                 }
                 Err(error) => {
@@ -436,6 +577,22 @@ mod windows {
         lparam: LPARAM,
     ) -> LRESULT {
         match message {
+            WM_TIMER if wparam.0 == AUTHENTICATION_REVEAL_TIMER => {
+                let _ = unsafe { KillTimer(Some(window), AUTHENTICATION_REVEAL_TIMER) };
+                let pending = WINDOW_REPLIES.with(|replies| {
+                    replies
+                        .borrow()
+                        .get(&window_key(window))
+                        .is_some_and(|reply| reply.borrow().is_some())
+                });
+                if pending {
+                    unsafe {
+                        let _ = ShowWindow(window, SW_SHOW);
+                        let _ = SetForegroundWindow(window);
+                    }
+                }
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 WINDOW_REPLIES.with(|replies| {
                     if let Some(reply) = replies.borrow().get(&window_key(window)) {
@@ -523,7 +680,7 @@ pub(crate) use windows::{WebAuthenticator, WebAuthenticatorHandle};
 use url::Url;
 
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
-use crate::bgs::SecretBytes;
+use superiority_core::bgs::SecretBytes;
 
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn callback_credential(location: &str) -> Option<SecretBytes> {

@@ -95,6 +95,9 @@ function statementsFor(
     case "message":
       statements.push(...messageStatements(db, feedId, session, event));
       break;
+    case "notice":
+      statements.push(...noticeStatements(db, feedId, session, event));
+      break;
     case "member_joined":
     case "member_left":
       statements.push(...memberStatements(db, feedId, session, event));
@@ -119,19 +122,21 @@ function sessionUpkeep(
   return db
     .prepare(
       `INSERT INTO sessions
-         (feed_id, id, client_version, started_at, last_seen_at, last_seq)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         (feed_id, id, product, client_version, started_at, last_seen_at, last_seq)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
        ON CONFLICT(feed_id, id) DO UPDATE SET
+         product = excluded.product,
          last_seen_at = max(last_seen_at, excluded.last_seen_at),
          last_seq = max(last_seq, excluded.last_seq),
          ended_at = CASE
-           WHEN excluded.last_seq > last_seq AND ?7 = 'session_ended' THEN excluded.last_seen_at
+           WHEN excluded.last_seq > last_seq AND ?8 = 'session_ended' THEN excluded.last_seen_at
            ELSE ended_at
          END`,
     )
     .bind(
       feedId,
       session.id,
+      session.product,
       session.client_version,
       session.started_at,
       lastSeenAt,
@@ -201,17 +206,26 @@ function messageStatements(
   event: WireEvent,
 ): D1PreparedStatement[] {
   const channel = requireChannel(event);
+  if (channel === null || typeof event.body !== "string") return [];
+  // Warcraft III chat has no sender yet: handle 0 + NULL name is the
+  // "no sender" sentinel, turned back into null by the read api. A sender
+  // that fails to parse reads the same way rather than losing the line.
   const sender = userField(event.sender);
-  if (channel === null || sender === null || typeof event.body !== "string") return [];
-  return [
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO messages
-           (feed_id, session_id, seq, channel_key, ts, sender_handle, sender_name, sender_clan, body)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-      )
-      .bind(feedId, session.id, event.seq, channel.key, event.ts, sender.handle, sender.name, sender.clan_tag, event.body),
-  ];
+  const kind = event.subkind === "emote" ? "emote" : "talk";
+  return [transcriptRow(db, feedId, session, event, channel.key, kind, sender, event.body)];
+}
+
+function noticeStatements(
+  db: D1Database,
+  feedId: string,
+  session: WireSession,
+  event: WireEvent,
+): D1PreparedStatement[] {
+  const channel = requireChannel(event);
+  const kind = event.subkind;
+  if (channel === null || typeof event.body !== "string") return [];
+  if (kind !== "broadcast" && kind !== "information") return [];
+  return [transcriptRow(db, feedId, session, event, channel.key, kind, null, event.body)];
 }
 
 function memberStatements(
@@ -223,8 +237,12 @@ function memberStatements(
   const channel = requireChannel(event);
   const user = userField(event.user);
   if (channel === null || user === null) return [];
+  // Membership changes are transcript rows too (empty body, the mover as
+  // sender); UNIQUE(feed_id, session_id, seq) dedupes retries as usual.
+  const line = transcriptRow(db, feedId, session, event, channel.key, event.kind, user, "");
   if (event.kind === "member_left") {
     return [
+      line,
       db
         .prepare(
           `DELETE FROM roster
@@ -233,7 +251,37 @@ function memberStatements(
         .bind(feedId, session.id, channel.key, user.handle),
     ];
   }
-  return [rosterUpsert(db, feedId, session, channel.key, user, event.seq, event.ts)];
+  return [line, rosterUpsert(db, feedId, session, channel.key, user, event.seq, event.ts)];
+}
+
+function transcriptRow(
+  db: D1Database,
+  feedId: string,
+  session: WireSession,
+  event: WireEvent,
+  channelKey: string,
+  kind: string,
+  sender: WireUser | null,
+  body: string,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT OR IGNORE INTO messages
+         (feed_id, session_id, seq, channel_key, ts, kind, sender_handle, sender_name, sender_clan, body)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    )
+    .bind(
+      feedId,
+      session.id,
+      event.seq,
+      channelKey,
+      event.ts,
+      kind,
+      sender?.handle ?? 0,
+      sender?.name ?? null,
+      sender?.clan_tag ?? null,
+      body,
+    );
 }
 
 function rosterStatements(
@@ -283,7 +331,7 @@ function rosterBulkUpsert(
     .prepare(
       `INSERT INTO roster
          (feed_id, session_id, channel_key, user_handle, name, clan_tag, presence, last_seq, updated_at,
-          portrait_table, portrait_offset, is_local, joined_order)
+          portrait_table, portrait_offset, is_local, joined_order, avatar, is_operator)
        SELECT ?1, ?2, ?3,
               CAST(json_extract(value, '$.handle') AS INTEGER),
               json_extract(value, '$.name'),
@@ -293,7 +341,9 @@ function rosterBulkUpsert(
               json_extract(value, '$.portrait.t'),
               json_extract(value, '$.portrait.o'),
               CASE WHEN json_extract(value, '$.is_local') THEN 1 ELSE 0 END,
-              json_extract(value, '$.joined_order')
+              json_extract(value, '$.joined_order'),
+              json_extract(value, '$.avatar'),
+              CASE WHEN json_extract(value, '$.is_operator') THEN 1 ELSE 0 END
        FROM json_each(?4)
        WHERE EXISTS (
          SELECT 1 FROM channels
@@ -305,7 +355,9 @@ function rosterBulkUpsert(
          portrait_table = COALESCE(excluded.portrait_table, roster.portrait_table),
          portrait_offset = COALESCE(excluded.portrait_offset, roster.portrait_offset),
          is_local = excluded.is_local,
-         joined_order = COALESCE(roster.joined_order, excluded.joined_order)
+         joined_order = COALESCE(roster.joined_order, excluded.joined_order),
+         avatar = COALESCE(excluded.avatar, roster.avatar),
+         is_operator = excluded.is_operator
        WHERE excluded.last_seq > roster.last_seq`,
     )
     .bind(feedId, session.id, channelKey, JSON.stringify(users), seq, ts);
@@ -324,8 +376,8 @@ function rosterUpsert(
     .prepare(
       `INSERT INTO roster
          (feed_id, session_id, channel_key, user_handle, name, clan_tag, presence, last_seq, updated_at,
-          portrait_table, portrait_offset, is_local, joined_order)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+          portrait_table, portrait_offset, is_local, joined_order, avatar, is_operator)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
        WHERE EXISTS (
          SELECT 1 FROM channels
          WHERE feed_id = ?1 AND session_id = ?2 AND key = ?3 AND closed_at IS NULL
@@ -336,7 +388,9 @@ function rosterUpsert(
          portrait_table = COALESCE(excluded.portrait_table, roster.portrait_table),
          portrait_offset = COALESCE(excluded.portrait_offset, roster.portrait_offset),
          is_local = excluded.is_local,
-         joined_order = COALESCE(roster.joined_order, excluded.joined_order)
+         joined_order = COALESCE(roster.joined_order, excluded.joined_order),
+         avatar = COALESCE(excluded.avatar, roster.avatar),
+         is_operator = excluded.is_operator
        WHERE excluded.last_seq > roster.last_seq`,
     )
     .bind(
@@ -353,6 +407,8 @@ function rosterUpsert(
       user.portrait?.o ?? null,
       user.is_local === true ? 1 : 0,
       user.joined_order ?? null,
+      user.avatar ?? null,
+      user.is_operator === true ? 1 : 0,
     );
 }
 

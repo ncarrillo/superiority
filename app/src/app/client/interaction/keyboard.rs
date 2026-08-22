@@ -7,6 +7,32 @@ impl SuperiorityView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // every link in the chain that has to hold for typing to reach the
+        // composer, in one line
+        let (composer_focused, composer_content, composer_cursor) =
+            if let Some(wc3) = self.session.wc3() {
+                (
+                    wc3.composer.is_focused(window),
+                    wc3.composer.content(),
+                    wc3.composer.cursor(),
+                )
+            } else if let Some(scr) = self.session.scr() {
+                (
+                    scr.composer.is_focused(window),
+                    scr.composer.content(),
+                    scr.composer.cursor(),
+                )
+            } else {
+                (
+                    self.session.composer.composer.is_focused(window),
+                    self.session.composer.composer.content(),
+                    self.session.composer.composer.cursor(),
+                )
+            };
+        Self::trace(format_args!(
+            "key {:?} product={:?} focus={composer_focused} content={composer_content:?} cursor={composer_cursor}",
+            event.keystroke.key, self.focused,
+        ));
         self.sync_text_inputs(cx);
         if self.updates.update_dialog_visible {
             if event.keystroke.modifiers.platform
@@ -35,7 +61,7 @@ impl SuperiorityView {
             cx.stop_propagation();
             return;
         }
-        if self.connection.dialog_visible {
+        if self.session.connection.dialog_visible {
             cx.stop_propagation();
             return;
         }
@@ -45,14 +71,17 @@ impl SuperiorityView {
             return;
         }
         if self.overlays.active == Some(Overlay::Friends)
-            && self.social.social_detail_open
-            && self.social.conversation_focused
+            && self.session.social.social_detail_open
+            && self.session.social.conversation_focused
         {
             if matches!(event.keystroke.key.as_str(), "enter" | "return") {
-                if self.social.send_message(
-                    self.connection.stage == ConnectionStage::Connected,
-                    self.runtime.commands.as_ref(),
-                ) {
+                let connected = self.session.connection.stage == ConnectionStage::Connected;
+                let commands = self.session.commands.clone();
+                if self
+                    .session
+                    .social
+                    .send_message(connected, commands.as_ref())
+                {
                     cx.notify();
                 }
                 cx.stop_propagation();
@@ -63,13 +92,22 @@ impl SuperiorityView {
             cx.stop_propagation();
             return;
         }
+        if self.focused == Product::Remastered {
+            self.on_scr_key_down(event, window, cx);
+            return;
+        }
+        if self.focused == Product::Warcraft3 {
+            self.on_wc3_key_down(event, window, cx);
+            return;
+        }
         if event.keystroke.modifiers.platform
             && event.keystroke.key.eq_ignore_ascii_case("c")
             && !self.text_input_focused(window)
-            && self.chat.transcript.selection.has_selection()
+            && self.session.chat.transcript.selection.has_selection()
         {
             let assets = self.chrome.ui_assets.clone();
             let rows = self
+                .session
                 .channels
                 .active()
                 .into_iter()
@@ -90,20 +128,20 @@ impl SuperiorityView {
                     (index, ui_chat::transcript_text(&line))
                 })
                 .collect::<Vec<_>>();
-            if let Some(text) = self.chat.transcript.selection.selected_text(&rows) {
+            if let Some(text) = self.session.chat.transcript.selection.selected_text(&rows) {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
                 cx.stop_propagation();
                 return;
             }
         }
-        if self.roster.roster.focused && self.overlays.active.is_none() {
+        if self.session.roster.roster.focused && self.overlays.active.is_none() {
             let handled = match event.keystroke.key.as_str() {
                 "escape" => {
                     if self.active_roster_filter().is_empty() {
-                        self.roster.roster.focused = false;
+                        self.session.roster.roster.focused = false;
                         self.focus_handle.focus(window, cx);
                     } else {
-                        self.roster.roster_input.clear();
+                        self.session.roster.roster_input.clear();
                         self.set_roster_filter(String::new());
                     }
                     true
@@ -151,20 +189,20 @@ impl SuperiorityView {
             }
             return;
         }
-        if !self.composer.composer_focused {
+        if !self.session.composer.composer_focused {
             return;
         }
         // while a command is being typed the composer answers to the popup
         // above it, not to the transcript below.
         if let Some(results) = self.command_results() {
-            let selected = self.composer.command_selected;
+            let selected = self.session.composer.command_selected;
             let handled = match event.keystroke.key.as_str() {
                 "up" => {
-                    self.composer.command_selected = results.step(selected, -1);
+                    self.session.composer.command_selected = results.step(selected, -1);
                     true
                 }
                 "down" => {
-                    self.composer.command_selected = results.step(selected, 1);
+                    self.session.composer.command_selected = results.step(selected, 1);
                     true
                 }
                 "tab" => {
@@ -178,7 +216,7 @@ impl SuperiorityView {
                     true
                 }
                 "escape" => {
-                    self.composer.command_dismissed = true;
+                    self.session.composer.command_dismissed = true;
                     self.begin_command_close(results, cx);
                     true
                 }
@@ -195,6 +233,13 @@ impl SuperiorityView {
                 cx.notify();
                 return;
             }
+        }
+        // with no popup open, escape is what leaves the party scope — the same
+        // exit the token and a second `/p` give
+        if event.keystroke.key == "escape" && self.session.composer.party_scope {
+            self.leave_party_scope(cx);
+            cx.stop_propagation();
+            return;
         }
         if matches!(event.keystroke.key.as_str(), "enter" | "return") {
             self.send_message(window, cx);

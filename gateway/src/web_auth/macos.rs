@@ -33,7 +33,7 @@ use wry::{
     dpi::{LogicalPosition, LogicalSize},
 };
 
-use sc2_core::{Error, Result, bgs::SecretBytes};
+use superiority_core::{Error, Result, bgs::SecretBytes};
 
 use super::{Cancellation, cancelled, parse_credential_redirect};
 

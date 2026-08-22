@@ -1,3 +1,21 @@
+const LEGACY_BACKGROUND_KEY: &str = "chatBackgroundIndex";
+
+const fn background_key(product: crate::Product) -> &'static str {
+    match product {
+        crate::Product::StarCraft2 => "chatBackgroundIndex.S2",
+        crate::Product::Remastered => "chatBackgroundIndex.S1",
+        crate::Product::Warcraft3 => "chatBackgroundIndex.W3",
+    }
+}
+
+const fn background_slot(product: crate::Product) -> usize {
+    match product {
+        crate::Product::StarCraft2 => 0,
+        crate::Product::Remastered => 1,
+        crate::Product::Warcraft3 => 2,
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use std::collections::BTreeMap;
@@ -6,10 +24,11 @@ mod macos {
     use objc2::rc::Retained;
     use objc2_foundation::{NSBundle, NSString, NSUserDefaults};
 
-    use crate::{chat::ChatChannel, native::protocol::MAX_JOINED_CHANNELS};
+    use crate::chat::ChatChannel;
+    // one game's wire protocol, named in full so the dependency is visible
+    use superiority_core::native::protocol::MAX_JOINED_CHANNELS;
 
     const PREFERENCE_SUITE: &str = "com.superiority.sc2-chat";
-    const BACKGROUND_KEY: &str = "chatBackgroundIndex";
     const SHOW_TIMESTAMPS_KEY: &str = "showChatTimestamps";
     const SHOW_MEMBERSHIP_KEY: &str = "showJoinLeaveNotifications";
     const LIVE_ENABLED_KEY: &str = "liveUplinkEnabled";
@@ -26,7 +45,7 @@ mod macos {
         pub path: &'static str,
     }
 
-    pub const BACKGROUNDS: [Background; 8] = [
+    pub const BACKGROUNDS: [Background; 12] = [
         Background {
             title: "Deep Nebula",
             path: "images/backgrounds/deep-nebula.png",
@@ -59,11 +78,27 @@ mod macos {
             title: "Last Stand",
             path: "images/backgrounds/last-stand.png",
         },
+        Background {
+            title: "Human Standard",
+            path: "images/backgrounds/wc3-human-standard.png",
+        },
+        Background {
+            title: "Night Elf Standard",
+            path: "images/backgrounds/wc3-night-elf-standard.png",
+        },
+        Background {
+            title: "Orc Standard",
+            path: "images/backgrounds/wc3-orc-standard.png",
+        },
+        Background {
+            title: "Undead Standard",
+            path: "images/backgrounds/wc3-undead-standard.png",
+        },
     ];
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct UserPreferences {
-        pub background_index: usize,
+        pub background_indices: [usize; crate::Product::ALL.len()],
         pub show_timestamps: bool,
         pub show_membership: bool,
         pub live_enabled: bool,
@@ -73,13 +108,20 @@ mod macos {
         pub fn load() -> Self {
             let defaults = app_defaults();
             let standard = NSUserDefaults::standardUserDefaults();
-            let background_index = integer(&defaults, BACKGROUND_KEY)
-                .or_else(|| integer(&standard, BACKGROUND_KEY))
+            let legacy_background_index = integer(&defaults, super::LEGACY_BACKGROUND_KEY)
+                .or_else(|| integer(&standard, super::LEGACY_BACKGROUND_KEY))
                 .and_then(|index| usize::try_from(index).ok())
-                .filter(|index| *index < BACKGROUNDS.len())
-                .unwrap_or_default();
+                .filter(|index| *index < BACKGROUNDS.len());
+            let background_indices = crate::Product::ALL.map(|product| {
+                integer(&defaults, super::background_key(product))
+                    .or_else(|| integer(&standard, super::background_key(product)))
+                    .and_then(|index| usize::try_from(index).ok())
+                    .filter(|index| *index < BACKGROUNDS.len())
+                    .or(legacy_background_index)
+                    .unwrap_or_default()
+            });
             Self {
-                background_index,
+                background_indices,
                 show_timestamps: boolean_with_fallback(
                     &defaults,
                     &standard,
@@ -96,24 +138,19 @@ mod macos {
             }
         }
 
-        pub fn background(self) -> &'static Background {
-            &BACKGROUNDS[self.background_index]
+        pub fn background(self, product: crate::Product) -> &'static Background {
+            &BACKGROUNDS[self.background_indices[super::background_slot(product)]]
         }
     }
 
-    pub fn save_background(index: usize) {
+    pub fn save_background(product: crate::Product, index: usize) {
         let Some(index) = BACKGROUNDS
             .get(index)
             .and_then(|_| isize::try_from(index).ok())
         else {
             return;
         };
-        let defaults = app_defaults();
-        defaults.setInteger_forKey(index, &NSString::from_str(BACKGROUND_KEY));
-        defaults.synchronize();
-        let standard = NSUserDefaults::standardUserDefaults();
-        standard.setInteger_forKey(index, &NSString::from_str(BACKGROUND_KEY));
-        standard.synchronize();
+        save_integer(super::background_key(product), index);
     }
 
     pub fn save_show_timestamps(value: bool) {
@@ -225,13 +262,20 @@ mod macos {
 
     #[cfg(test)]
     fn load_from(defaults: &NSUserDefaults) -> UserPreferences {
-        let background_index =
-            usize::try_from(defaults.integerForKey(&NSString::from_str(BACKGROUND_KEY)))
-                .ok()
+        let legacy_background_index = usize::try_from(
+            defaults.integerForKey(&NSString::from_str(super::LEGACY_BACKGROUND_KEY)),
+        )
+        .ok()
+        .filter(|index| *index < BACKGROUNDS.len());
+        let background_indices = crate::Product::ALL.map(|product| {
+            integer(defaults, super::background_key(product))
+                .and_then(|index| usize::try_from(index).ok())
                 .filter(|index| *index < BACKGROUNDS.len())
-                .unwrap_or_default();
+                .or(legacy_background_index)
+                .unwrap_or_default()
+        });
         UserPreferences {
-            background_index,
+            background_indices,
             show_timestamps: boolean(defaults, SHOW_TIMESTAMPS_KEY, true),
             show_membership: boolean(defaults, SHOW_MEMBERSHIP_KEY, true),
             live_enabled: boolean(defaults, LIVE_ENABLED_KEY, false),
@@ -352,7 +396,15 @@ mod macos {
             let suite_name = NSString::from_str(&suite);
             let defaults = suite_defaults(&suite).expect("test preference suite");
             defaults.removePersistentDomainForName(&suite_name);
-            defaults.setInteger_forKey(6, &NSString::from_str(BACKGROUND_KEY));
+            defaults.setInteger_forKey(6, &NSString::from_str(super::super::LEGACY_BACKGROUND_KEY));
+            defaults.setInteger_forKey(
+                3,
+                &NSString::from_str(super::super::background_key(crate::Product::Remastered)),
+            );
+            defaults.setInteger_forKey(
+                11,
+                &NSString::from_str(super::super::background_key(crate::Product::Warcraft3)),
+            );
             defaults.setBool_forKey(false, &NSString::from_str(SHOW_TIMESTAMPS_KEY));
             defaults.setBool_forKey(false, &NSString::from_str(SHOW_MEMBERSHIP_KEY));
             defaults.setBool_forKey(true, &NSString::from_str(LIVE_ENABLED_KEY));
@@ -360,14 +412,27 @@ mod macos {
             drop(defaults);
 
             let reloaded = suite_defaults(&suite).expect("reloaded test preference suite");
+            let preferences = load_from(&reloaded);
             assert_eq!(
-                load_from(&reloaded),
+                preferences,
                 UserPreferences {
-                    background_index: 6,
+                    background_indices: [6, 3, 11],
                     show_timestamps: false,
                     show_membership: false,
                     live_enabled: true,
                 }
+            );
+            assert_eq!(
+                preferences.background(crate::Product::StarCraft2).path,
+                BACKGROUNDS[6].path
+            );
+            assert_eq!(
+                preferences.background(crate::Product::Remastered).path,
+                BACKGROUNDS[3].path
+            );
+            assert_eq!(
+                preferences.background(crate::Product::Warcraft3).path,
+                BACKGROUNDS[11].path
             );
             reloaded.removePersistentDomainForName(&suite_name);
             reloaded.synchronize();
@@ -402,9 +467,10 @@ mod windows {
 
     use serde_json::{Map, Value};
 
-    use crate::{chat::ChatChannel, native::protocol::MAX_JOINED_CHANNELS};
+    use crate::chat::ChatChannel;
+    // one game's wire protocol, named in full so the dependency is visible
+    use superiority_core::native::protocol::MAX_JOINED_CHANNELS;
 
-    const BACKGROUND_KEY: &str = "chatBackgroundIndex";
     const SHOW_TIMESTAMPS_KEY: &str = "showChatTimestamps";
     const SHOW_MEMBERSHIP_KEY: &str = "showJoinLeaveNotifications";
     const LIVE_ENABLED_KEY: &str = "liveUplinkEnabled";
@@ -421,7 +487,7 @@ mod windows {
         pub path: &'static str,
     }
 
-    pub const BACKGROUNDS: [Background; 8] = [
+    pub const BACKGROUNDS: [Background; 12] = [
         Background {
             title: "Deep Nebula",
             path: "images/backgrounds/deep-nebula.png",
@@ -454,11 +520,27 @@ mod windows {
             title: "Last Stand",
             path: "images/backgrounds/last-stand.png",
         },
+        Background {
+            title: "Human Standard",
+            path: "images/backgrounds/wc3-human-standard.png",
+        },
+        Background {
+            title: "Night Elf Standard",
+            path: "images/backgrounds/wc3-night-elf-standard.png",
+        },
+        Background {
+            title: "Orc Standard",
+            path: "images/backgrounds/wc3-orc-standard.png",
+        },
+        Background {
+            title: "Undead Standard",
+            path: "images/backgrounds/wc3-undead-standard.png",
+        },
     ];
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct UserPreferences {
-        pub background_index: usize,
+        pub background_indices: [usize; crate::Product::ALL.len()],
         pub show_timestamps: bool,
         pub show_membership: bool,
         pub live_enabled: bool,
@@ -467,28 +549,36 @@ mod windows {
     impl UserPreferences {
         pub fn load() -> Self {
             let values = load_values();
-            let background_index = values
-                .get(BACKGROUND_KEY)
+            let legacy_background_index = values
+                .get(super::LEGACY_BACKGROUND_KEY)
                 .and_then(Value::as_u64)
                 .and_then(|index| usize::try_from(index).ok())
-                .filter(|index| *index < BACKGROUNDS.len())
-                .unwrap_or_default();
+                .filter(|index| *index < BACKGROUNDS.len());
+            let background_indices = crate::Product::ALL.map(|product| {
+                values
+                    .get(super::background_key(product))
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok())
+                    .filter(|index| *index < BACKGROUNDS.len())
+                    .or(legacy_background_index)
+                    .unwrap_or_default()
+            });
             Self {
-                background_index,
+                background_indices,
                 show_timestamps: boolean(&values, SHOW_TIMESTAMPS_KEY, true),
                 show_membership: boolean(&values, SHOW_MEMBERSHIP_KEY, true),
                 live_enabled: boolean(&values, LIVE_ENABLED_KEY, false),
             }
         }
 
-        pub fn background(self) -> &'static Background {
-            &BACKGROUNDS[self.background_index]
+        pub fn background(self, product: crate::Product) -> &'static Background {
+            &BACKGROUNDS[self.background_indices[super::background_slot(product)]]
         }
     }
 
-    pub fn save_background(index: usize) {
+    pub fn save_background(product: crate::Product, index: usize) {
         if index < BACKGROUNDS.len() {
-            save_value(BACKGROUND_KEY, Value::from(index));
+            save_value(super::background_key(product), Value::from(index));
         }
     }
 

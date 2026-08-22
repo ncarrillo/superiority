@@ -19,7 +19,7 @@ use std::{
 #[cfg(target_os = "macos")]
 use std::os::unix::fs::OpenOptionsExt;
 
-use sc2_core::native::Protocol;
+use superiority_core::native::Protocol;
 
 use crate::session::{Sweep, SweepUpdate};
 
@@ -32,7 +32,7 @@ enum Error {
     #[error(transparent)]
     Pcap(#[from] pcap_file::PcapError),
     #[error(transparent)]
-    Protocol(#[from] sc2_core::Error),
+    Protocol(#[from] superiority_core::Error),
     #[error("{0}")]
     Bootstrap(String),
     #[error("{0}")]
@@ -445,8 +445,8 @@ fn print_updates(updates: Vec<SweepUpdate>) {
             SweepUpdate::Activated(flow) => println!("⚡ {flow}"),
             SweepUpdate::Record(record) => {
                 let direction = match record.direction {
-                    sc2_core::native::inspect::Direction::Incoming => "S→C",
-                    sc2_core::native::inspect::Direction::Outgoing => "C→S",
+                    superiority_core::native::inspect::Direction::Incoming => "S→C",
+                    superiority_core::native::inspect::Direction::Outgoing => "C→S",
                 };
                 println!(
                     "{direction} #{:04} {}/{} {:>6} B  {}  {}",

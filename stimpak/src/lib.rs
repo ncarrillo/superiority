@@ -14,13 +14,14 @@ use std::{
     time::Duration,
 };
 
-use sc2_core::{
+use superiority_core::{
     auth::FileCredentialStore,
     bgs::SecretBytes,
     chat::ChatChannel,
     connection::{ClientCommand, ClientEvent, ClientHandle, Finished, spawn_client_with},
     native::WhisperTarget,
     observer::NoObserver,
+    product::Product,
 };
 
 use crate::auth::AuthWindow;
@@ -28,6 +29,12 @@ use crate::auth::AuthWindow;
 /// how long `stimpak_client_close` waits for a session to finish before giving
 /// up on it.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Stimpak is a `StarCraft II` binding and stays one. It exists to drive SC2
+/// bots; whichever products the client learns to speak after it are the app's
+/// business, not this FFI's, and widening the surface here would mean
+/// versioning it for every one of them.
+const STIMPAK_PRODUCT: Product = Product::StarCraft2;
 
 pub const STIMPAK_OK: i32 = 0;
 pub const STIMPAK_ERR_INVALID_ARGUMENT: i32 = -1;
@@ -50,7 +57,7 @@ pub struct Client {
     /// the reply for a sign-in the host must answer. core blocks on that reply,
     /// so at most one is ever outstanding — hence an option, not a map that
     /// grows every time a host ignores the event.
-    pending: Mutex<Option<(u64, Sender<sc2_core::Result<SecretBytes>>)>>,
+    pending: Mutex<Option<(u64, Sender<superiority_core::Result<SecretBytes>>)>>,
     next_auth: AtomicU64,
     /// set once the session thread is gone, so the end is reported exactly once.
     ended: AtomicBool,
@@ -83,8 +90,8 @@ unsafe fn text(value: *const c_char) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn auth_cancelled(detail: &str) -> sc2_core::Error {
-    sc2_core::Error::Authentication(detail.to_owned())
+fn auth_cancelled(detail: &str) -> superiority_core::Error {
+    superiority_core::Error::Authentication(detail.to_owned())
 }
 
 fn send(client: &Client, command: ClientCommand) -> i32 {
@@ -128,7 +135,7 @@ pub unsafe extern "C" fn stimpak_client_open(
             commands,
             events,
             finished,
-        } = spawn_client_with(Box::new(NoObserver), Box::new(store));
+        } = spawn_client_with(STIMPAK_PRODUCT, Box::new(NoObserver), Box::new(store));
         Box::into_raw(Box::new(Client {
             commands,
             events: Mutex::new(events),
@@ -208,6 +215,8 @@ pub unsafe extern "C" fn stimpak_client_connect(
             client,
             ClientCommand::Connect {
                 force_interactive,
+                expected_account_id: None,
+                expected_battle_tag: None,
                 channels: Vec::new(),
             },
         )
@@ -417,7 +426,7 @@ pub unsafe extern "C" fn stimpak_client_poll(client: *mut Client, timeout_ms: u3
         // when there is no window does the event surface, with its reply parked
         // under an id the host can quote back.
         let auth_id = match &received {
-            ClientEvent::Authentication { url, reply } => {
+            ClientEvent::Authentication { url, reply, .. } => {
                 if let Some(helper) = client.window.locate() {
                     let outcome = match AuthWindow::present(&helper, url.as_str()) {
                         Ok(Some(token)) => SecretBytes::new(token.into_bytes()),
@@ -467,7 +476,7 @@ pub unsafe extern "C" fn stimpak_string_free(value: *mut c_char) {
 /// the general channel's id, for `stimpak_client_join_public`.
 #[unsafe(no_mangle)]
 pub extern "C" fn stimpak_default_public_channel() -> u16 {
-    sc2_core::connection::DEFAULT_PUBLIC_CHANNEL
+    superiority_core::connection::DEFAULT_PUBLIC_CHANNEL
 }
 
 /// static; do not free.

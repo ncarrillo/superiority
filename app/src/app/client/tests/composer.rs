@@ -2,14 +2,15 @@ use crate::{
     app::client::{
         composer::{
             CommandKind, CommandResults, CommandRow, PersonRow, accents, command_word, match_span,
-            parse_command, unknown_command_notice,
+            no_party_notice, parse_command, unknown_command_notice,
         },
         join::{JoinRow, JoinSource},
     },
     chat::ChatChannel,
-    native::WhisperTarget,
 };
-use superiority_ui::PresenceKind;
+// one game's wire protocol, named in full so the dependency is visible
+use superiority_core::native::WhisperTarget;
+use superiority_ui::products::sc2::PresenceKind;
 
 /// the caret sits at the end of the line, which is where it is while you type.
 fn parse(line: &str) -> Option<(CommandKind, String)> {
@@ -44,6 +45,33 @@ fn only_a_whole_command_word_opens_the_popup() {
     assert_eq!(parse("/were you there"), None);
     assert_eq!(parse("look, /join general"), None);
     assert_eq!(parse("hello"), None);
+}
+
+#[test]
+fn the_party_scope_is_a_command_that_lists_nothing() {
+    // `/p` is a scope the field wears rather than a search: there is nobody to
+    // pick, so it parses like the others and opens no list
+    assert_eq!(parse("/p"), Some((CommandKind::Party, String::new())));
+    assert_eq!(
+        parse("/p ready in 30s"),
+        Some((CommandKind::Party, "ready in 30s".to_owned()))
+    );
+    // it is a whole word, like the rest — `/pro` is not a party
+    assert_eq!(parse("/pro"), None);
+
+    // green is the party colour and nothing else uses it, so the field says
+    // which scope it is in before anything is sent
+    let party = accents("/p ready");
+    assert_eq!(party.len(), 1);
+    assert_eq!(party[0].range, 0..2);
+    assert_eq!(party[0].color, 0x0047_d184);
+    assert_ne!(party[0].color, accents("/w nel")[0].color);
+    assert_ne!(party[0].color, accents("/join pro")[0].color);
+
+    // and it is a command we have, so it is never typed at the channel
+    assert_eq!(command_word("/p"), Some("p"));
+    assert!(unknown_command_notice("me").contains("/p"));
+    assert_eq!(no_party_notice(), "You are not in a party.");
 }
 
 #[test]
@@ -116,7 +144,7 @@ fn a_command_we_do_not_have_is_answered_rather_than_sent() {
     assert_eq!(command_word("/me waves"), Some("me"));
     assert_eq!(
         unknown_command_notice("me"),
-        "/me is not a command. The commands are /join and /w."
+        "/me is not a command. The commands are /join, /w, and /p."
     );
 
     // a bare slash, or one that opens an ordinary sentence, is just text
@@ -246,4 +274,39 @@ fn channel(name: &str) -> JoinRow {
         icon: "images/icons/channel.png",
         count: Some(96),
     }
+}
+
+#[test]
+fn a_run_of_party_lines_from_one_speaker_wears_the_chip_once() {
+    use crate::app::client::chat::{ChatLine, follows_party_line};
+    use superiority_ui::products::sc2::RosterUserTone;
+
+    let mut speaker = super::user(7, "NelsonTest91");
+    speaker.tone = RosterUserTone::Party;
+    let mut other = super::user(8, "ncarrillo");
+    other.tone = RosterUserTone::Party;
+    let channel = super::user(9, "TerranItUp");
+
+    let say = |sender: &crate::app::client::roster::UiUser| ChatLine::Message {
+        time: "7:36 PM".to_owned(),
+        sender: sender.clone(),
+        text: "rushing 12 pool".to_owned(),
+    };
+    let transcript = vec![
+        say(&channel),
+        say(&speaker),
+        say(&speaker),
+        say(&other),
+        say(&speaker),
+    ];
+
+    // the first party line after channel talk introduces itself
+    assert!(!follows_party_line(&transcript, 1, &transcript[1], true));
+    // the second from the same speaker does not
+    assert!(follows_party_line(&transcript, 2, &transcript[2], true));
+    // a new speaker starts a new run, and so does coming back after them
+    assert!(!follows_party_line(&transcript, 3, &transcript[3], true));
+    assert!(!follows_party_line(&transcript, 4, &transcript[4], true));
+    // channel talk never wears the chip at all
+    assert!(!follows_party_line(&transcript, 0, &transcript[0], true));
 }

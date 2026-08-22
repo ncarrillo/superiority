@@ -19,7 +19,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
-use sc2_core::native::inspect::{Direction, Record};
+use superiority_core::native::inspect::{Direction, Record};
 
 use crate::{Error, Result, session::FlowKey, session::SweepUpdate};
 

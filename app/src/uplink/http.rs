@@ -94,7 +94,12 @@ impl LiveHttp {
         if token.is_some() {
             request_headers.push(("Authorization".to_owned(), "<redacted>".to_owned()));
         }
-        crate::native::inspect::capture_http_request("POST", url, &request_headers, body);
+        superiority_core::native::inspect::capture_http_request(
+            "POST",
+            url,
+            &request_headers,
+            body,
+        );
         let mut request = self.agent.post(url).content_type("application/json");
         if let Some(token) = token {
             request = request.header("Authorization", &format!("Bearer {token}"));
@@ -122,7 +127,7 @@ impl LiveHttp {
             .limit(MAX_RESPONSE_BYTES)
             .read_to_vec()
             .map_err(|error| PostError::Retryable(format!("read: {error}")))?;
-        crate::native::inspect::capture_http_response(
+        superiority_core::native::inspect::capture_http_response(
             "POST",
             url,
             status,

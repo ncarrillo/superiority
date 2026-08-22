@@ -17,8 +17,8 @@ fn user(handle: u32, name: &str) -> UiUser {
         clan_tag: None,
         presence: PresenceKind::Available,
         portrait: None,
-        tone: superiority_ui::RosterUserTone::Normal,
-        segment: superiority_ui::RosterSegment::Everyone,
+        tone: superiority_ui::products::sc2::RosterUserTone::Normal,
+        segment: superiority_ui::products::sc2::RosterSegment::Everyone,
         own_clan: false,
     }
 }

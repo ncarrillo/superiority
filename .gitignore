@@ -51,3 +51,4 @@ tools/sunken-redirect/state/
 *credentials*.bin
 stimpak/csharp/**/bin/
 stimpak/csharp/**/obj/
+research/.venv

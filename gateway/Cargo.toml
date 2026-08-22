@@ -12,7 +12,7 @@ crossterm = "0.29"
 ctrlc = "3"
 rand = "0.9"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
-sc2_core = { package = "superiority-core", path = "../core" }
+superiority-core = { path = "../core" }
 thiserror = "2"
 url = "2"
 

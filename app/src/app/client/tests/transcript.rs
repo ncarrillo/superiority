@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::client::session::adopt_identity;
+use crate::app::client::sessions::adopt_identity;
 
 fn with_portrait(mut user: UiUser) -> UiUser {
     user.portrait = Some(std::sync::Arc::new(gpui::RenderImage::new(vec![

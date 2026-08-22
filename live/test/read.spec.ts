@@ -30,10 +30,11 @@ describe("read api", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     const body = (await response.json()) as {
-      status: { state: string; session: { id: string } };
+      status: { product: string; state: string; session: { id: string } };
       channels: Array<{ key: string; member_count: number }>;
     };
     expect(body.status.session.id).toBe(basic.session.id);
+    expect(body.status.product).toBe("sc2");
     expect(body.channels).toEqual([
       expect.objectContaining({ key: "public:1033", member_count: 2 }),
     ]);
@@ -42,6 +43,7 @@ describe("read api", () => {
   it("keeps the last confirmed snapshot while a replacement reconnects", async () => {
     const reconnecting: WireSession = {
       id: "11112222333344445555666677778888",
+      product: "sc2",
       client_version: "0.1.23",
       started_at: Date.now(),
     };
@@ -67,6 +69,34 @@ describe("read api", () => {
     expect(overview.channels.map((channel) => channel.key)).toEqual(["public:1033"]);
   });
 
+  it("reports the product that owns the visible channel snapshot", async () => {
+    const remastered: WireSession = {
+      id: "aaaabbbbccccddddeeeeffff00001111",
+      product: "scr",
+      client_version: "0.1.34",
+      started_at: Date.now(),
+    };
+    await store(remastered, [
+      { seq: 1, ts: Date.now(), kind: "sync_started" },
+      {
+        seq: 2,
+        ts: Date.now() + 1,
+        kind: "roster",
+        channel: { key: "private:Op Superiority", name: "Op Superiority" },
+        complete: true,
+        users: [],
+      },
+      { seq: 3, ts: Date.now() + 2, kind: "session_synced" },
+    ]);
+
+    const overview = (await (await get(`/v1/feeds/${FEED}/overview`)).json()) as {
+      status: { product: string };
+      channels: Array<{ key: string }>;
+    };
+    expect(overview.status.product).toBe("scr");
+    expect(overview.channels.map((channel) => channel.key)).toEqual(["private:Op Superiority"]);
+  });
+
   it("reports explicit disconnects offline without discarding the roster", async () => {
     const session = basic.session as WireSession;
     await store(session, [{ seq: 9, ts: Date.now(), kind: "session_ended" }]);
@@ -86,6 +116,7 @@ describe("read api", () => {
   it("preserves chat history across sessions", async () => {
     const next: WireSession = {
       id: "99992222333344445555666677778888",
+      product: "sc2",
       client_version: "0.1.23",
       started_at: Date.now(),
     };
@@ -99,12 +130,33 @@ describe("read api", () => {
     }]);
     const body = (await (await get(
       `/v1/feeds/${FEED}/channels/${encodeURIComponent("public:1033")}/messages`,
-    )).json()) as { messages: Array<{ body: string }> };
-    expect(body.messages.map((message) => message.body)).toEqual([
-      "gl hf",
-      "anyone up for 2v2?",
-      "after reconnect",
+    )).json()) as { messages: Array<{ kind: string; body: string }> };
+    expect(body.messages.map((message) => [message.kind, message.body])).toEqual([
+      ["talk", "gl hf"],
+      ["member_left", ""],
+      ["talk", "anyone up for 2v2?"],
+      ["talk", "after reconnect"],
     ]);
+  });
+
+  it("carries membership through the transcript and defaults chat to talk", async () => {
+    const body = (await (await get(
+      `/v1/feeds/${FEED}/channels/${encodeURIComponent("public:1033")}/messages`,
+    )).json()) as {
+      messages: Array<{ kind: string; body: string; sender: { handle: number; name: string } | null }>;
+    };
+    // pre-subkind chat reads back as plain talk, with its sender intact.
+    expect(body.messages[0]).toMatchObject({
+      kind: "talk",
+      body: "gl hf",
+      sender: { handle: 12345, name: "Radiant" },
+    });
+    // the leave is a transcript row now: empty body, the mover as sender.
+    expect(body.messages[1]).toMatchObject({
+      kind: "member_left",
+      body: "",
+      sender: { handle: 991, name: "Zergling" },
+    });
   });
 
   it("pages messages and exposes public cors", async () => {

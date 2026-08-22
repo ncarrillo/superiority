@@ -7,6 +7,7 @@ const FEED_A = "aaaaaaaaaaaaa";
 const FEED_B = "bbbbbbbbbbbbb";
 const session: WireSession = {
   id: "ffeeddccbbaa99887766554433221100",
+  product: "sc2",
   client_version: "0.1.23",
   started_at: 1_754_700_100_000,
 };
@@ -112,6 +113,57 @@ describe("ordered persistence", () => {
     const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM messages WHERE seq = 1`)
       .first<{ count: number }>();
     expect(row?.count).toBe(2);
+  });
+
+  it("stores the no-sender sentinel and the notice kinds", async () => {
+    const channel = { key: "public:9", name: "Brood War USA-9" };
+    await store(FEED_A, [
+      { seq: 1, ts: 1_754_700_100_001, kind: "message", channel, body: "who said that" },
+      { seq: 2, ts: 1_754_700_100_002, kind: "message", channel, subkind: "emote", sender: { handle: 1, name: "Alpha" }, body: "waves" },
+      { seq: 3, ts: 1_754_700_100_003, kind: "notice", channel, subkind: "broadcast", body: "shutdown soon" },
+      { seq: 4, ts: 1_754_700_100_004, kind: "notice", channel, subkind: "information", body: "welcome" },
+    ]);
+    const rows = await env.DB.prepare(
+      `SELECT kind, sender_handle, sender_name, sender_clan, body FROM messages WHERE feed_id = ?1 ORDER BY id`,
+    ).bind(FEED_A).all<Record<string, unknown>>();
+    expect(rows.results).toEqual([
+      { kind: "talk", sender_handle: 0, sender_name: null, sender_clan: null, body: "who said that" },
+      { kind: "emote", sender_handle: 1, sender_name: "Alpha", sender_clan: null, body: "waves" },
+      { kind: "broadcast", sender_handle: 0, sender_name: null, sender_clan: null, body: "shutdown soon" },
+      { kind: "information", sender_handle: 0, sender_name: null, sender_clan: null, body: "welcome" },
+    ]);
+  });
+
+  it("writes membership to the transcript beside the roster, idempotently", async () => {
+    const channel = { key: "public:1033", name: "General" };
+    const events = [
+      { seq: 1, ts: 1_754_700_100_001, kind: "member_joined", channel, user: { handle: 5, name: "Probe", clan_tag: "TOSS" } },
+      { seq: 2, ts: 1_754_700_100_002, kind: "member_left", channel, user: { handle: 5, name: "Probe", clan_tag: "TOSS" } },
+    ] satisfies WireEvent[];
+    await store(FEED_A, events);
+    await store(FEED_A, events);
+    const rows = await env.DB.prepare(
+      `SELECT kind, sender_handle, sender_name, sender_clan, body FROM messages WHERE feed_id = ?1 ORDER BY id`,
+    ).bind(FEED_A).all<Record<string, unknown>>();
+    expect(rows.results).toEqual([
+      { kind: "member_joined", sender_handle: 5, sender_name: "Probe", sender_clan: "TOSS", body: "" },
+      { kind: "member_left", sender_handle: 5, sender_name: "Probe", sender_clan: "TOSS", body: "" },
+    ]);
+    expect(await names()).toEqual([]);
+  });
+
+  it("keeps a known avatar when an update omits it, but not operator status", async () => {
+    const channel = { key: "public:1033", name: "General" };
+    await store(FEED_A, [
+      { seq: 1, ts: 1_754_700_100_001, kind: "sync_started" },
+      { seq: 2, ts: 1_754_700_100_002, kind: "roster", channel, complete: true, users: [{ handle: 1, name: "Alpha", avatar: "zealot", is_operator: true }] },
+      { seq: 3, ts: 1_754_700_100_003, kind: "session_synced" },
+      { seq: 4, ts: 1_754_700_100_004, kind: "roster_delta", channel, users: [{ handle: 1, name: "Alpha", presence: "in_lobby" }] },
+    ]);
+    const row = await env.DB.prepare(
+      `SELECT avatar, is_operator, presence FROM roster WHERE feed_id = ?1 AND user_handle = 1`,
+    ).bind(FEED_A).first<Record<string, unknown>>();
+    expect(row).toEqual({ avatar: "zealot", is_operator: 0, presence: "in_lobby" });
   });
 
   it("never lets delayed client timestamps win session freshness", async () => {

@@ -12,9 +12,12 @@
 //!   event lazily announces the session, so a disabled uplink is silent;
 //! - a 401/403 latches the uplink off until restart (or a new link).
 
+mod classic;
 pub mod config;
 pub mod http;
 pub mod model;
+mod scr;
+mod wc3;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -74,7 +77,10 @@ impl UplinkControl {
 enum TapMessage {
     /// A new Battle.net connection began; subsequent events belong to it.
     Session(SessionMeta),
-    Event(EventDto),
+    /// One event, tagged with the session it belongs to. Several products'
+    /// sessions share this channel now, so an untagged event could not be put
+    /// in the right envelope.
+    Event { session: String, dto: EventDto },
 }
 
 /// The network thread's handle: mint one [`SessionTap`] per connection.
@@ -108,6 +114,7 @@ impl Publisher {
             control: self.control.clone(),
             meta: SessionMeta {
                 id: format!("{:032x}", rand::random::<u128>()),
+                product: "sc2",
                 client_version: CLIENT_VERSION,
                 started_at: now_ms(),
             },
@@ -254,20 +261,14 @@ impl SessionTap {
     }
 
     fn announce(&mut self) -> bool {
-        if self.announced {
-            return true;
-        }
-        if self
-            .sender
-            .try_send(TapMessage::Session(self.meta.clone()))
-            .is_err()
-        {
-            self.control.stats.note_dropped(1);
-            return false;
-        }
-        self.announced = true;
-        self.emit(EventKind::SessionStarted);
-        true
+        announce_session(
+            &self.sender,
+            &self.control,
+            &self.meta,
+            &mut self.announced,
+            &mut self.next_seq,
+            &mut self.pending_dropped,
+        )
     }
 
     fn reconcile(&mut self) {
@@ -283,34 +284,92 @@ impl SessionTap {
     }
 
     fn emit(&mut self, kind: EventKind) {
-        if self.pending_dropped > 0 {
-            let marker = EventDto {
-                seq: self.next_seq,
-                ts: now_ms(),
-                kind: EventKind::Dropped {
-                    count: self.pending_dropped,
-                },
-            };
-            self.next_seq += 1;
-            match self.sender.try_send(TapMessage::Event(marker)) {
-                Ok(()) => self.pending_dropped = 0,
-                Err(TrySendError::Full(_)) => {
-                    self.pending_dropped += 1;
-                    self.control.stats.note_dropped(1);
-                }
-                Err(TrySendError::Disconnected(_)) => return,
-            }
-        }
-        let dto = EventDto {
-            seq: self.next_seq,
-            ts: now_ms(),
+        emit_event(
+            &self.sender,
+            &self.control,
+            &self.meta,
+            &mut self.next_seq,
+            &mut self.pending_dropped,
             kind,
+        );
+    }
+}
+
+/// Sends the one-time session announcement, returning whether the tap may go on
+/// to emit. Shared by the `StarCraft II` tap and the classic one so the
+/// announce-once rule has a single home.
+fn announce_session(
+    sender: &SyncSender<TapMessage>,
+    control: &UplinkControl,
+    meta: &SessionMeta,
+    announced: &mut bool,
+    next_seq: &mut u64,
+    pending_dropped: &mut u64,
+) -> bool {
+    if *announced {
+        return true;
+    }
+    if sender.try_send(TapMessage::Session(meta.clone())).is_err() {
+        control.stats.note_dropped(1);
+        return false;
+    }
+    *announced = true;
+    emit_event(
+        sender,
+        control,
+        meta,
+        next_seq,
+        pending_dropped,
+        EventKind::SessionStarted,
+    );
+    true
+}
+
+/// Emits one event onto the channel, tagged with its session, assigning the
+/// sequence number and preceding it with a `Dropped` marker if the last send
+/// could not fit. Shared by every tap so sequence gaps and drop accounting stay
+/// identical across products.
+fn emit_event(
+    sender: &SyncSender<TapMessage>,
+    control: &UplinkControl,
+    meta: &SessionMeta,
+    next_seq: &mut u64,
+    pending_dropped: &mut u64,
+    kind: EventKind,
+) {
+    if *pending_dropped > 0 {
+        let marker = EventDto {
+            seq: *next_seq,
+            ts: now_ms(),
+            kind: EventKind::Dropped {
+                count: *pending_dropped,
+            },
         };
-        self.next_seq += 1;
-        if let Err(TrySendError::Full(_)) = self.sender.try_send(TapMessage::Event(dto)) {
-            self.pending_dropped += 1;
-            self.control.stats.note_dropped(1);
+        *next_seq += 1;
+        match sender.try_send(TapMessage::Event {
+            session: meta.id.clone(),
+            dto: marker,
+        }) {
+            Ok(()) => *pending_dropped = 0,
+            Err(TrySendError::Full(_)) => {
+                *pending_dropped += 1;
+                control.stats.note_dropped(1);
+            }
+            Err(TrySendError::Disconnected(_)) => return,
         }
+    }
+    let dto = EventDto {
+        seq: *next_seq,
+        ts: now_ms(),
+        kind,
+    };
+    *next_seq += 1;
+    if let Err(TrySendError::Full(_)) = sender.try_send(TapMessage::Event {
+        session: meta.id.clone(),
+        dto,
+    }) {
+        *pending_dropped += 1;
+        control.stats.note_dropped(1);
     }
 }
 
@@ -323,13 +382,29 @@ impl Drop for SessionTap {
 // The core connects through these; the inherent methods above stay the uplink's
 // own API. `self.method(..)` resolves to the inherent, not the trait, so the
 // delegation is a call, not a loop.
-impl crate::observer::SessionObserverFactory for Publisher {
-    fn begin_session(&self, channels: &[ChatChannel]) -> Box<dyn crate::observer::SessionObserver> {
+impl superiority_core::observer::SessionObserverFactory for Publisher {
+    fn begin_session(
+        &self,
+        channels: &[ChatChannel],
+    ) -> Box<dyn superiority_core::observer::SessionObserver> {
         Box::new(self.begin_session(channels))
+    }
+
+    fn begin_classic_session(
+        &self,
+        product: superiority_core::product::Product,
+        local_identity: Option<String>,
+    ) -> Box<dyn superiority_core::observer::SessionObserver> {
+        Box::new(classic::ClassicSessionTap::new(
+            self.sender.clone(),
+            self.control.clone(),
+            product,
+            local_identity,
+        ))
     }
 }
 
-impl crate::observer::SessionObserver for SessionTap {
+impl superiority_core::observer::SessionObserver for SessionTap {
     fn observe(&mut self, event: &ChatEvent) {
         self.observe(event);
     }
@@ -396,43 +471,55 @@ enum FlushOutcome {
     Dropped,
 }
 
+/// One product's session buffered on the uplink thread. A feed can carry
+/// several at once — one per game — so each keeps its own envelope and its own
+/// batch; they never share a POST. `ended` marks a session that sent
+/// `SessionEnded`, so it can be pruned once its last batch is away.
+struct SessionSink {
+    meta: SessionMeta,
+    batcher: Batcher,
+    ended: bool,
+}
+
 fn run_worker(receiver: &Receiver<TapMessage>, control: &UplinkControl) {
     let http = LiveHttp::new();
-    let mut batcher = Batcher::default();
+    let mut sessions: BTreeMap<String, SessionSink> = BTreeMap::new();
     let mut backoff = Backoff::default();
     let mut next_attempt = Instant::now();
     let mut registration_backoff = Backoff::default();
     let mut next_registration = Instant::now();
-    let mut session: Option<SessionMeta> = None;
 
     loop {
-        match receiver.recv_timeout(wait_duration(&batcher, next_attempt)) {
+        match receiver.recv_timeout(wait_duration(&sessions, next_attempt)) {
             Ok(TapMessage::Session(meta)) => {
-                // Never mix two connections in one envelope: push the old
-                // session's remainder out (or drop it) before switching.
-                if !batcher.is_empty() {
-                    let _ = flush(
-                        &http,
-                        control,
-                        &mut batcher,
-                        &mut backoff,
-                        &mut next_attempt,
-                        session.as_ref(),
-                        true,
-                    );
-                    drain_as_dropped(&mut batcher, control);
-                }
-                session = Some(meta);
+                // Each connection gets its own sink; a second product announcing
+                // no longer forces the first's batch out. Re-announcing keeps
+                // the sink and refreshes the meta.
+                sessions
+                    .entry(meta.id.clone())
+                    .and_modify(|sink| sink.meta = meta.clone())
+                    .or_insert_with(|| SessionSink {
+                        meta,
+                        batcher: Batcher::default(),
+                        ended: false,
+                    });
             }
-            Ok(TapMessage::Event(dto)) => {
-                let dropped = batcher.push(dto, Instant::now());
-                if dropped > 0 {
-                    control.stats.note_dropped(dropped);
+            Ok(TapMessage::Event { session, dto }) => {
+                // An event always follows its session's announcement; one for an
+                // unknown (or already-pruned) session has nowhere to go.
+                if let Some(sink) = sessions.get_mut(&session) {
+                    if matches!(dto.kind, EventKind::SessionEnded) {
+                        sink.ended = true;
+                    }
+                    let dropped = sink.batcher.push(dto, Instant::now());
+                    if dropped > 0 {
+                        control.stats.note_dropped(dropped);
+                    }
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                shutdown_flush(control, &mut batcher, session.as_ref());
+                shutdown_flush_all(control, &mut sessions);
                 return;
             }
         }
@@ -443,20 +530,25 @@ fn run_worker(receiver: &Receiver<TapMessage>, control: &UplinkControl) {
             &mut registration_backoff,
             &mut next_registration,
         );
-        let _ = flush(
+        flush_all(
             &http,
             control,
-            &mut batcher,
+            &mut sessions,
             &mut backoff,
             &mut next_attempt,
-            session.as_ref(),
-            false,
         );
+        // A session that has ended and drained holds nothing worth keeping;
+        // dropping it keeps the map bounded across a long run of reconnects.
+        sessions.retain(|_, sink| !(sink.ended && sink.batcher.is_empty()));
     }
 }
 
-fn wait_duration(batcher: &Batcher, next_attempt: Instant) -> Duration {
-    let Some(deadline) = batcher.flush_deadline() else {
+fn wait_duration(sessions: &BTreeMap<String, SessionSink>, next_attempt: Instant) -> Duration {
+    let Some(deadline) = sessions
+        .values()
+        .filter_map(|sink| sink.batcher.flush_deadline())
+        .min()
+    else {
         return IDLE_POLL;
     };
     deadline
@@ -465,19 +557,34 @@ fn wait_duration(batcher: &Batcher, next_attempt: Instant) -> Duration {
         .clamp(Duration::from_millis(50), Duration::from_secs(1))
 }
 
+/// Flushes every session whose batch is due, each as its own envelope. The
+/// backoff and next-attempt clock are shared because they describe the one
+/// endpoint, not any one session.
+fn flush_all(
+    http: &LiveHttp,
+    control: &UplinkControl,
+    sessions: &mut BTreeMap<String, SessionSink>,
+    backoff: &mut Backoff,
+    next_attempt: &mut Instant,
+) {
+    for sink in sessions.values_mut() {
+        let _ = flush(http, control, sink, backoff, next_attempt, false);
+    }
+}
+
 fn flush(
     http: &LiveHttp,
     control: &UplinkControl,
-    batcher: &mut Batcher,
+    sink: &mut SessionSink,
     backoff: &mut Backoff,
     next_attempt: &mut Instant,
-    session: Option<&SessionMeta>,
     force: bool,
 ) -> FlushOutcome {
     let now = Instant::now();
     if !force && now < *next_attempt {
         return FlushOutcome::NothingDue;
     }
+    let batcher = &mut sink.batcher;
     let batch = if force {
         let batch = batcher.take_now();
         if batch.is_empty() {
@@ -492,10 +599,7 @@ fn flush(
     };
 
     let config = control.snapshot();
-    let Some(session) = session else {
-        note_batch_dropped(control, &batch);
-        return FlushOutcome::Dropped;
-    };
+    let session = &sink.meta;
     // Turned off mid-flight, or latched out: the data stops here.
     if !config.enabled || control.stats.auth_failed.load(Ordering::Relaxed) {
         note_batch_dropped(control, &batch);
@@ -572,27 +676,21 @@ fn drain_as_dropped(batcher: &mut Batcher, control: &UplinkControl) {
     }
 }
 
-fn shutdown_flush(control: &UplinkControl, batcher: &mut Batcher, session: Option<&SessionMeta>) {
+fn shutdown_flush_all(control: &UplinkControl, sessions: &mut BTreeMap<String, SessionSink>) {
     let deadline = Instant::now() + SHUTDOWN_FLUSH_DEADLINE;
     let http = LiveHttp::brief();
     let mut backoff = Backoff::default();
     let mut next_attempt = Instant::now();
-    while !batcher.is_empty() && Instant::now() < deadline {
-        match flush(
-            &http,
-            control,
-            batcher,
-            &mut backoff,
-            &mut next_attempt,
-            session,
-            true,
-        ) {
-            FlushOutcome::Sent => {}
-            // At shutdown there is no later; whatever could not go, goes down.
-            FlushOutcome::NothingDue | FlushOutcome::Deferred | FlushOutcome::Dropped => break,
+    for sink in sessions.values_mut() {
+        while !sink.batcher.is_empty() && Instant::now() < deadline {
+            match flush(&http, control, sink, &mut backoff, &mut next_attempt, true) {
+                FlushOutcome::Sent => {}
+                // At shutdown there is no later; whatever could not go, goes down.
+                FlushOutcome::NothingDue | FlushOutcome::Deferred | FlushOutcome::Dropped => break,
+            }
         }
+        drain_as_dropped(&mut sink.batcher, control);
     }
-    drain_as_dropped(batcher, control);
 }
 
 #[derive(Deserialize)]
@@ -611,7 +709,7 @@ struct RegisteredFeed {
 /// happens in the caller.
 fn register_once(http: &LiveHttp, base: &str) -> Result<RegisteredFeed, String> {
     validate_endpoint(base)?;
-    let body = format!("{{\"client_version\":\"{CLIENT_VERSION}\"}}");
+    let body = format!("{{\"product\":\"sc2\",\"client_version\":\"{CLIENT_VERSION}\"}}");
     let response = http
         .post_json(&format!("{base}/v1/feeds"), None, body.as_bytes())
         .map_err(|error| match error {
@@ -693,7 +791,7 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::chat::{ChatChannel, ChatUser};
-    use crate::native::presence::PresenceState;
+    use superiority_core::native::presence::PresenceState;
 
     fn test_publisher(capacity: usize) -> (Publisher, Receiver<TapMessage>, UplinkControl) {
         let control = UplinkControl::new();
@@ -755,7 +853,7 @@ mod tests {
         assert_eq!(meta.id.len(), 32);
         let seqs: Vec<u64> = std::iter::from_fn(|| receiver.try_recv().ok())
             .map(|message| match message {
-                TapMessage::Event(dto) => dto.seq,
+                TapMessage::Event { dto, .. } => dto.seq,
                 TapMessage::Session(_) => panic!("only one session"),
             })
             .collect();
@@ -790,10 +888,13 @@ mod tests {
         assert!(matches!(messages.first(), Some(TapMessage::Session(_))));
         assert!(messages.iter().any(|message| matches!(
             message,
-            TapMessage::Event(EventDto {
-                kind: EventKind::Heartbeat,
+            TapMessage::Event {
+                dto: EventDto {
+                    kind: EventKind::Heartbeat,
+                    ..
+                },
                 ..
-            })
+            }
         )));
     }
 
@@ -813,7 +914,7 @@ mod tests {
         tap.observe(&message(0, "arrives"));
         let mut got_dropped_marker = false;
         let mut last_seq = 0;
-        while let Ok(TapMessage::Event(dto)) = receiver.try_recv() {
+        while let Ok(TapMessage::Event { dto, .. }) = receiver.try_recv() {
             if matches!(dto.kind, EventKind::Dropped { .. }) {
                 got_dropped_marker = true;
             }

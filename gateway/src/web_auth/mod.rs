@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sc2_core::{Error, Result, bgs::SecretBytes};
+use superiority_core::{Error, Result, bgs::SecretBytes};
 use url::Url;
 
 const MAX_CREDENTIAL_BYTES: usize = 1024;

@@ -2,9 +2,14 @@
 
 export interface WireSession {
   id: string;
+  product: ProductSlug;
   client_version: string;
   started_at: number;
 }
+
+export type ProductSlug = "sc2" | "scr" | "wc3";
+
+const PRODUCTS = new Set<ProductSlug>(["sc2", "scr", "wc3"]);
 
 export interface WireChannel {
   key: string;
@@ -22,6 +27,8 @@ export interface WireUser {
   clan_tag?: string | null;
   presence?: string | null;
   portrait?: WirePortrait | null;
+  avatar?: string | null;
+  is_operator?: boolean | null;
   is_local?: boolean | null;
   joined_order?: number | null;
 }
@@ -30,6 +37,7 @@ export type WireEvent = {
   seq: number;
   ts: number;
   kind: string;
+  subkind?: string;
   channel?: WireChannel;
   sender?: WireUser;
   user?: WireUser;
@@ -60,11 +68,29 @@ const EVENT_KINDS = new Set([
   "joined",
   "left",
   "message",
+  "notice",
   "member_joined",
   "member_left",
   "roster",
   "roster_delta",
   "dropped",
+]);
+
+// What a stored transcript row is (messages.kind). Chat refines itself with
+// an optional subkind (talk unless said otherwise); notices must say which;
+// membership rows are written from the member events.
+export type MessageKind = "talk" | "emote" | "broadcast" | "information" | "member_joined" | "member_left";
+
+const MESSAGE_SUBKINDS = new Set(["talk", "emote"]);
+const NOTICE_SUBKINDS = new Set(["broadcast", "information"]);
+
+export const MESSAGE_KINDS: ReadonlySet<MessageKind> = new Set<MessageKind>([
+  "talk",
+  "emote",
+  "broadcast",
+  "information",
+  "member_joined",
+  "member_left",
 ]);
 
 const CHANNEL_KEY_NUMERIC = /^(?:public|club):\d{1,10}$/;
@@ -79,6 +105,10 @@ export function validateEnvelope(data: unknown): Valid | Invalid {
   const session = data.session;
   if (!isRecord(session)) return fail("session: not an object");
   if (!isNonEmptyString(session.id, 64)) return fail("session.id: not a string of 1..64 chars");
+  // Envelopes produced before product-aware Live sessions were introduced
+  // can only have come from SC2. Keep accepting them during rollout.
+  const product = session.product === undefined ? "sc2" : session.product;
+  if (!isProductSlug(product)) return fail("session.product: unsupported product");
   if (!isString(session.client_version, 32)) return fail("session.client_version: not a string of <=32 chars");
   if (!isPositiveInt(session.started_at)) return fail("session.started_at: not a positive integer");
 
@@ -103,12 +133,17 @@ export function validateEnvelope(data: unknown): Valid | Invalid {
       v: 1,
       session: {
         id: session.id as string,
+        product,
         client_version: session.client_version as string,
         started_at: session.started_at as number,
       },
       events: events as WireEvent[],
     },
   };
+}
+
+function isProductSlug(value: unknown): value is ProductSlug {
+  return typeof value === "string" && PRODUCTS.has(value as ProductSlug);
 }
 
 function validateEvent(event: unknown, index: number): string | null {
@@ -129,6 +164,19 @@ function validateEvent(event: unknown, index: number): string | null {
   }
   if (event.body !== undefined && !isString(event.body, MAX_MESSAGE_CHARS)) {
     return `${at}.body: not a string of <=${MAX_MESSAGE_CHARS} chars`;
+  }
+  if (event.kind === "message") {
+    if (typeof event.body !== "string") return `${at}.body: required`;
+    if (event.subkind !== undefined && !MESSAGE_SUBKINDS.has(event.subkind as string)) {
+      return `${at}.subkind: not 'talk' | 'emote'`;
+    }
+  }
+  if (event.kind === "notice") {
+    if (event.channel === undefined) return `${at}.channel: required`;
+    if (typeof event.body !== "string") return `${at}.body: required`;
+    if (!NOTICE_SUBKINDS.has(event.subkind as string)) {
+      return `${at}.subkind: not 'broadcast' | 'information'`;
+    }
   }
   if (event.users !== undefined) {
     if (!Array.isArray(event.users) || event.users.length > MAX_ROSTER_USERS) {
@@ -159,6 +207,8 @@ export function userField(value: unknown): WireUser | null {
     clan_tag: isString(value.clan_tag, 32) ? (value.clan_tag as string) : null,
     presence: isString(value.presence, 16) ? (value.presence as string) : null,
     portrait: portraitField(value.portrait),
+    avatar: isString(value.avatar, 128) ? (value.avatar as string) : null,
+    is_operator: typeof value.is_operator === "boolean" ? value.is_operator : null,
     is_local: typeof value.is_local === "boolean" ? value.is_local : null,
     joined_order: isNonNegativeInt(value.joined_order) ? (value.joined_order as number) : null,
   };

@@ -8,7 +8,7 @@ use std::{
 
 use chrono::Local;
 use gpui::{Div, Stateful, Window, WindowControlArea, actions, div, prelude::*, px, rgb};
-use superiority_ui::theme::TAB_BAR_HEIGHT;
+use superiority_ui::products::sc2::theme::TAB_BAR_HEIGHT;
 use windows::{
     Win32::{
         Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, GENERIC_WRITE},
@@ -113,6 +113,13 @@ pub(in crate::app) fn application() -> gpui::Application {
     gpui::Application::with_platform(Rc::new(platform))
 }
 
+/// Whether the reader has asked the system for less movement. Only the
+/// override is read here; the system setting needs a platform call this build
+/// does not make yet.
+pub(in crate::app) fn reduce_motion() -> bool {
+    std::env::var_os("SUPERIORITY_REDUCED_MOTION").is_some()
+}
+
 pub(in crate::app) fn resource_directory() -> PathBuf {
     std::env::current_exe()
         .ok()
@@ -135,7 +142,7 @@ pub(crate) fn install_app_menu_targets(_target: &NativeAppMenuTarget) {}
 
 pub(crate) fn show_about() {
     let message = HSTRING::from(format!(
-        "Superiority {}\n\nBattle.net chat for StarCraft II.",
+        "Superiority {}\n\nBattle.net chat for StarCraft II, StarCraft: Remastered, and Warcraft III: Reforged.",
         env!("CARGO_PKG_VERSION")
     ));
     unsafe {

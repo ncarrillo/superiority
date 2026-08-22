@@ -11,10 +11,9 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{
-    chat::{ChatChannel, ChatEvent, ChatUser, channel_title, strip_character_code},
-    native::presence::PresenceState,
-};
+use crate::chat::{ChatChannel, ChatEvent, ChatUser, channel_title, strip_character_code};
+// one game's wire protocol, named in full so the dependency is visible
+use superiority_core::native::presence::PresenceState;
 
 /// Events per POST; matches the ingest Worker's cap.
 pub const MAX_BATCH_EVENTS: usize = 64;
@@ -28,6 +27,8 @@ pub const MAX_BODY_CHARS: usize = 4000;
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionMeta {
     pub id: String,
+    /// Stable product slug understood by the Live feed contract.
+    pub product: &'static str,
     pub client_version: &'static str,
     pub started_at: u64,
 }
@@ -78,6 +79,32 @@ pub struct UserRef {
     pub is_local: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joined_order: Option<u64>,
+    /// A product-owned avatar id the viewer resolves to its own asset — an SC:R
+    /// profile id (`avatar_terran_marine`) or a WC3 portrait id (`p126`).
+    /// `StarCraft II` carries its atlas cell in `portrait` instead, so this is
+    /// absent for it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    /// Whether this member runs the channel. SC:R marks operators; the others
+    /// do not, so it is absent for them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_operator: Option<bool>,
+}
+
+/// Which kind of message line, matching the server's `messages.kind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageSubkind {
+    Talk,
+    Emote,
+}
+
+/// Which kind of server notice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeSubkind {
+    Broadcast,
+    Information,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -116,7 +143,22 @@ pub enum EventKind {
     },
     Message {
         channel: ChannelRef,
-        sender: UserRef,
+        /// `talk` when absent. `emote` is a `/me` line; `StarCraft II` sends
+        /// neither, so it omits this and the server reads talk.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        subkind: Option<MessageSubkind>,
+        /// Absent for a message the protocol gave no sender for — Reforged's
+        /// recovered callback does not yet name one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sender: Option<UserRef>,
+        body: String,
+    },
+    /// A line the server spoke rather than a member: SC:R's broadcasts and
+    /// information notices. `StarCraft II` folds these into its own message
+    /// stream, so it never sends this.
+    Notice {
+        channel: ChannelRef,
+        subkind: NoticeSubkind,
         body: String,
     },
     Dropped {
@@ -196,6 +238,10 @@ fn user_ref(
         }),
         is_local,
         joined_order,
+        // StarCraft II identifies members by their portrait atlas cell and has
+        // no operator flag on the roster.
+        avatar: None,
+        is_operator: None,
     }
 }
 
@@ -410,7 +456,8 @@ impl Projector {
                 .shared_index(*channel_index, shared)
                 .map(|channel| EventKind::Message {
                     channel,
-                    sender: user_ref(sender, false, None, None),
+                    subkind: None,
+                    sender: Some(user_ref(sender, false, None, None)),
                     body: truncated(body),
                 }),
             // everything else stays on the machine: catalog and ux noise
@@ -922,7 +969,9 @@ mod tests {
         };
         match projector.project(&message, all) {
             Some(EventKind::Message {
-                sender, channel, ..
+                sender: Some(sender),
+                channel,
+                ..
             }) => {
                 assert_eq!(sender.name.as_deref(), Some("Chalcuchimac"));
                 assert_eq!(channel.name.as_deref(), Some("General"));
@@ -1045,6 +1094,7 @@ mod tests {
     fn envelope_serializes_the_documented_json() {
         let session = SessionMeta {
             id: "00112233445566778899aabbccddeeff".into(),
+            product: "sc2",
             client_version: "0.1.19",
             started_at: 1_754_700_251_000,
         };
@@ -1056,7 +1106,8 @@ mod tests {
                     key: "public:1033".into(),
                     name: None,
                 },
-                sender: UserRef {
+                subkind: None,
+                sender: Some(UserRef {
                     handle: 12_345,
                     name: Some("Radiant".into()),
                     clan_tag: Some("SLIM".into()),
@@ -1064,7 +1115,9 @@ mod tests {
                     portrait: None,
                     is_local: None,
                     joined_order: None,
-                },
+                    avatar: None,
+                    is_operator: None,
+                }),
                 body: "gl hf".into(),
             },
         }];
@@ -1078,7 +1131,7 @@ mod tests {
             json,
             "{\"v\":1,\
              \"session\":{\"id\":\"00112233445566778899aabbccddeeff\",\
-             \"client_version\":\"0.1.19\",\"started_at\":1754700251000},\
+             \"product\":\"sc2\",\"client_version\":\"0.1.19\",\"started_at\":1754700251000},\
              \"events\":[{\"seq\":41,\"ts\":1754700302113,\"kind\":\"message\",\
              \"channel\":{\"key\":\"public:1033\"},\
              \"sender\":{\"handle\":12345,\"name\":\"Radiant\",\"clan_tag\":\"SLIM\"},\

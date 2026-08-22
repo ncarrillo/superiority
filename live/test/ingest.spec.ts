@@ -66,9 +66,52 @@ describe("ingest", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ accepted: basic.events.length });
     const messages = await env.DB.prepare(
-      `SELECT body FROM messages WHERE feed_id = ?1 ORDER BY id`,
-    ).bind(feed.id).all<{ body: string }>();
-    expect(messages.results.map((row) => row.body)).toEqual(["gl hf", "anyone up for 2v2?"]);
+      `SELECT kind, body FROM messages WHERE feed_id = ?1 ORDER BY id`,
+    ).bind(feed.id).all<{ kind: string; body: string }>();
+    expect(messages.results).toEqual([
+      { kind: "talk", body: "gl hf" },
+      { kind: "member_left", body: "" },
+      { kind: "talk", body: "anyone up for 2v2?" },
+    ]);
+  });
+
+  it("accepts legacy SC2 envelopes but rejects unknown product identities", async () => {
+    const feed = await registerFeed();
+    const legacy = {
+      ...basic,
+      session: {
+        id: basic.session.id,
+        client_version: basic.session.client_version,
+        started_at: basic.session.started_at,
+      },
+    };
+    expect((await call(ingestRequest(feed.token, legacy))).status).toBe(202);
+
+    const unknownProduct = {
+      ...basic,
+      session: { ...basic.session, id: "11112222333344445555666677778888", product: "diablo" },
+    };
+    expect((await call(ingestRequest(feed.token, unknownProduct))).status).toBe(400);
+  });
+
+  it("rejects transcript rows whose subkind is missing or made up", async () => {
+    const feed = await registerFeed();
+    const channel = { key: "public:9", name: "Brood War USA-9" };
+    const one = (event: Record<string, unknown>) => ({
+      ...basic,
+      session: { ...basic.session, id: "deadbeefdeadbeefdeadbeefdeadbeef", product: "scr" },
+      events: [{ seq: 1, ts: 1754700400000, ...event }],
+    });
+
+    const shout = await call(ingestRequest(feed.token, one({ kind: "message", channel, body: "hi", subkind: "shout" })));
+    expect(shout.status).toBe(400);
+    expect(((await shout.json()) as { error: string }).error).toContain("subkind");
+
+    const mute = await call(ingestRequest(feed.token, one({ kind: "notice", channel, body: "maintenance" })));
+    expect(mute.status).toBe(400);
+
+    const chatty = await call(ingestRequest(feed.token, one({ kind: "notice", channel, body: "x", subkind: "talk" })));
+    expect(chatty.status).toBe(400);
   });
 
   it("rejects malformed JSON and oversized batches", async () => {

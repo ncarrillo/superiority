@@ -9,7 +9,7 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    Protocol(#[from] sc2_core::Error),
+    Protocol(#[from] superiority_core::Error),
     #[error("could not install the shutdown handler: {0}")]
     ShutdownHandler(#[from] ctrlc::Error),
     #[error("gateway worker panicked")]

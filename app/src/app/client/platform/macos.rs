@@ -4,7 +4,9 @@ use gpui::{Window, actions};
 use objc2::{
     DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, runtime::Sel, sel,
 };
-use objc2_app_kit::{NSApplication, NSColor, NSMenu, NSTitlebarSeparatorStyle, NSView};
+use objc2_app_kit::{
+    NSApplication, NSColor, NSMenu, NSTitlebarSeparatorStyle, NSView, NSWorkspace,
+};
 use objc2_foundation::{
     MainThreadMarker, NSDate, NSDateFormatter, NSObject, NSObjectProtocol, NSString,
 };
@@ -105,6 +107,15 @@ pub(crate) fn install_app_menu_targets(target: &AppMenuTarget) {
 
 pub(crate) fn show_about() {
     NSApplication::sharedApplication(main_thread_marker()).orderFrontStandardAboutPanel(None);
+}
+
+/// Whether the reader has asked the system for less movement. Honoured by the
+/// picker's choreography, which keeps every fade and drops every journey.
+pub(in crate::app) fn reduce_motion() -> bool {
+    if std::env::var_os("SUPERIORITY_REDUCED_MOTION").is_some() {
+        return true;
+    }
+    NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
 }
 
 pub(crate) fn current_timestamp() -> String {
