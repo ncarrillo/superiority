@@ -1,0 +1,195 @@
+name: Publish Superiority
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: superiority-production
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Build and sign Windows
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2025
+    environment: windows-signing
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select stable Rust
+        shell: bash
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' app/Cargo.toml | head -1)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid application version: $version" >&2
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "build=${version##*.}"
+          } >> "$GITHUB_OUTPUT"
+          echo "SUPERIORITY_APP_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build Windows application
+        shell: bash
+        run: |
+          cargo build --release --locked \
+            --manifest-path app/Cargo.toml \
+            --bin superiority \
+            --features rust-updater
+          cargo build --release --locked \
+            --manifest-path updater/Cargo.toml \
+            --bin superiority-updater-agent \
+            --bin superiority-launcher
+
+      - name: Stage Windows application
+        shell: bash
+        run: |
+          stage=ci/windows/payload
+          mkdir -p "$stage"
+          cp target/release/superiority.exe "$stage/superiority-app.exe"
+          cp target/release/superiority-updater-agent.exe \
+            "$stage/superiority-updater-agent.exe"
+          cp target/release/superiority-launcher.exe "$stage/Superiority.exe"
+          cp -R app/macos/resources "$stage/resources"
+
+      - name: Sign in to Azure
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows executables
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: superiority
+          certificate-profile-name: sup-cert
+          files-folder: ${{ github.workspace }}\ci\windows\payload
+          files-folder-filter: exe
+          files-folder-recurse: false
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify Windows signatures
+        shell: pwsh
+        run: |
+          $executables = @(Get-ChildItem ci/windows/payload -Filter *.exe)
+          if ($executables.Count -ne 3) {
+            throw "Expected three Windows executables, found $($executables.Count)"
+          }
+          foreach ($executable in $executables) {
+            $signature = Get-AuthenticodeSignature $executable.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "$($executable.Name) has signature status $($signature.Status)"
+            }
+          }
+
+      - name: Package Windows release
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $update = "dist/Superiority-$env:VERSION-$env:BUILD-windows-x86_64.zip"
+          $installer = "dist/Superiority-$env:VERSION-windows-x86_64.zip"
+          Compress-Archive -Path ci/windows/payload/* -DestinationPath $update
+
+          $installRoot = "ci/windows/install/Superiority"
+          $versionRoot = "$installRoot/versions/$env:BUILD"
+          New-Item -ItemType Directory -Force $versionRoot | Out-Null
+          Copy-Item ci/windows/payload/Superiority.exe $installRoot
+          Copy-Item ci/windows/payload/superiority-updater-agent.exe $installRoot
+          Copy-Item ci/windows/payload/superiority-app.exe $versionRoot
+          Copy-Item ci/windows/payload/resources $versionRoot -Recurse
+          [ordered]@{
+            schema = 1
+            version = $env:VERSION
+            executable = "versions/$env:BUILD/superiority-app.exe"
+          } | ConvertTo-Json | Set-Content "$installRoot/current.json"
+          Compress-Archive -Path $installRoot -DestinationPath $installer
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: superiority-windows-x86_64-${{ steps.version.outputs.version }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish desktop, Live, and site
+    needs: windows
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            live/package-lock.json
+            live-app/www/package-lock.json
+            site/package-lock.json
+
+      - name: Select stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin \
+            wasm32-unknown-unknown
+
+      - name: Install web dependencies
+        run: |
+          npm ci --prefix live
+          npm ci --prefix live-app/www
+          npm ci --prefix site
+
+      - name: Install WebAssembly bindings tool
+        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: superiority-windows-x86_64-${{ needs.windows.outputs.version }}
+          path: ci/windows-release
+
+      - name: Test
+        run: cargo test --workspace --release --locked
+
+      - name: Publish release
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPERIORITY_CODESIGN_IDENTITY: "-"
+          SUPERIORITY_UPDATE_PRIVATE_KEY: ${{ secrets.SUPERIORITY_UPDATE_PRIVATE_KEY }}
+          SUPERIORITY_WINDOWS_UPDATE_ARCHIVE: ${{ github.workspace }}/ci/windows-release/Superiority-${{ needs.windows.outputs.version }}-${{ needs.windows.outputs.build }}-windows-x86_64.zip
+          SUPERIORITY_WINDOWS_INSTALL_ARCHIVE: ${{ github.workspace }}/ci/windows-release/Superiority-${{ needs.windows.outputs.version }}-windows-x86_64.zip
+          SUPERIORITY_WINDOWS_UPDATE_PLATFORM: windows-x86_64
+        run: scripts/publish-update-macos.zsh

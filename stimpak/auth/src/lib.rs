@@ -175,7 +175,9 @@ pub extern "C" fn stimpak_auth_abi_version() -> u32 {
 /// Static UTF-8 storage owned by the library.
 #[unsafe(no_mangle)]
 pub extern "C" fn stimpak_auth_version() -> *const c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
+    concat!(env!("STIMPAK_EFFECTIVE_VERSION"), "\0")
+        .as_ptr()
+        .cast()
 }
 
 #[cfg(test)]

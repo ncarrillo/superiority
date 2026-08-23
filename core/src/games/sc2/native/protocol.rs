@@ -1301,6 +1301,67 @@ impl Protocol {
         )
     }
 
+    /// Build the bit-packed `LogonResponse3` blob carried by the BGS
+    /// `GameUtilities.ProcessClientRequest` handoff.
+    ///
+    /// This is not a routed native record: Front embeds the encoded BSN value in
+    /// the handoff's `logon_response` attribute, and the native client consumes it
+    /// before opening the Sunken socket. A custom Front therefore has to mint this
+    /// value consistently with the other handoff identity fields.
+    pub fn front_logon_response(
+        &self,
+        account_region: u8,
+        game_account_region: u8,
+        game_account_name: &[u8],
+    ) -> Result<Vec<u8>> {
+        if game_account_name.is_empty() || game_account_name.len() > 32 {
+            return Err(native_error(
+                "Front game-account name must contain 1..=32 bytes",
+            ));
+        }
+
+        let response_type = self.member_type(self.front_logon_response_type, "LogonResponse")?;
+        let result_type = self.member_type(response_type, "m_result")?;
+        let success_type = self.choice_variant_by_index(result_type, 0)?;
+        let common_type = self.member_type(success_type, "ResponseSuccessCommon")?;
+
+        let common = self.struct_with_defaults(
+            common_type,
+            vec![("m_pingTimeout", BsnValue::Integer(60_000))],
+        )?;
+        let success = self.struct_with_defaults(
+            success_type,
+            vec![
+                ("ResponseSuccessCommon", common),
+                (
+                    "m_accountRegion",
+                    BsnValue::Integer(i128::from(account_region)),
+                ),
+                (
+                    "m_gameAccountRegion",
+                    BsnValue::Integer(i128::from(game_account_region)),
+                ),
+                (
+                    "m_gameAccountName",
+                    BsnValue::Bytes(game_account_name.to_vec()),
+                ),
+                ("m_logonFailures", BsnValue::Integer(0)),
+            ],
+        )?;
+        let response = self.struct_with_defaults(
+            response_type,
+            vec![("m_result", BsnValue::choice(0, success))],
+        )?;
+        let wrapper = self.struct_with_defaults(
+            self.front_logon_response_type,
+            vec![("LogonResponse", response)],
+        )?;
+        Ok(self
+            .codec
+            .encode(self.front_logon_response_type, &wrapper)?
+            .data)
+    }
+
     /// decode a record the *client* sent (server-side inbound). resolves the
     /// route to the client-request type rather than the client-receive type.
     pub(crate) fn decode_client_request_from(
@@ -1686,16 +1747,101 @@ impl Protocol {
         ])
     }
 
-    /// build a server-side transport-control reply: echoes the client's correlation
-    /// id with `m_reply=true` so SC2's reliable-message layer sees its frame acked.
-    pub fn transport_control_reply(
+    /// Build an `SC_ROUTED` transport reply from a server routing context.
+    ///
+    /// Client requests are sparse `CS_ROUTED` frames (route, correlation, content),
+    /// while server replies must carry the service binding and target established by
+    /// the native bootstrap as well as a timestamp and stream header. `template`
+    /// supplies only that routing context; correlation, content size, timestamp,
+    /// sequence, payload, and the reply flag are encoded for the live request.
+    pub fn transport_routed_reply(
         &self,
-        command: u8,
+        template: &crate::native::model::ConnectionMessageFrame,
         correlation_id: u32,
         sequence: u32,
+        timestamp: u32,
         payload: Vec<u8>,
     ) -> Result<Vec<u8>> {
-        self.transport_control_frame(command, correlation_id, true, sequence, payload)
+        let header_list_type = self.member_type(self.message_frame_type, "m_headers")?;
+        let header_type = self.array_element(header_list_type)?;
+        let data_type = self.member_type(header_type, "m_data")?;
+        let (route_index, _) = self.choice_variant(data_type, "route")?;
+        let (service_index, _) = self.choice_variant(data_type, "service")?;
+        let (target_index, _) = self.choice_variant(data_type, "target")?;
+        let (correlation_index, correlation_type) =
+            self.choice_variant(data_type, "correlation")?;
+        let (content_index, content_type) = self.choice_variant(data_type, "content")?;
+        let (timestamp_index, _) = self.choice_variant(data_type, "timestamp")?;
+        let (stream_index, stream_type) = self.choice_variant(data_type, "stream")?;
+
+        let template_header = |wanted_index: i128, name: &str| {
+            template
+                .headers
+                .iter()
+                .find(|header| {
+                    matches!(
+                        header.get("m_data"),
+                        Some(BsnValue::Choice { index, .. }) if *index == wanted_index
+                    )
+                })
+                .cloned()
+                .map(BsnValue::Struct)
+                .ok_or_else(|| native_error(format!("transport context omits {name} header")))
+        };
+        let wrap_header = |index: i128, value: BsnValue| {
+            self.struct_value(
+                header_type,
+                vec![("m_data", BsnValue::choice(index, value))],
+            )
+        };
+
+        let correlation = self.struct_value(
+            correlation_type,
+            vec![
+                ("m_id", BsnValue::Integer(i128::from(correlation_id))),
+                ("m_reply", BsnValue::Bool(true)),
+            ],
+        )?;
+        let content = self.struct_value(
+            content_type,
+            vec![
+                ("m_size", BsnValue::Integer(payload.len() as i128)),
+                ("m_encoding", BsnValue::Integer(1)),
+            ],
+        )?;
+        let stream = self.struct_value(
+            stream_type,
+            vec![
+                ("m_sequenceId", BsnValue::Integer(i128::from(sequence))),
+                ("m_more", BsnValue::Bool(false)),
+            ],
+        )?;
+        let headers = vec![
+            template_header(route_index, "route")?,
+            template_header(service_index, "service")?,
+            wrap_header(correlation_index, correlation)?,
+            wrap_header(content_index, content)?,
+            wrap_header(timestamp_index, BsnValue::Integer(i128::from(timestamp)))?,
+            template_header(target_index, "target")?,
+            wrap_header(stream_index, stream)?,
+        ];
+
+        let payload_type = self.member_type(self.message_frame_type, "m_payload")?;
+        let frame_type = self.member_type(self.message_frame_type, "m_frameType")?;
+        let mut writer = Self::record_writer(CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_SLOT)?;
+        self.codec
+            .encode_reflected_into(&mut writer, payload_type, &BsnValue::Bytes(payload))?;
+        // Battlenet::Frame::Type::SC_ROUTED. CS_ROUTED (129) is valid only in
+        // the opposite direction and causes SC2 to close with PACKET_REJECTED.
+        self.codec
+            .encode_reflected_into(&mut writer, frame_type, &BsnValue::Integer(66))?;
+        self.codec.encode_reflected_into(
+            &mut writer,
+            header_list_type,
+            &BsnValue::Array(headers),
+        )?;
+        writer.align()?;
+        Ok(writer.into_bytes())
     }
 
     /// build a top-level `CommandResponse` (a no-slot reply record): the 6-bit command
@@ -1710,6 +1856,18 @@ impl Protocol {
         if !body.is_empty() {
             writer.write_bytes(body, false)?;
         }
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
+    /// Encode an empty `Battlenet::Client::Ladder::GetRankingsResponse`.
+    ///
+    /// Its marker base contributes no bits and `m_rankings` is a 0..40 array
+    /// encoded with a six-bit count, so a new account's empty page is six zero
+    /// bits plus byte padding.
+    pub fn empty_ladder_rankings_response(&self) -> Result<Vec<u8>> {
+        let mut writer = crate::bsn::bits::BitWriter::new();
+        writer.write(0, 6)?;
         writer.align()?;
         Ok(writer.into_bytes())
     }
@@ -2310,6 +2468,63 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
+    /// Profile `Read` response stream containing one complete record block.
+    ///
+    /// A `Cache` response is only valid when the client already owns the addressed
+    /// record. A newly-created/custom account does not, so startup reads must receive
+    /// a `Start` record followed by the promised `Block`, with the live request id
+    /// echoed in both records.
+    pub fn profile_read_record(
+        &self,
+        request_id: u32,
+        record_type: u32,
+        block: &[u8],
+    ) -> Result<[Vec<u8>; 2]> {
+        let start_type = self.choice_variant_by_index(self.profile_data_response_type, 0)?;
+        let start = self.struct_value(
+            start_type,
+            vec![
+                ("m_numPackets", BsnValue::Integer(1)),
+                ("m_type", BsnValue::Integer(i128::from(record_type))),
+            ],
+        )?;
+        Ok([
+            self.profile_read_response(request_id, BsnValue::choice(0, start))?,
+            self.profile_read_response(
+                request_id,
+                BsnValue::choice(1, BsnValue::Bytes(block.to_vec())),
+            )?,
+        ])
+    }
+
+    /// Profile `Read` response declaring a known record type with no packets.
+    /// Retail uses this form when the requested path exists conceptually but has
+    /// no data yet (notably the first read of a new battle-profile record).
+    pub fn profile_read_empty(&self, request_id: u32, record_type: u32) -> Result<Vec<u8>> {
+        let start_type = self.choice_variant_by_index(self.profile_data_response_type, 0)?;
+        let start = self.struct_value(
+            start_type,
+            vec![
+                ("m_numPackets", BsnValue::Integer(0)),
+                ("m_type", BsnValue::Integer(i128::from(record_type))),
+            ],
+        )?;
+        self.profile_read_response(request_id, BsnValue::choice(0, start))
+    }
+
+    fn profile_read_response(&self, request_id: u32, result: BsnValue) -> Result<Vec<u8>> {
+        let mut writer = Self::record_writer(PROFILE_READ_COMMAND, PROFILE_SLOT)?;
+        self.codec
+            .encode_reflected_into(&mut writer, self.profile_data_response_type, &result)?;
+        self.codec.encode_reflected_into(
+            &mut writer,
+            self.token_type,
+            &BsnValue::Integer(i128::from(request_id)),
+        )?;
+        writer.align()?;
+        Ok(writer.into_bytes())
+    }
+
     /// minimal valid server->client `current_season` record for the
     /// S2_MASTER slot / current-season command. mirrors `decode::current_season`
     /// exactly with `failure = 0`: no ranked matchmakers, no leagues, an
@@ -2742,15 +2957,57 @@ impl Protocol {
     /// (enum minimum `1`, empty field-path blob, zeroed record address).
     pub fn profile_settings_response(&self) -> Result<Vec<u8>> {
         let type_id = self.incoming_type(PROFILE_SLOT, PROFILE_SETTINGS_AVAILABLE_COMMAND)?;
+        let type_field = self.member_type(type_id, "m_type")?;
+        let path_field = self.member_type(type_id, "m_path")?;
+        let address_field = self.member_type(type_id, "m_address")?;
+        self.profile_settings_available(
+            self.default_value(type_field)?,
+            self.default_value(path_field)?,
+            self.default_value(address_field)?,
+        )
+    }
+
+    /// Encode a server→client `Profile/4 SettingsAvailable` announcement.
+    pub fn profile_settings_available(
+        &self,
+        profile_type: BsnValue,
+        path: BsnValue,
+        address: BsnValue,
+    ) -> Result<Vec<u8>> {
+        let type_id = self.incoming_type(PROFILE_SLOT, PROFILE_SETTINGS_AVAILABLE_COMMAND)?;
         let mut writer = Self::record_writer(PROFILE_SETTINGS_AVAILABLE_COMMAND, PROFILE_SLOT)?;
-        for name in ["m_type", "m_path", "m_address"] {
+        for (name, value) in [
+            ("m_type", profile_type),
+            ("m_path", path),
+            ("m_address", address),
+        ] {
             let field_type = self.member_type(type_id, name)?;
-            let value = self.default_value(field_type)?;
             self.codec
                 .encode_reflected_into(&mut writer, field_type, &value)?;
         }
         writer.align()?;
         Ok(writer.into_bytes())
+    }
+
+    /// Convenience form of [`Self::profile_settings_available`] for concrete values.
+    pub fn profile_settings_available_record(
+        &self,
+        profile_type: u32,
+        path: &[u8],
+        address: crate::native::model::ProfileAddress,
+    ) -> Result<Vec<u8>> {
+        let address = self.struct_value(
+            self.profile_record_address_type,
+            vec![
+                ("m_label", BsnValue::Integer(i128::from(address.label))),
+                ("m_id", BsnValue::Integer(i128::from(address.id))),
+            ],
+        )?;
+        self.profile_settings_available(
+            BsnValue::Integer(i128::from(profile_type)),
+            BsnValue::Bytes(path.to_vec()),
+            address,
+        )
     }
 
     pub fn chat_invite_answer(&self, channel_index: u8, accept: bool) -> Result<Vec<u8>> {
@@ -3579,6 +3836,45 @@ mod tests {
     }
 
     #[test]
+    fn custom_front_builds_a_self_consistent_logon_response() {
+        let protocol = protocol();
+        let name = b"Superiority#1";
+        let bytes = protocol.front_logon_response(1, 1, name).unwrap();
+        let decoded = protocol
+            .codec
+            .decode(protocol.front_logon_response_type, &bytes, None, 0)
+            .unwrap();
+        assert_eq!(decoded.bit_count.div_ceil(8), bytes.len());
+
+        let wrapper = value_struct(&decoded.value, "Front LogonResponse3").unwrap();
+        let response = value_struct(
+            required_field(wrapper, "LogonResponse").unwrap(),
+            "Front LogonResponse wrapper",
+        )
+        .unwrap();
+        let (result_index, result) =
+            value_choice(required_field(response, "m_result").unwrap(), "result").unwrap();
+        assert_eq!(result_index, 0);
+        let success = value_struct(result, "success").unwrap();
+        assert_eq!(
+            value_integer(
+                required_field(success, "m_accountRegion").unwrap(),
+                "region"
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            value_bytes(
+                required_field(success, "m_gameAccountName").unwrap(),
+                "name"
+            )
+            .unwrap(),
+            name
+        );
+    }
+
+    #[test]
     fn current_metadata_builds_retail_identity_requests() {
         let protocol = protocol();
         let name = crate::native::model::ToonFullName {
@@ -4213,6 +4509,48 @@ mod tests {
             hex::encode(&maintenance[1]),
             "4d010501030080057e4002020a030181044151c9b9030000000002c3136e8d0c000000000b00000001090001"
         );
+    }
+
+    #[test]
+    fn transport_reply_round_trips_live_envelope_fields_and_payload() {
+        let protocol = protocol();
+        // Small retail SC_ROUTED frame used only as route/service/target context.
+        // The builder does not retain its payload, correlation, time, or stream ids.
+        let template_record = hex::decode(
+            "4d01010101003e42074105d5d128000000000ee50ddea25612b2977d4f33040323ff26df18000000000300000001c8aa13ab1d02010081c7e4600b010001",
+        )
+        .unwrap();
+        let (_, _, Payload::MessageFrame(template)) =
+            protocol.decode_server_record(&template_record).unwrap()
+        else {
+            panic!("expected a transport context frame");
+        };
+        let body = protocol
+            .command_response(21, 0, &[0xde, 0xad, 0xbe, 0xef])
+            .unwrap();
+        let record = protocol
+            .transport_routed_reply(&template, 0xa1b2_c3d4, 37, 1_787_523_200, body.clone())
+            .unwrap();
+
+        let (slot, command, payload) = protocol.decode_server_record(&record).unwrap();
+        assert_eq!(slot, Some(CONNECTION_SLOT));
+        assert_eq!(command, CONNECTION_MESSAGE_FRAME_COMMAND);
+        let Payload::MessageFrame(frame) = payload else {
+            panic!("expected a reliable-transport message frame");
+        };
+        assert_eq!(frame.frame_type, 66);
+        assert_eq!(frame.headers.len(), 7);
+        let fields = protocol.transport_fields(&frame);
+        assert_eq!(fields.command, Some(14));
+        assert_eq!(fields.correlation_id, Some(0xa1b2_c3d4));
+        assert_eq!(fields.reply, Some(true));
+        assert_eq!(fields.sequence, Some(37));
+        assert_eq!(frame.payload, body);
+    }
+
+    #[test]
+    fn empty_ladder_rankings_response_is_a_zero_count() {
+        assert_eq!(protocol().empty_ladder_rankings_response().unwrap(), [0]);
     }
 
     #[test]

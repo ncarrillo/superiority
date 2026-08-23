@@ -9,6 +9,8 @@ pages_project=superiority-sc2-updates
 feed_url="https://${pages_project}.pages.dev/appcast.xml"
 site="$root/site"
 wrangler="$site/node_modules/.bin/wrangler"
+live="$root/live"
+live_wrangler="$live/node_modules/.bin/wrangler"
 key_account=com.superiority.sc2-chat
 update_public_key='IVqqIejocXACpzUqr/W4FpT8qkuJidILS7UqPZ7x7xE='
 pages_dir=""
@@ -28,6 +30,7 @@ export SUPERIORITY_RELEASE_BUILD=1
 # or uploading any release artifact. This is intentionally a live smoke test:
 # a TLS-provider mismatch must stop the release here, not reach users.
 cargo test \
+  --release \
   --manifest-path "$root/updater/Cargo.toml" \
   --lib \
   download::tests::fetches_live_appcast \
@@ -35,7 +38,18 @@ cargo test \
   --ignored \
   --exact
 
-"$root/scripts/build-macos-app.zsh"
+if [[ ! -x "$wrangler" ]]; then
+  print -u2 "Site dependencies are missing. Run npm install in $site."
+  exit 1
+fi
+if [[ ! -x "$live_wrangler" ]]; then
+  print -u2 "Live dependencies are missing. Run npm install in $live."
+  exit 1
+fi
+
+npm --prefix "$site" run check
+npm --prefix "$live" test
+"$root/scripts/package-macos.zsh" >/dev/null
 
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
   "$bundle/Contents/Info.plist")
@@ -44,6 +58,7 @@ build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
 release_notes="$root/release-notes/${version}.md"
 archive_name="Superiority-${version}-${build}.zip"
 archive="$feed_dir/$archive_name"
+disk_image="$root/dist/Superiority-${version}-universal.dmg"
 
 if [[ ! -f "$release_notes" ]]; then
   print -u2 "missing release notes: $release_notes"
@@ -61,12 +76,8 @@ if published_feed=$(/usr/bin/curl -fsS "$feed_url" 2>/dev/null); then
 else
   print "could not fetch ${feed_url}; skipping the already-published check"
 fi
-if [[ ! -x "$wrangler" ]]; then
-  print -u2 "Site dependencies are missing. Run npm install in $site."
-  exit 1
-fi
-
 "$wrangler" whoami >/dev/null
+"$live_wrangler" whoami >/dev/null
 /usr/bin/install -d "$feed_dir"
 
 live_appcast="$feed_dir/appcast.live.xml"
@@ -166,7 +177,27 @@ if [[ -n "$windows_archive" ]]; then
     --url "$release_base_url/releases/$windows_archive_name" \
     --file "$windows_archive" \
     --signature "$windows_signature"
+  if [[ "$windows_platform" == "windows-x86_64" ]]; then
+    windows_stable_name=Superiority-Windows.zip
+  else
+    windows_stable_name=Superiority-Windows-arm64.zip
+  fi
+  windows_download_url="$release_base_url/releases/$windows_stable_name"
 fi
+
+if [[ ! -f "$disk_image" ]]; then
+  print -u2 "missing disk image: $disk_image"
+  exit 1
+fi
+
+SUPERIORITY_RELEASE_BASE_URL="$release_base_url" \
+  SUPERIORITY_WINDOWS_DOWNLOAD_URL="$windows_download_url" \
+  npm --prefix "$site" run build
+
+# Live, the desktop release, and the landing page advance through this one
+# release command. Pages is deployed last, so the appcast only advertises
+# artifacts after Live and every download are available.
+(cd "$live" && npm run migrate:remote && "$live_wrangler" deploy)
 
 "$wrangler" r2 object put "$bucket/releases/$archive_name" \
   --remote \
@@ -180,12 +211,6 @@ if [[ -n "$windows_archive" ]]; then
     --file "$windows_archive" \
     --content-type application/zip \
     --cache-control 'public, max-age=31536000, immutable'
-  if [[ "$windows_platform" == "windows-x86_64" ]]; then
-    windows_stable_name=Superiority-Windows.zip
-  else
-    windows_stable_name=Superiority-Windows-arm64.zip
-  fi
-  windows_download_url="$release_base_url/releases/$windows_stable_name"
   "$wrangler" r2 object put "$bucket/releases/$windows_stable_name" \
     --remote \
     --file "$windows_install_archive" \
@@ -193,29 +218,13 @@ if [[ -n "$windows_archive" ]]; then
     --cache-control 'public, max-age=300'
 fi
 
-# The updater updates an installed copy from the archive above; someone who has
-# never installed it needs the disk image. It goes up under one unchanging
-# name, so the download page can link to it once and never be rebuilt for a
-# release — which means it is not immutable, and gets a cache short enough that
-# a new release reaches people the same day.
-"$root/scripts/package-macos.zsh" >/dev/null
-disk_image="$root/dist/Superiority-${version}-universal.dmg"
-if [[ ! -f "$disk_image" ]]; then
-  print -u2 "missing disk image: $disk_image"
-  exit 1
-fi
+# Someone who has never installed Superiority needs the disk image under a
+# stable URL. Its short cache lets new releases replace it promptly.
 "$wrangler" r2 object put "$bucket/releases/Superiority.dmg" \
   --remote \
   --file "$disk_image" \
   --content-type application/x-apple-diskimage \
   --cache-control 'public, max-age=300'
-
-# The page carries no version, so this rebuilds nothing that changed — it runs
-# because the page ships in the same Pages deploy as the appcast, and deploying
-# a stale or missing dist would take the page down with it.
-SUPERIORITY_RELEASE_BASE_URL="$release_base_url" \
-  SUPERIORITY_WINDOWS_DOWNLOAD_URL="$windows_download_url" \
-  npm --prefix "$site" run build
 
 pages_dir=$(/usr/bin/mktemp -d /tmp/superiority-appcast.XXXXXX)
 /usr/bin/ditto "$site/dist" "$pages_dir"
@@ -227,6 +236,7 @@ pages_dir=$(/usr/bin/mktemp -d /tmp/superiority-appcast.XXXXXX)
 
 print "Published Superiority $version ($build)"
 print "Site: https://${pages_project}.pages.dev/"
+print "Live: https://live.superioritybot.com/"
 print "Appcast: $feed_url"
 print "Archive: $release_base_url/releases/$archive_name"
 if [[ -n "$windows_archive" ]]; then

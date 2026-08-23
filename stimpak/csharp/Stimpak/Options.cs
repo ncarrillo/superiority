@@ -14,12 +14,6 @@ public sealed record StimpakClientOptions(string ApplicationId)
     /// applications should leave this null.
     /// </summary>
     public string? CredentialPath { get; init; }
-
-    /// <summary>
-    /// maximum number of unread managed events. Superseded roster snapshots
-    /// are coalesced before this limit is applied.
-    /// </summary>
-    public int EventCapacity { get; init; } = 2048;
 }
 
 /// <summary>settings for one connection attempt.</summary>

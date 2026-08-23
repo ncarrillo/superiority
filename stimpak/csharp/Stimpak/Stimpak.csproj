@@ -10,7 +10,8 @@
     <AssemblyName>Stimpak</AssemblyName>
     <IsPackable>true</IsPackable>
     <PackageId>Stimpak</PackageId>
-    <Version>0.1.0</Version>
+    <Version Condition="'$(STIMPAK_PACKAGE_VERSION)' == ''">0.1.0</Version>
+    <Version Condition="'$(STIMPAK_PACKAGE_VERSION)' != ''">$(STIMPAK_PACKAGE_VERSION)</Version>
     <Authors>Nicholas Carrillo</Authors>
     <Description>StarCraft II Battle.net bot client with a native Rust core and typed .NET events.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

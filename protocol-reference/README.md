@@ -1,12 +1,8 @@
-# SC2 protocol reference
-
-Astro source for [`../PROTOCOL.html`](../PROTOCOL.html).
+# SC2Docs
 
 ```sh
-npm install
+npm ci
 npm run dev
 npm run check
 npm run build
 ```
-
-`npm run build` updates `../PROTOCOL.html`.

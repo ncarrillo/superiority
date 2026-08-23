@@ -39,7 +39,7 @@ export interface BsnType {
 }
 
 const source = readFileSync(
-  new URL("../../../core/src/native/schema/wire.rs", import.meta.url),
+  new URL("../../../core/src/games/sc2/native/schema/wire.rs", import.meta.url),
   "utf8",
 );
 

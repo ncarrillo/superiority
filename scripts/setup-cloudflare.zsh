@@ -1,6 +1,6 @@
 #!/bin/zsh
-# One-time provisioning for all Cloudflare infrastructure: the update feed and
-# release bucket, then the Live database, migrations, and Worker.
+# One-time provisioning for the Pages projects, release bucket, and Live
+# database. Releases apply migrations and deploy the Worker.
 # Idempotent — re-running skips whatever already exists.
 set -euo pipefail
 
@@ -9,6 +9,7 @@ site="$root/site"
 live="$root/live"
 bucket=superiority-releases
 pages_project=superiority-sc2-updates
+docs_project=superiority-sc2docs
 updates_wrangler="$site/node_modules/.bin/wrangler"
 live_wrangler="$live/node_modules/.bin/wrangler"
 db=superiority-live
@@ -27,6 +28,9 @@ fi
 if ! NO_COLOR=1 "$updates_wrangler" pages project list | /usr/bin/grep -q "$pages_project"; then
   "$updates_wrangler" pages project create "$pages_project" --production-branch main
 fi
+if ! NO_COLOR=1 "$updates_wrangler" pages project list | /usr/bin/grep -q "$docs_project"; then
+  "$updates_wrangler" pages project create "$docs_project" --production-branch main
+fi
 
 if ! "$updates_wrangler" r2 bucket info "$bucket" >/dev/null 2>&1; then
   "$updates_wrangler" r2 bucket create "$bucket"
@@ -36,6 +40,7 @@ fi
 print "Cloudflare update hosting is ready."
 NO_COLOR=1 "$updates_wrangler" r2 bucket dev-url get "$bucket"
 print "Feed: https://${pages_project}.pages.dev/appcast.xml"
+print "SC2Docs: https://${docs_project}.pages.dev/"
 
 if ! NO_COLOR=1 "$live_wrangler" d1 list | /usr/bin/grep -q "$db"; then
   "$live_wrangler" d1 create "$db"
@@ -49,8 +54,5 @@ if ! /usr/bin/grep -q "$database_id" "$live/wrangler.jsonc"; then
   exit 1
 fi
 
-(cd "$live" && npm run migrate:remote && npm run deploy)
-
 print ""
-print "Live backend is ready."
-print "The app registers feeds on its own; watch traffic with: npm --prefix $live run tail"
+print "Cloudflare infrastructure is ready."

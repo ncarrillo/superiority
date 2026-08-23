@@ -100,25 +100,24 @@ impl LiveView {
         row: usize,
         interactive: bool,
     ) -> AnyElement {
+        let row = chat::selectable_transcript_row(
+            &stream_line(item, &self.ui_assets),
+            true,
+            scope,
+            row,
+            &self.workspace.transcript.selection,
+            &self.ui_assets,
+            chat::PartyMark::default(),
+        );
         if interactive {
-            chat::selectable_transcript_row(
-                &stream_line(item, &self.ui_assets),
-                true,
-                scope,
-                row,
-                &self.workspace.transcript.selection,
-                &self.ui_assets,
-                chat::PartyMark::default(),
-            )
-            .with_animation(
+            row.with_animation(
                 item.animation_id(),
                 Animation::new(Duration::from_millis(350)),
                 |row, delta| row.opacity(ease_in_out(delta)),
             )
             .into_any_element()
         } else {
-            chat::transcript_row(&stream_line(item, &self.ui_assets), true, &self.ui_assets)
-                .into_any_element()
+            row.into_any_element()
         }
     }
 

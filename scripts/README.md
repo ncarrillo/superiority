@@ -12,6 +12,6 @@ Run these from the repository root.
 | `build-stimpak-windows-macos.zsh` | Cross-compile Windows Stimpak libraries. |
 | `sign-stage-stimpak-windows-macos.zsh` | Optionally sign Windows Stimpak libraries. |
 | `package-stimpak-nuget.zsh` | Build the Stimpak NuGet packages. |
-| `publish-update-macos.zsh` | Publish a macOS update. |
+| `publish-update-macos.zsh` | Publish Superiority, Live, and the website. |
 | `publish-update-windows.zsh` | Publish a Windows update. |
-| `setup-cloudflare.zsh` | Provision the release infrastructure. |
+| `setup-cloudflare.zsh` | Provision the Cloudflare infrastructure. |

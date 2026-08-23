@@ -511,50 +511,78 @@ impl ClanState {
                 callback.method_id,
                 callback.body.len()
             ));
-            match callback.method_id {
-                RECEIVED_MY_CLAN_ON_LOGIN => {
-                    let membership = match parse_my_clan(&callback.body) {
-                        Ok(membership) => membership,
-                        Err(error) => {
-                            // an empty callback is the only captured no-clan
-                            // signal. Preserve Pending for any other unknown
-                            // shape instead of inventing account state or
-                            // dropping the otherwise healthy chat session.
-                            self.fail_read(error.to_string());
-                            continue;
-                        }
-                    };
-                    let refresh = matches!(membership, ClanMembership::Member(_));
-                    let changed = self.snapshot.membership != membership
-                        || !self.snapshot.members.is_empty()
-                        || self.snapshot.read_error.is_some();
-                    self.snapshot.membership = membership;
-                    self.snapshot.members.clear();
-                    self.snapshot.read_error = None;
-                    self.members_refresh_pending = refresh;
-                    if changed {
-                        self.bump();
-                    }
-                }
-                CLAN_MEMBER_ADDED
-                | CLAN_MEMBER_REMOVED
-                | CLAN_MEMBER_RANK_CHANGED
-                | CLAN_MEMBER_PRESENCE_UPDATED
-                | CLAN_BATCHED_MEMBER_PRESENCE_UPDATED => {
-                    if matches!(self.snapshot.membership, ClanMembership::Member(_)) {
-                        self.members_refresh_pending = true;
-                    }
-                }
-                // ClanUpdated is retained for diagnostics until a positive
-                // retail capture establishes the descriptor's semantic
-                // attribute mapping. Existing authoritative data remains
-                // visible; no field is guessed from the callback.
-                CLAN_UPDATED => {}
-                _ => {}
-            }
+            self.apply_callback(callback.method_id, &callback.body);
         }
         client.callbacks = deferred;
         Ok(())
+    }
+
+    fn apply_callback(&mut self, method_id: u32, body: &[u8]) {
+        match method_id {
+            RECEIVED_MY_CLAN_ON_LOGIN => {
+                let membership = match parse_my_clan(body) {
+                    Ok(membership) => membership,
+                    Err(error) => {
+                        // an empty callback is the only captured no-clan
+                        // signal. Preserve Pending for any other unknown
+                        // shape instead of inventing account state or
+                        // dropping the otherwise healthy chat session.
+                        self.fail_read(error.to_string());
+                        return;
+                    }
+                };
+                self.apply_membership(membership);
+            }
+            // These callbacks describe structural roster changes. Their
+            // captured bodies are not yet decoded deeply enough to mutate the
+            // local roster safely, so coalesce them into one authoritative
+            // GetClanMembers refresh.
+            CLAN_MEMBER_ADDED | CLAN_MEMBER_REMOVED | CLAN_MEMBER_RANK_CHANGED => {
+                if matches!(self.snapshot.membership, ClanMembership::Member(_)) {
+                    self.members_refresh_pending = true;
+                }
+            }
+            // Presence is ephemeral and is not represented by ClanMember.
+            // Refetching the full roster here creates a feedback loop because
+            // roster reads can themselves be followed by presence callbacks.
+            CLAN_MEMBER_PRESENCE_UPDATED | CLAN_BATCHED_MEMBER_PRESENCE_UPDATED => {}
+            // ClanUpdated is retained for diagnostics until a positive
+            // retail capture establishes the descriptor's semantic
+            // attribute mapping. Existing authoritative data remains
+            // visible; no field is guessed from the callback.
+            CLAN_UPDATED => {}
+            _ => {}
+        }
+    }
+
+    fn apply_membership(&mut self, membership: ClanMembership) {
+        let same_clan = matches!(
+            (&self.snapshot.membership, &membership),
+            (ClanMembership::Member(current), ClanMembership::Member(next)) if current.id == next.id
+        );
+
+        if same_clan {
+            // ReceivedMyClanOnLogin may be repeated for the same session. It
+            // can update descriptor fields, but it must not erase a roster or
+            // queue another initial roster read for the same clan.
+            if self.snapshot.membership != membership {
+                self.snapshot.membership = membership;
+                self.bump();
+            }
+            return;
+        }
+
+        let changed = self.snapshot.membership != membership
+            || !self.snapshot.members.is_empty()
+            || self.snapshot.read_error.is_some();
+        let refresh = matches!(membership, ClanMembership::Member(_));
+        self.snapshot.membership = membership;
+        self.snapshot.members.clear();
+        self.snapshot.read_error = None;
+        self.members_refresh_pending = refresh;
+        if changed {
+            self.bump();
+        }
     }
 
     fn refresh_request(&mut self) -> Option<Vec<u8>> {
@@ -575,6 +603,11 @@ impl ClanState {
             ClanMembership::Pending | ClanMembership::None => return Ok(()),
         };
         let members = parse_clan_members(body, expected_id)?;
+        if members.is_empty() {
+            return Err(classic_error(format!(
+                "GetClanMembers returned an empty roster for active clan {expected_id}"
+            )));
+        }
         if self.snapshot.members != members || self.snapshot.read_error.is_some() {
             self.snapshot.members = members;
             self.snapshot.read_error = None;
@@ -1911,6 +1944,73 @@ mod tests {
     fn empty_received_my_clan_callback_is_authoritative_no_membership() {
         assert_eq!(parse_my_clan(&[]).unwrap(), ClanMembership::None);
         assert!(parse_my_clan(&Message::new().varint(4, 1).into_vec()).is_err());
+    }
+
+    #[test]
+    fn clan_roster_refreshes_only_for_initial_and_structural_events() {
+        let mut state = ClanState::default();
+        let membership = ClanMembership::Member(ClanInfo {
+            id: 91,
+            tag: "MOB".into(),
+            name: "Mortar Board".into(),
+            motd: "Ready for battle".into(),
+            description: "A test clan".into(),
+        });
+        state.apply_membership(membership.clone());
+        assert!(state.refresh_request().is_some());
+        assert!(state.refresh_request().is_none());
+
+        let member = ClanMember {
+            account_id: 7,
+            name: "Alice".into(),
+            rank: 3,
+        };
+        state.snapshot.members.push(member.clone());
+
+        let ClanMembership::Member(mut updated) = membership else {
+            unreachable!();
+        };
+        updated.motd = "Updated descriptor".into();
+        state.apply_membership(ClanMembership::Member(updated));
+        assert_eq!(state.snapshot.members, vec![member]);
+        assert!(state.refresh_request().is_none());
+
+        state.apply_callback(CLAN_MEMBER_PRESENCE_UPDATED, b"presence");
+        state.apply_callback(CLAN_BATCHED_MEMBER_PRESENCE_UPDATED, b"presence batch");
+        assert!(state.refresh_request().is_none());
+
+        state.apply_callback(CLAN_MEMBER_RANK_CHANGED, b"structural change");
+        assert!(state.refresh_request().is_some());
+        assert!(state.refresh_request().is_none());
+    }
+
+    #[test]
+    fn empty_active_clan_roster_does_not_replace_last_known_good_members() {
+        let mut state = ClanState::default();
+        state.apply_membership(ClanMembership::Member(ClanInfo {
+            id: 91,
+            tag: "MOB".into(),
+            name: "Mortar Board".into(),
+            motd: String::new(),
+            description: String::new(),
+        }));
+        let member = ClanMember {
+            account_id: 7,
+            name: "Alice".into(),
+            rank: 3,
+        };
+        state.snapshot.members.push(member.clone());
+
+        let error = state.apply_members(&[]).unwrap_err().to_string();
+        state.fail_read(error);
+        assert_eq!(state.snapshot.members, vec![member]);
+        assert!(
+            state
+                .snapshot
+                .read_error
+                .as_deref()
+                .is_some_and(|error| error.contains("empty roster for active clan 91"))
+        );
     }
 
     #[test]

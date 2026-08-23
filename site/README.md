@@ -1,12 +1,10 @@
 # Superiority website
 
-Astro source for the Superiority download page.
-
 ```sh
-npm install
+npm ci
 npm run dev
 npm run check
 npm run build
 ```
 
-Releases deploy the site through `scripts/publish-update-macos.zsh`.
+The Superiority release deploys this page with the appcast.

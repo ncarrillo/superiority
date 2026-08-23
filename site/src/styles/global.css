@@ -1,21 +1,21 @@
 /*
- * The page wears the app's own skin. Palette values are lifted from
- * `macos.rs`, the fonts are the ones `fonts.rs` maps (EurostileExt-Med for
- * navigation, Eurostile-Bol for headings, Eurostile-Reg for interface text),
- * and the textures under /ui/img are the same files the app ships in
- * `app/macos/resources/images`.
+ * The page follows `Landing Page.dc.html` in the Superiority design project.
+ * Palette values are lifted from `macos.rs`, the fonts are the ones
+ * `fonts.rs` maps (EurostileExt for navigation and headings, Eurostile for
+ * interface text), and the nav mark is the adjutant portrait re-inked in CSS
+ * the same way `tools/brand-assets` bakes it.
  */
 
 @font-face {
   font-family: "Eurostile Ext";
-  src: url("/ui/fonts/eurostileext-med.otf") format("opentype");
-  font-weight: 500;
+  src: url("/ui/fonts/eurostileext-reg.otf") format("opentype");
+  font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
-  font-family: "Eurostile";
-  src: url("/ui/fonts/eurostile-bol.otf") format("opentype");
+  font-family: "Eurostile Ext";
+  src: url("/ui/fonts/eurostileext-med.otf") format("opentype");
   font-weight: 700;
   font-display: swap;
 }
@@ -27,22 +27,34 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Eurostile";
+  src: url("/ui/fonts/eurostile-bol.otf") format("opentype");
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
-  --panel: #0b121a;
-  --deep: #060a0f;
-  --surface: #0e1722;
-  --line: #14344d;
+  --deep: #04060a;
+  --raised: #060a12;
   --blue: #33a8f0;
   --blue-bright: #6bc2f2;
-  --header-blue: #62c9ff;
+  --blue-glow: #8fd4ff;
+  --bright: #e6f9ff;
   --ink: #d6e0f0;
-  --soft: #a6b5c9;
+  --body: #c8d4e4;
+  --soft: #a9b8cc;
+  --slate: #8fa2ba;
   --muted: #7d8fa8;
-  --hairline: color-mix(in srgb, #14344d 65%, transparent);
+  --dim: #5a6478;
+  --faint: #33506e;
+  --hairline: rgba(51, 168, 240, 0.15);
   --font-nav: "Eurostile Ext", "Eurostile", -apple-system, "Segoe UI",
     sans-serif;
-  --font-head: "Eurostile", -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Eurostile", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas,
+    monospace;
 }
 
 * {
@@ -51,29 +63,20 @@
 
 body {
   margin: 0;
-  /* the app's own chat background, dimmed the way it sits behind a transcript */
-  background:
-    linear-gradient(
-      180deg,
-      rgba(6, 10, 15, 0.78) 0%,
-      rgba(6, 10, 15, 0.92) 55%,
-      rgba(6, 10, 15, 0.97) 100%
-    ),
-    url("/ui/img/deep-nebula.jpg") center / cover no-repeat;
-  background-attachment: fixed;
+  background: linear-gradient(180deg, var(--raised) 0%, var(--deep) 40%);
   background-color: var(--deep);
-  color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
+  color: var(--body);
+  font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
-main {
-  max-width: 1000px;
+/* sections run edge to edge so their hairlines do; this centers the content */
+.inner {
+  max-width: 1296px;
   margin: 0 auto;
-  padding: 0 24px 72px;
+  padding: 0 clamp(24px, 5vw, 72px);
 }
 
 h1,
@@ -87,7 +90,12 @@ p {
 }
 
 a {
-  color: inherit;
+  color: var(--blue-bright);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--bright);
 }
 
 a:focus-visible {
@@ -97,8 +105,4 @@ a:focus-visible {
 
 ::selection {
   background: color-mix(in srgb, var(--blue) 30%, transparent);
-}
-
-.muted {
-  color: var(--muted);
 }

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Threading.Channels;
 
 namespace Stimpak;
 
@@ -43,24 +44,12 @@ public sealed class StimpakClient : IDisposable
     /// </summary>
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(1);
 
-    private readonly EventBuffer _events;
+    private readonly Channel<SC2Event> _events;
     private readonly Thread _pump;
     private IntPtr _handle;
     private volatile bool _stopping;
     private int _closeRequested;
     private StimpakConnectOptions? _lastConnect;
-
-    /// <summary>
-    /// raised on the pump thread. handlers must not block; anything slow
-    /// belongs on <see cref="ReadEventsAsync"/>.
-    /// </summary>
-    public event Action<SC2Event>? EventReceived;
-
-    /// <summary>
-    /// raised on the pump thread when a full managed stream discards its oldest
-    /// unread event. The argument is the lifetime total.
-    /// </summary>
-    public event Action<long>? EventOverflowed;
 
     /// <summary>
     /// who this connection knows about. Handles are issued by one connection
@@ -84,8 +73,6 @@ public sealed class StimpakClient : IDisposable
 
     public static uint NativeEventSchemaVersion => Native.EventSchemaVersion();
 
-    public long DroppedEventCount => _events.DroppedCount;
-
     /// <param name="applicationId">
     /// stable credential namespace, preferably reverse-DNS. Stimpak chooses
     /// the platform's per-user application-data directory.
@@ -103,9 +90,12 @@ public sealed class StimpakClient : IDisposable
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(options.CredentialPath);
         }
-        ArgumentOutOfRangeException.ThrowIfLessThan(options.EventCapacity, 1);
         EnsureCompatible();
-        _events = new EventBuffer(options.EventCapacity);
+        _events = Channel.CreateUnbounded<SC2Event>(new UnboundedChannelOptions
+        {
+            SingleWriter = true,
+            AllowSynchronousContinuations = false,
+        });
         _handle = options.CredentialPath is { } path
             ? Native.OpenAtPath(Path.GetFullPath(path))
             : Native.Open(options.ApplicationId);
@@ -213,32 +203,14 @@ public sealed class StimpakClient : IDisposable
                 Native.FreeString(raw);
             }
 
-            if (_events.Publish(next) != 0)
-            {
-                try
-                {
-                    EventOverflowed?.Invoke(_events.DroppedCount);
-                }
-                catch (Exception)
-                {
-                    // diagnostics obey the same isolation as event subscribers.
-                }
-            }
-            try
-            {
-                EventReceived?.Invoke(next);
-            }
-            catch (Exception)
-            {
-                // a subscriber's fault must not take the session down.
-            }
+            _events.Writer.TryWrite(next);
 
             if (next is SessionEnded)
             {
                 break;
             }
         }
-        _events.Complete();
+        _events.Writer.TryComplete();
         // dispose may have given up waiting and left the close to us, because
         // freeing the client while this thread was inside a native call would
         // have been a use-after-free.
@@ -374,15 +346,12 @@ public sealed class StimpakClient : IDisposable
 
     public void CancelAuth(ulong authId) => Check(Native.CancelAuth(Handle, authId));
 
-    /// <summary>
-    /// unread roster snapshots for the same channel are coalesced. The stream
-    /// is bounded and suspends rather than blocking while idle.
-    /// </summary>
+    /// <summary>suspends without blocking while no event is available.</summary>
     public IAsyncEnumerable<SC2Event> ReadEventsAsync(CancellationToken cancellation = default) =>
-        _events.ReadAllAsync(cancellation);
+        _events.Reader.ReadAllAsync(cancellation);
 
     /// <summary>for driving the client from an existing loop instead of a consumer.</summary>
-    public bool TryRead(out SC2Event? next) => _events.TryRead(out next);
+    public bool TryRead(out SC2Event? next) => _events.Reader.TryRead(out next);
 
     public void Dispose()
     {
@@ -391,11 +360,10 @@ public sealed class StimpakClient : IDisposable
         {
             return;
         }
-        _events.Complete();
+        _events.Writer.TryComplete();
 
-        // disposing from a subscriber runs on the pump itself; joining would
-        // wait on this very thread. let the loop unwind and close on its way
-        // out instead.
+        // Avoid waiting on this thread if disposal is ever initiated from
+        // inside the pump.
         if (Thread.CurrentThread == _pump)
         {
             return;

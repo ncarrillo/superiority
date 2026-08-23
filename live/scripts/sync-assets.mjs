@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const sc2 = join(here, "..", "..");
 const images = join(sc2, "app", "macos", "resources", "images");
-const fonts = join(sc2, "assets", "fonts", "game");
+const fonts = join(sc2, "app", "macos", "resources", "fonts");
 const output = join(sc2, "live-app", "www", "public");
 
 // per-product avatar catalogues: the viewer resolves a member's `avatar` id

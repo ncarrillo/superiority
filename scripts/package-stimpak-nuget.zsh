@@ -8,10 +8,13 @@ core_project="$root/stimpak/csharp/Stimpak/Stimpak.csproj"
 auth_project="$root/stimpak/csharp/Stimpak.Auth/Stimpak.Auth.csproj"
 output="$root/dist/nuget"
 package_version=${STIMPAK_PACKAGE_VERSION:-}
-package_version_args=()
+version_args=()
 
 if [[ -n "$package_version" ]]; then
-  package_version_args=(-p:PackageVersion="$package_version")
+  version_args=(
+    -p:Version="$package_version"
+    -p:PackageVersion="$package_version"
+  )
 fi
 
 if [[ $(uname -s) != Darwin ]]; then
@@ -30,13 +33,13 @@ dotnet run --project "$root/stimpak/csharp/Stimpak.Tests/Stimpak.Tests.csproj" -
 dotnet pack "$core_project" \
   -c Release \
   -p:StimpakBuildNative=false \
-  $package_version_args \
+  $version_args \
   -o "$output"
 dotnet pack "$auth_project" \
   -c Release \
   -p:StimpakBuildNative=false \
   -p:StimpakAuthBuildNative=false \
-  $package_version_args \
+  $version_args \
   -o "$output"
 
 print "Stimpak NuGet packages: $output"

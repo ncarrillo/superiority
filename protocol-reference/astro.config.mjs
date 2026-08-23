@@ -8,8 +8,7 @@ export default defineConfig({
   },
   vite: {
     build: {
-      // Fonts and the hex backdrop are inlined as data URIs so the built
-      // PROTOCOL.html stays a single self-contained file.
+      // Fonts and the hex backdrop are inlined into the standalone page.
       assetsInlineLimit: 256 * 1024,
     },
   },

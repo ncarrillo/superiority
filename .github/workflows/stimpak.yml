@@ -3,6 +3,12 @@ name: Stimpak
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      version:
+        description: Version embedded in release artifacts
+        required: false
+        default: ""
+        type: string
   pull_request:
     paths:
       - .cargo/**
@@ -40,6 +46,7 @@ env:
   CARGO_TERM_COLOR: always
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   DOTNET_NOLOGO: 1
+  STIMPAK_PACKAGE_VERSION: ${{ inputs.version || '' }}
 
 jobs:
   macos:

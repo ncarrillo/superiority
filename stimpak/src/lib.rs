@@ -700,7 +700,9 @@ pub extern "C" fn stimpak_event_schema_version() -> u32 {
 /// static; do not free.
 #[unsafe(no_mangle)]
 pub extern "C" fn stimpak_version() -> *const c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
+    concat!(env!("STIMPAK_EFFECTIVE_VERSION"), "\0")
+        .as_ptr()
+        .cast()
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 using Stimpak;
 using Stimpak.Auth;
+using System.Reflection;
 
 var failures = new List<string>();
 var passed = 0;
@@ -11,8 +12,6 @@ Run("unknown event types survive", UnknownEventTypesSurvive);
 Run("malformed events are surfaced", MalformedEventsAreSurfaced);
 Run("account and group events decode", AccountAndGroupEventsDecode);
 Run("connection targets serialize", ConnectionTargetsSerialize);
-Run("rosters are coalesced", RostersAreCoalesced);
-Run("event buffers are bounded", EventBuffersAreBounded);
 Run("native and managed versions agree", NativeAndManagedVersionsAgree);
 Run("application ids reject paths", ApplicationIdsRejectPaths);
 Run("optional auth native and managed versions agree", AuthNativeAndManagedVersionsAgree);
@@ -125,30 +124,6 @@ static void ConnectionTargetsSerialize()
         "group target omitted its id");
 }
 
-static void RostersAreCoalesced()
-{
-    var buffer = new EventBuffer(4);
-    buffer.Publish(new RosterReceived(1, false, [User(1, 1, "Early")]));
-    buffer.Publish(new RosterReceived(1, true, [User(1, 1, "Final")]));
-
-    Assert(buffer.TryRead(out var next), "coalesced roster disappeared");
-    Assert(next is RosterReceived { Complete: true } roster && roster.Users[0].Name == "Final",
-        "stream did not retain the newest roster");
-    Assert(!buffer.TryRead(out _), "superseded roster remained queued");
-}
-
-static void EventBuffersAreBounded()
-{
-    var buffer = new EventBuffer(2);
-    buffer.Publish(new StageChanged(Stage.WebAuthentication));
-    buffer.Publish(new StageChanged(Stage.GameUtilities));
-    buffer.Publish(new StageChanged(Stage.Connected));
-
-    Assert(buffer.DroppedCount == 1, "overflow was not counted");
-    Assert(buffer.TryRead(out var first) && first is StageChanged { Stage: Stage.GameUtilities },
-        "the oldest event was not the overflow victim");
-}
-
 static void NativeAndManagedVersionsAgree()
 {
     Assert(StimpakClient.NativeAbiVersion == StimpakClient.SupportedNativeAbi, "ABI mismatch");
@@ -159,9 +134,12 @@ static void NativeAndManagedVersionsAgree()
     using var client = new StimpakClient(new StimpakClientOptions("Stimpak.Tests")
     {
         CredentialPath = credential,
-        EventCapacity = 8,
     });
     Assert(StimpakClient.NativeVersion.Length != 0, "native version is empty");
+    AssertReleaseVersion(
+        StimpakClient.NativeVersion,
+        typeof(StimpakClient).Assembly,
+        "Stimpak");
 }
 
 static void AuthNativeAndManagedVersionsAgree()
@@ -170,6 +148,26 @@ static void AuthNativeAndManagedVersionsAgree()
         "authentication ABI mismatch");
     Assert(EmbeddedAuthenticator.NativeVersion.Length != 0,
         "authentication native version is empty");
+    AssertReleaseVersion(
+        EmbeddedAuthenticator.NativeVersion,
+        typeof(EmbeddedAuthenticator).Assembly,
+        "Stimpak.Auth");
+}
+
+static void AssertReleaseVersion(string nativeVersion, Assembly managedAssembly, string name)
+{
+    var expected = Environment.GetEnvironmentVariable("STIMPAK_PACKAGE_VERSION");
+    if (string.IsNullOrEmpty(expected))
+    {
+        return;
+    }
+    var managedVersion = managedAssembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+        .InformationalVersion;
+    Assert(nativeVersion == expected, $"{name} native version is {nativeVersion}, expected {expected}");
+    Assert(
+        managedVersion?.Split('+')[0] == expected,
+        $"{name} managed version is {managedVersion}, expected {expected}");
 }
 
 static void ApplicationIdsRejectPaths()
