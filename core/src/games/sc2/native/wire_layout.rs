@@ -170,6 +170,20 @@ const PACKET_INFO: &[WireField] = &[
     WireField::new(2, 0),
     WireField::new(3, 0),
 ];
+/// `BattlePay::GetInfoResponse {GetInfo, m_licenseResult, m_accountCountry,
+/// m_productCatalog, m_licenseCatalog, m_currencies, m_balances, m_licenses}`.
+/// Recovered by decoding the complete retail response: both catalogs and every
+/// balance/license entry land on their declared types with no trailing bits.
+const BATTLEPAY_GET_INFO_RESPONSE: &[WireField] = &[
+    WireField::new(3, 0),
+    WireField::new(2, 0),
+    WireField::new(6, 0),
+    WireField::new(5, 0),
+    WireField::new(4, 0),
+    WireField::new(1, 0),
+    WireField::new(7, 0),
+    WireField::new(0, 0),
+];
 pub(super) fn register(codec: &mut Codec) -> Result<()> {
     codec.register_struct_wire_layout(
         "Battlenet::Client::Friends::FriendInvitationAddedNotify",
@@ -249,8 +263,30 @@ pub(super) fn register(codec: &mut Codec) -> Result<()> {
         StructWireLayout::new("empty Connection::LogoutRequest", IDENTITY_0),
     )?;
     codec.register_struct_wire_layout(
+        "Battlenet::Client::BattlePay::GetWallets",
+        StructWireLayout::new("empty BattlePay::GetWallets", IDENTITY_0),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::BattlePay::GetWalletsResponse",
+        StructWireLayout::new("generated BattlePay::GetWalletsResponse", IDENTITY_2),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::BattlePay::GetInfo",
+        StructWireLayout::new("empty BattlePay::GetInfo", IDENTITY_0),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::BattlePay::GetInfoResponse",
+        StructWireLayout::new(
+            "generated BattlePay::GetInfoResponse",
+            BATTLEPAY_GET_INFO_RESPONSE,
+        ),
+    )?;
+    codec.register_struct_wire_layout(
         "Battlenet::Client::Connection::ConnectionClosing",
-        StructWireLayout::new("generated Connection::ConnectionClosing", CONNECTION_CLOSING),
+        StructWireLayout::new(
+            "generated Connection::ConnectionClosing",
+            CONNECTION_CLOSING,
+        ),
     )?;
     codec.register_struct_wire_layout(
         "Battlenet::PacketInfo",

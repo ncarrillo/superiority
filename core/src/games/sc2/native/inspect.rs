@@ -23,11 +23,10 @@ use super::{
         CHAT_ENUM_CONFERENCE_MEMBER_COUNTS_COMMAND, CHAT_INVITE_ACCEPT_COMMAND,
         CHAT_INVITE_DECLINE_COMMAND, CHAT_JOIN_REQUEST_COMMAND, CHAT_LEAVE_REQUEST_COMMAND,
         CHAT_MESSAGE_COMMAND, CHAT_MODIFY_CHANNEL_LIST_COMMAND, CHAT_SLOT,
-        CHAT_STATUS_CHANGE_COMMAND, CHAT_WHISPER_SEND_COMMAND,
-        CONNECTION_CLOSING_COMMAND, CONNECTION_ENABLE_ENCRYPTION_COMMAND,
-        CONNECTION_LOGOUT_COMMAND, CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_PING_COMMAND,
-        CONNECTION_PONG_COMMAND, CONNECTION_SLOT, FRIENDS_SLOT, FRIENDS_TOONS_COMMAND,
-        PARTY_BEGIN_READY_PROCESS_COMMAND,
+        CHAT_STATUS_CHANGE_COMMAND, CHAT_WHISPER_SEND_COMMAND, CONNECTION_CLOSING_COMMAND,
+        CONNECTION_ENABLE_ENCRYPTION_COMMAND, CONNECTION_LOGOUT_COMMAND,
+        CONNECTION_MESSAGE_FRAME_COMMAND, CONNECTION_PING_COMMAND, CONNECTION_PONG_COMMAND,
+        CONNECTION_SLOT, FRIENDS_SLOT, FRIENDS_TOONS_COMMAND, PARTY_BEGIN_READY_PROCESS_COMMAND,
         PARTY_MODIFY_MAP_OPTIONS_COMMAND, PARTY_MODIFY_NON_LOBBY_ATTRIBUTE_LIST_COMMAND,
         PARTY_READY_PROCESS_UPDATE_COMMAND, PARTY_SLOT, PRESENCE_SLOT,
         PRESENCE_STATISTICS_SUBSCRIBE_COMMAND, PRESENCE_TEMPORARY_COMMAND, PRESENCE_UPDATE_COMMAND,
@@ -3249,6 +3248,52 @@ mod tests {
         assert_eq!(record.command, "LogoutRequest");
         assert_eq!(record.command_id, CONNECTION_LOGOUT_COMMAND);
         assert_eq!(record.logical_bits, 11);
+        assert_eq!(record.bytes, bytes);
+    }
+
+    #[test]
+    fn outgoing_connection_closing_uses_the_generated_packet_history_order() {
+        let protocol = Protocol::current().unwrap();
+        let type_id = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Client::Connection::ConnectionClosing")
+            .unwrap();
+        let shape = protocol.codec().schema().shape(type_id).unwrap();
+        let fields = shape
+            .index_values
+            .iter()
+            .zip(shape.member_names.iter())
+            .map(|(index, name)| {
+                let name = name.as_ref().unwrap();
+                let value = match name.as_str() {
+                    "m_header" => BsnValue::none(),
+                    "m_closingReason" => BsnValue::Integer(13),
+                    "m_badData" => BsnValue::Bytes(Vec::new()),
+                    "m_packets" => BsnValue::Array(Vec::new()),
+                    "m_now" => BsnValue::Integer(0x1234_5678),
+                    _ => unreachable!("unexpected ConnectionClosing member {name}"),
+                };
+                crate::bsn::value::BsnField::named(*index, name, value)
+            })
+            .collect();
+        let value = BsnValue::Struct(crate::bsn::value::BsnStruct::new(type_id, fields));
+        let mut writer = crate::bsn::bits::BitWriter::new();
+        writer.write(CONNECTION_CLOSING_COMMAND.into(), 6).unwrap();
+        writer.write(1, 1).unwrap();
+        writer.write(CONNECTION_SLOT.into(), 4).unwrap();
+        protocol
+            .codec()
+            .encode_reflected_into(&mut writer, type_id, &value)
+            .unwrap();
+        let expected_bits = writer.position();
+        let bytes = writer.into_bytes();
+
+        let record = inspect_native_record(&protocol, Direction::Outgoing, &bytes).unwrap();
+        assert_eq!(record.service, "Connection");
+        assert_eq!(record.command, "ConnectionClosing");
+        assert_eq!(record.command_id, CONNECTION_CLOSING_COMMAND);
+        assert_eq!(record.logical_bits, expected_bits);
         assert_eq!(record.bytes, bytes);
     }
 

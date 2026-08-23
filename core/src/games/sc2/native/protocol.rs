@@ -1286,7 +1286,12 @@ impl Protocol {
         )?;
         let common = self.struct_with_defaults(
             common_type,
-            vec![("m_finalRequest", BsnValue::Array(vec![module]))],
+            vec![
+                ("m_finalRequest", BsnValue::Array(vec![module])),
+                // Keep the native connection watchdog consistent with the
+                // value supplied by the Front handoff.
+                ("m_pingTimeout", BsnValue::Integer(60_000)),
+            ],
         )?;
         let success =
             self.struct_with_defaults(success_type, vec![("ResponseSuccessCommon", common)])?;
@@ -1753,11 +1758,14 @@ impl Protocol {
     /// Client requests are sparse `CS_ROUTED` frames (route, correlation, content),
     /// while server replies must carry the service binding and target established by
     /// the native bootstrap as well as a timestamp and stream header. `template`
-    /// supplies only that routing context; correlation, content size, timestamp,
-    /// sequence, payload, and the reply flag are encoded for the live request.
+    /// supplies the route and service binding; the target is rebuilt from the
+    /// game account minted by BGS. Correlation, content size, timestamp, sequence,
+    /// payload, and the reply flag are encoded for the live request.
     pub fn transport_routed_reply(
         &self,
         template: &crate::native::model::ConnectionMessageFrame,
+        game_account_region: u8,
+        game_account_id: u32,
         correlation_id: u32,
         sequence: u32,
         timestamp: u32,
@@ -1768,7 +1776,7 @@ impl Protocol {
         let data_type = self.member_type(header_type, "m_data")?;
         let (route_index, _) = self.choice_variant(data_type, "route")?;
         let (service_index, _) = self.choice_variant(data_type, "service")?;
-        let (target_index, _) = self.choice_variant(data_type, "target")?;
+        let (target_index, target_type) = self.choice_variant(data_type, "target")?;
         let (correlation_index, correlation_type) =
             self.choice_variant(data_type, "correlation")?;
         let (content_index, content_type) = self.choice_variant(data_type, "content")?;
@@ -1817,13 +1825,39 @@ impl Protocol {
                 ("m_more", BsnValue::Bool(false)),
             ],
         )?;
+        let target_ids_type = self.member_type(target_type, "m_ids")?;
+        let (game_account_index, game_accounts_type) =
+            self.choice_variant(target_ids_type, "GameAccount")?;
+        let game_account_type = self.array_element(game_accounts_type)?;
+        let game_account = self.struct_value(
+            game_account_type,
+            vec![
+                (
+                    "m_region",
+                    BsnValue::Integer(i128::from(game_account_region)),
+                ),
+                ("m_programId", BsnValue::FourCc(fourcc("S2"))),
+                ("m_id", BsnValue::Integer(i128::from(game_account_id))),
+            ],
+        )?;
+        let target = self.struct_value(
+            target_type,
+            vec![
+                // Battlenet::Frame::TargetType::GAME_ACCOUNT.
+                ("m_type", BsnValue::Integer(5)),
+                (
+                    "m_ids",
+                    BsnValue::choice(game_account_index, BsnValue::Array(vec![game_account])),
+                ),
+            ],
+        )?;
         let headers = vec![
             template_header(route_index, "route")?,
             template_header(service_index, "service")?,
             wrap_header(correlation_index, correlation)?,
             wrap_header(content_index, content)?,
             wrap_header(timestamp_index, BsnValue::Integer(i128::from(timestamp)))?,
-            template_header(target_index, "target")?,
+            wrap_header(target_index, target)?,
             wrap_header(stream_index, stream)?,
         ];
 
@@ -1871,6 +1905,78 @@ impl Protocol {
         writer.write(0, 6)?;
         writer.align()?;
         Ok(writer.into_bytes())
+    }
+
+    /// Encode `BattlePay::GetWalletsResponse::Success` with no wallets.
+    ///
+    /// This is an inner reliable-transport payload, not a top-level native
+    /// record. A custom account must not inherit the captured account's wallet
+    /// id, payment type, or display name.
+    pub fn empty_battlepay_wallets_response(&self) -> Result<Vec<u8>> {
+        let root_type = self
+            .codec
+            .schema()
+            .unique_type_id("Battlenet::Client::BattlePay::GetWalletsResponse")?;
+        let marker_type = self.member_type(root_type, "GetWallets")?;
+        let result_type = self.member_type(root_type, "m_result")?;
+        let success_type = self.choice_variant_by_index(result_type, 0)?;
+        let marker = self.struct_value(marker_type, Vec::new())?;
+        let success = self.struct_with_defaults(
+            success_type,
+            vec![("m_wallets", BsnValue::Array(Vec::new()))],
+        )?;
+        let root = self.struct_value(
+            root_type,
+            vec![
+                ("GetWallets", marker),
+                ("m_result", BsnValue::choice(0, success)),
+            ],
+        )?;
+        Ok(self.codec.encode(root_type, &root)?.data)
+    }
+
+    /// Encode a local `BattlePay::GetInfoResponse` without replaying another
+    /// account's balances or licenses. The two 40-byte values are public content
+    /// handles for the current product and license catalogs; all account-owned
+    /// collections are empty.
+    pub fn empty_battlepay_info_response(&self) -> Result<Vec<u8>> {
+        const PRODUCT_CATALOG: [u8; 40] = [
+            0x63, 0x61, 0x74, 0x61, 0x00, 0x00, 0x55, 0x53, 0xa3, 0x6e, 0x1f, 0x84, 0xdb, 0x40,
+            0x35, 0x0e, 0x10, 0xfb, 0x6c, 0xf7, 0x46, 0x33, 0x27, 0x87, 0x65, 0xe0, 0xd7, 0xc8,
+            0x33, 0xf1, 0x49, 0x85, 0x19, 0x74, 0x4f, 0xb1, 0xd6, 0x90, 0x82, 0xb7,
+        ];
+        const LICENSE_CATALOG: [u8; 40] = [
+            0x63, 0x61, 0x74, 0x61, 0x00, 0x00, 0x55, 0x53, 0x2f, 0x14, 0x3c, 0x9b, 0x1b, 0x2b,
+            0x7f, 0x2b, 0x1c, 0xfa, 0x4c, 0xdb, 0x6b, 0x31, 0x27, 0xd3, 0x25, 0x88, 0xf9, 0x83,
+            0xb5, 0xe1, 0xf6, 0xb1, 0x86, 0xb2, 0x2f, 0xdf, 0x20, 0xf7, 0x98, 0x61,
+        ];
+
+        let root_type = self
+            .codec
+            .schema()
+            .unique_type_id("Battlenet::Client::BattlePay::GetInfoResponse")?;
+        let marker_type = self.member_type(root_type, "GetInfo")?;
+        let marker = self.struct_with_defaults(marker_type, Vec::new())?;
+        let root = self.struct_with_defaults(
+            root_type,
+            vec![
+                ("GetInfo", marker),
+                ("m_licenseResult", BsnValue::Integer(0)),
+                ("m_accountCountry", BsnValue::Bytes(b"USA".to_vec())),
+                (
+                    "m_productCatalog",
+                    BsnValue::Bytes(PRODUCT_CATALOG.to_vec()),
+                ),
+                (
+                    "m_licenseCatalog",
+                    BsnValue::Bytes(LICENSE_CATALOG.to_vec()),
+                ),
+                ("m_currencies", BsnValue::Array(Vec::new())),
+                ("m_balances", BsnValue::Array(Vec::new())),
+                ("m_licenses", BsnValue::Array(Vec::new())),
+            ],
+        )?;
+        Ok(self.codec.encode(root_type, &root)?.data)
     }
 
     fn transport_control_frame(
@@ -4530,7 +4636,15 @@ mod tests {
             .command_response(21, 0, &[0xde, 0xad, 0xbe, 0xef])
             .unwrap();
         let record = protocol
-            .transport_routed_reply(&template, 0xa1b2_c3d4, 37, 1_787_523_200, body.clone())
+            .transport_routed_reply(
+                &template,
+                1,
+                0x1234_5678,
+                0xa1b2_c3d4,
+                37,
+                1_787_523_200,
+                body.clone(),
+            )
             .unwrap();
 
         let (slot, command, payload) = protocol.decode_server_record(&record).unwrap();
@@ -4547,11 +4661,141 @@ mod tests {
         assert_eq!(fields.reply, Some(true));
         assert_eq!(fields.sequence, Some(37));
         assert_eq!(frame.payload, body);
+        let target = frame
+            .headers
+            .iter()
+            .find_map(|header| match header.get("m_data") {
+                Some(BsnValue::Choice { index: 2, value }) => value.as_struct(),
+                _ => None,
+            })
+            .expect("game-account target header");
+        assert_eq!(target.get("m_type").and_then(BsnValue::as_integer), Some(5));
+        let Some(BsnValue::Choice {
+            index: 3,
+            value: target_ids,
+        }) = target.get("m_ids")
+        else {
+            panic!("expected game-account target ids");
+        };
+        let BsnValue::Array(game_accounts) = target_ids.as_ref() else {
+            panic!("expected game-account target array");
+        };
+        let game_account = value_struct(&game_accounts[0], "target game account").unwrap();
+        assert_eq!(
+            game_account.get("m_region").and_then(BsnValue::as_integer),
+            Some(1)
+        );
+        assert_eq!(
+            game_account.get("m_programId"),
+            Some(&BsnValue::FourCc(fourcc("S2")))
+        );
+        assert_eq!(
+            game_account.get("m_id").and_then(BsnValue::as_integer),
+            Some(0x1234_5678)
+        );
     }
 
     #[test]
     fn empty_ladder_rankings_response_is_a_zero_count() {
         assert_eq!(protocol().empty_ladder_rankings_response().unwrap(), [0]);
+    }
+
+    #[test]
+    fn empty_battlepay_wallets_response_has_no_account_fixture() {
+        let protocol = protocol();
+        let body = protocol.empty_battlepay_wallets_response().unwrap();
+        let root_type = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Client::BattlePay::GetWalletsResponse")
+            .unwrap();
+        let decoded = protocol.codec().decode(root_type, &body, None, 0).unwrap();
+        let root = value_struct(&decoded.value, "wallet response").unwrap();
+        let (variant, success) =
+            value_choice(required_field(root, "m_result").unwrap(), "wallet result").unwrap();
+        assert_eq!(variant, 0);
+        let success = value_struct(success, "wallet success").unwrap();
+        assert!(matches!(
+            required_field(success, "m_wallets").unwrap(),
+            BsnValue::Array(wallets) if wallets.is_empty()
+        ));
+        assert_eq!(decoded.bit_count, 7);
+        assert_eq!(body, [0]);
+    }
+
+    #[test]
+    fn empty_battlepay_info_response_has_no_account_licenses_or_balances() {
+        let protocol = protocol();
+        let body = protocol.empty_battlepay_info_response().unwrap();
+        let root_type = protocol
+            .codec()
+            .schema()
+            .unique_type_id("Battlenet::Client::BattlePay::GetInfoResponse")
+            .unwrap();
+        let decoded = protocol.codec().decode(root_type, &body, None, 0).unwrap();
+        let root = value_struct(&decoded.value, "BattlePay info response").unwrap();
+        assert_eq!(
+            value_bytes(
+                required_field(root, "m_accountCountry").unwrap(),
+                "BattlePay account country",
+            )
+            .unwrap(),
+            b"USA"
+        );
+        for field in ["m_currencies", "m_balances", "m_licenses"] {
+            assert!(matches!(
+                required_field(root, field).unwrap(),
+                BsnValue::Array(values) if values.is_empty()
+            ));
+        }
+        for field in ["m_productCatalog", "m_licenseCatalog"] {
+            assert_eq!(
+                value_bytes(required_field(root, field).unwrap(), field)
+                    .unwrap()
+                    .len(),
+                40
+            );
+        }
+        assert!(body.len() < 100);
+    }
+
+    #[test]
+    fn resume_response_carries_the_native_ping_timeout() {
+        let protocol = protocol();
+        let proof = [0x5a; 32];
+        let packet = protocol.resume_response(&proof).unwrap();
+        let Payload::Reflected(value) = decode_incoming(&protocol, &packet) else {
+            panic!("expected a reflected ResumeResponse");
+        };
+        let root = value_struct(&value, "resume response").unwrap();
+        let (variant, success) =
+            value_choice(required_field(root, "m_result").unwrap(), "resume result").unwrap();
+        assert_eq!(variant, 0);
+        let success = value_struct(success, "resume success").unwrap();
+        let common = value_struct(
+            required_field(success, "ResponseSuccessCommon").unwrap(),
+            "resume common",
+        )
+        .unwrap();
+        assert_eq!(
+            value_integer(
+                required_field(common, "m_pingTimeout").unwrap(),
+                "resume ping timeout",
+            )
+            .unwrap(),
+            60_000
+        );
+        let BsnValue::Array(modules) = required_field(common, "m_finalRequest").unwrap() else {
+            panic!("resume final request is not an array");
+        };
+        assert_eq!(modules.len(), 1);
+        let module = value_struct(&modules[0], "resume final module").unwrap();
+        let mut expected = vec![2];
+        expected.extend_from_slice(&proof);
+        assert_eq!(
+            value_bytes(required_field(module, "m_data").unwrap(), "resume proof").unwrap(),
+            expected
+        );
     }
 
     #[test]

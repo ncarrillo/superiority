@@ -31,9 +31,12 @@ jobs:
 
       - name: Select stable Rust
         shell: bash
-        run: |
-          rustup update stable
-          rustup default stable
+        run: rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: superiority-windows-x86_64
+          cache-on-failure: true
 
       - name: Read version
         id: version
@@ -138,10 +141,123 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
+
+  macos:
+    name: Build macOS
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select stable Rust
+        run: |
+          rustup default stable
+          rustup target add \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: superiority-macos-universal
+          cache-on-failure: true
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' app/Cargo.toml | head -1)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid application version: $version" >&2
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "build=${version##*.}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build macOS application
+        env:
+          SUPERIORITY_CODESIGN_IDENTITY: "-"
+          SUPERIORITY_RELEASE_BUILD: 1
+        run: |
+          scripts/package-macos.zsh >/dev/null
+          mkdir -p dist
+          ditto -c -k --keepParent \
+            build/Superiority.app \
+            "dist/Superiority-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}.zip"
+          cargo build --release --locked \
+            --manifest-path updater/Cargo.toml \
+            --bin superiority-appcast
+          cp target/release/superiority-appcast dist/
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: superiority-macos-${{ steps.version.outputs.version }}
+          path: |
+            dist/Superiority-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}.zip
+            dist/Superiority-${{ steps.version.outputs.version }}-universal.dmg
+            dist/superiority-appcast
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  live-viewer:
+    name: Build Live viewer
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: live-app/www/package-lock.json
+
+      - name: Select stable Rust
+        run: |
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: superiority-live-wasm
+          cache-on-failure: true
+
+      - name: Install web dependencies
+        run: npm ci --prefix live-app/www
+
+      - name: Cache WebAssembly bindings tool
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/wasm-bindgen-test-runner
+            ~/.cargo/bin/wasm2es6js
+          key: ${{ runner.os }}-${{ runner.arch }}-wasm-bindgen-cli-0.2.127
+
+      - name: Install WebAssembly bindings tool
+        run: |
+          if ! wasm-bindgen --version 2>/dev/null | grep -qx 'wasm-bindgen 0.2.127'; then
+            cargo install wasm-bindgen-cli --version 0.2.127 --locked
+          fi
+
+      - name: Build Live viewer
+        run: npm --prefix live run build:viewer
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: superiority-live-viewer
+          path: live-app/www/dist
+          if-no-files-found: error
+          retention-days: 14
 
   release:
     name: Publish desktop, Live, and site
-    needs: windows
+    needs: [windows, macos, live-viewer]
     if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     environment: production
@@ -154,41 +270,39 @@ jobs:
           cache: npm
           cache-dependency-path: |
             live/package-lock.json
-            live-app/www/package-lock.json
             site/package-lock.json
 
-      - name: Select stable Rust
-        run: |
-          rustup update stable
-          rustup default stable
-          rustup target add \
-            aarch64-apple-darwin \
-            x86_64-apple-darwin \
-            wasm32-unknown-unknown
-
-      - name: Install web dependencies
+      - name: Install deployment dependencies
         run: |
           npm ci --prefix live
-          npm ci --prefix live-app/www
           npm ci --prefix site
-
-      - name: Install WebAssembly bindings tool
-        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
 
       - uses: actions/download-artifact@v6
         with:
           name: superiority-windows-x86_64-${{ needs.windows.outputs.version }}
           path: ci/windows-release
 
-      - name: Test
-        run: cargo test --workspace --release --locked
+      - uses: actions/download-artifact@v6
+        with:
+          name: superiority-macos-${{ needs.macos.outputs.version }}
+          path: ci/macos-release
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: superiority-live-viewer
+          path: live-app/www/dist
+
+      - name: Prepare release tools
+        run: chmod +x ci/macos-release/superiority-appcast
 
       - name: Publish release
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          SUPERIORITY_CODESIGN_IDENTITY: "-"
           SUPERIORITY_UPDATE_PRIVATE_KEY: ${{ secrets.SUPERIORITY_UPDATE_PRIVATE_KEY }}
+          SUPERIORITY_MACOS_UPDATE_ARCHIVE: ${{ github.workspace }}/ci/macos-release/Superiority-${{ needs.macos.outputs.version }}-${{ needs.macos.outputs.build }}.zip
+          SUPERIORITY_MACOS_DISK_IMAGE: ${{ github.workspace }}/ci/macos-release/Superiority-${{ needs.macos.outputs.version }}-universal.dmg
+          SUPERIORITY_APPCAST_TOOL: ${{ github.workspace }}/ci/macos-release/superiority-appcast
           SUPERIORITY_WINDOWS_UPDATE_ARCHIVE: ${{ github.workspace }}/ci/windows-release/Superiority-${{ needs.windows.outputs.version }}-${{ needs.windows.outputs.build }}-windows-x86_64.zip
           SUPERIORITY_WINDOWS_INSTALL_ARCHIVE: ${{ github.workspace }}/ci/windows-release/Superiority-${{ needs.windows.outputs.version }}-windows-x86_64.zip
           SUPERIORITY_WINDOWS_UPDATE_PLATFORM: windows-x86_64

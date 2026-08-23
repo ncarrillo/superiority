@@ -34,6 +34,8 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Authentication::ResumeRequest",
     "Battlenet::Client::Authentication::ResumeResponse",
     "Battlenet::Client::Authentication::SingleSignOnRequest3",
+    "Battlenet::Client::BattlePay::GetWalletsResponse",
+    "Battlenet::Client::BattlePay::GetInfoResponse",
     "Battlenet::Client::Profile::SendStatsUIEvent",
     "Battlenet::Client::Cache::GetStreamItemsResponse",
     "Battlenet::Client::Chat::ChannelListRequest",

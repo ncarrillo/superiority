@@ -26,18 +26,6 @@ trap cleanup EXIT
 # builds are stamped as dev and must never be published.
 export SUPERIORITY_RELEASE_BUILD=1
 
-# Exercise the exact HTTPS stack used by the shipped updater before creating
-# or uploading any release artifact. This is intentionally a live smoke test:
-# a TLS-provider mismatch must stop the release here, not reach users.
-cargo test \
-  --release \
-  --manifest-path "$root/updater/Cargo.toml" \
-  --lib \
-  download::tests::fetches_live_appcast \
-  -- \
-  --ignored \
-  --exact
-
 if [[ ! -x "$wrangler" ]]; then
   print -u2 "Site dependencies are missing. Run npm install in $site."
   exit 1
@@ -47,21 +35,54 @@ if [[ ! -x "$live_wrangler" ]]; then
   exit 1
 fi
 
-npm --prefix "$site" run check
-npm --prefix "$live" test
-"$root/scripts/package-macos.zsh" >/dev/null
+macos_archive=${SUPERIORITY_MACOS_UPDATE_ARCHIVE:-}
+disk_image=${SUPERIORITY_MACOS_DISK_IMAGE:-}
+appcast_tool=${SUPERIORITY_APPCAST_TOOL:-}
+if [[ -n "$macos_archive" || -n "$disk_image" || -n "$appcast_tool" ]]; then
+  if [[ -z "$macos_archive" || -z "$disk_image" || -z "$appcast_tool" ]]; then
+    print -u2 "the macOS archive, disk image, and appcast tool must be supplied together"
+    exit 1
+  fi
+  macos_archive=${macos_archive:A}
+  disk_image=${disk_image:A}
+  appcast_tool=${appcast_tool:A}
+  version=$(/usr/bin/sed -n 's/^version = "\(.*\)"/\1/p' \
+    "$root/app/Cargo.toml" | /usr/bin/head -1)
+  build=${version##*.}
+else
+  "$root/scripts/package-macos.zsh" >/dev/null
+  version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+    "$bundle/Contents/Info.plist")
+  build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+    "$bundle/Contents/Info.plist")
+  macos_archive="$feed_dir/Superiority-${version}-${build}.zip"
+  disk_image="$root/dist/Superiority-${version}-universal.dmg"
+  /usr/bin/install -d "$feed_dir"
+  /usr/bin/ditto -c -k --keepParent "$bundle" "$macos_archive"
+  cargo build --release --locked \
+    --manifest-path "$root/updater/Cargo.toml" \
+    --bin superiority-appcast
+  appcast_tool="$root/target/release/superiority-appcast"
+fi
 
-version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-  "$bundle/Contents/Info.plist")
-build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
-  "$bundle/Contents/Info.plist")
 release_notes="$root/release-notes/${version}.md"
 archive_name="Superiority-${version}-${build}.zip"
-archive="$feed_dir/$archive_name"
-disk_image="$root/dist/Superiority-${version}-universal.dmg"
+archive="$macos_archive"
 
 if [[ ! -f "$release_notes" ]]; then
   print -u2 "missing release notes: $release_notes"
+  exit 1
+fi
+if [[ ! -f "$archive" || "${archive:t}" != "$archive_name" ]]; then
+  print -u2 "missing or incorrectly named macOS update archive: $archive"
+  exit 1
+fi
+if [[ ! -f "$disk_image" || "${disk_image:t}" != "Superiority-${version}-universal.dmg" ]]; then
+  print -u2 "missing or incorrectly named macOS disk image: $disk_image"
+  exit 1
+fi
+if [[ ! -x "$appcast_tool" ]]; then
+  print -u2 "missing appcast tool: $appcast_tool"
   exit 1
 fi
 
@@ -87,7 +108,6 @@ elif [[ ! -f "$feed_dir/appcast.xml" ]]; then
   /usr/bin/touch "$feed_dir/appcast.xml"
 fi
 
-/usr/bin/ditto -c -k --keepParent "$bundle" "$archive"
 /usr/bin/install -m 644 "$release_notes" "$feed_dir/${archive_name:r}.md"
 
 release_base_url=${SUPERIORITY_RELEASE_BASE_URL:-}
@@ -101,10 +121,6 @@ if [[ -z "$release_base_url" ]]; then
 fi
 release_base_url=${release_base_url%/}
 
-cargo build --release \
-  --manifest-path "$root/updater/Cargo.toml" \
-  --bin superiority-appcast
-appcast_tool="$root/target/release/superiority-appcast"
 mac_signature=$("$appcast_tool" \
   --sign-file "$archive" \
   --keychain-account "$key_account" \

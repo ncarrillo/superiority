@@ -7,6 +7,7 @@ pub mod account;
 pub mod achievement;
 pub mod attribute;
 pub mod authentication;
+pub mod battlepay;
 pub mod cache;
 pub mod chat;
 pub mod club;
