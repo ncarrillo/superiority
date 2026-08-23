@@ -1,0 +1,93 @@
+name: Publish Stimpak
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: NuGet package version (packages are immutable once published)
+        required: true
+        default: 0.1.0-preview.1
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  build:
+    uses: ./.github/workflows/stimpak.yml
+
+  publish:
+    name: Pack and publish
+    needs: build
+    runs-on: macos-15
+    environment: nuget
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: stimpak-runtimes-*
+          path: ci-artifacts
+          merge-multiple: true
+
+      - name: Validate package version
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "Invalid NuGet package version: $PACKAGE_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Stage native runtimes
+        run: |
+          install -d \
+            stimpak/csharp/artifacts/runtimes \
+            stimpak/csharp/Stimpak.Auth/artifacts/runtimes
+          for rid in osx-arm64 osx-x64 linux-x64 win-x64; do
+            test -d "ci-artifacts/Stimpak/runtimes/$rid"
+            test -d "ci-artifacts/Stimpak.Auth/runtimes/$rid"
+            cp -R "ci-artifacts/Stimpak/runtimes/$rid" \
+              stimpak/csharp/artifacts/runtimes/
+            cp -R "ci-artifacts/Stimpak.Auth/runtimes/$rid" \
+              stimpak/csharp/Stimpak.Auth/artifacts/runtimes/
+          done
+
+      - name: Pack NuGet packages
+        env:
+          STIMPAK_PACKAGE_VERSION: ${{ inputs.version }}
+        run: scripts/package-stimpak-nuget.zsh
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: stimpak-nuget-${{ inputs.version }}
+          path: dist/nuget/*.nupkg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Exchange GitHub OIDC token for NuGet API key
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ncarrillo
+
+      - name: Publish Stimpak
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          dotnet nuget push "dist/nuget/Stimpak.$PACKAGE_VERSION.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          dotnet nuget push "dist/nuget/Stimpak.Auth.$PACKAGE_VERSION.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

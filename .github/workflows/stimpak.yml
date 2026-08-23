@@ -2,10 +2,12 @@ name: Stimpak
 
 on:
   workflow_dispatch:
+  workflow_call:
   pull_request:
     paths:
       - .cargo/**
       - .github/workflows/stimpak.yml
+      - .github/workflows/stimpak-publish.yml
       - bsn-derive/**
       - core/**
       - stimpak/**
@@ -18,6 +20,7 @@ on:
     paths:
       - .cargo/**
       - .github/workflows/stimpak.yml
+      - .github/workflows/stimpak-publish.yml
       - bsn-derive/**
       - core/**
       - stimpak/**

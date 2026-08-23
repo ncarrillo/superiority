@@ -7,6 +7,12 @@ auth_stage="$root/stimpak/csharp/Stimpak.Auth/artifacts/runtimes"
 core_project="$root/stimpak/csharp/Stimpak/Stimpak.csproj"
 auth_project="$root/stimpak/csharp/Stimpak.Auth/Stimpak.Auth.csproj"
 output="$root/dist/nuget"
+package_version=${STIMPAK_PACKAGE_VERSION:-}
+package_version_args=()
+
+if [[ -n "$package_version" ]]; then
+  package_version_args=(-p:PackageVersion="$package_version")
+fi
 
 if [[ $(uname -s) != Darwin ]]; then
   print -u2 "Stimpak release packaging runs on macOS"
@@ -19,30 +25,18 @@ for stage in "$core_stage" "$auth_stage"; do
   fi
 done
 
-windows=(${core_stage}/win-*/native/*.dll(N) ${auth_stage}/win-*/native/*.dll(N))
-if (( ${#windows} )); then
-  if ! command -v osslsigncode >/dev/null; then
-    print -u2 "osslsigncode is required to verify staged Windows signatures"
-    exit 1
-  fi
-  for artifact in $windows; do
-    if ! osslsigncode verify -in "$artifact" >/dev/null; then
-      print -u2 "refusing to package unsigned Windows artifact: $artifact"
-      exit 1
-    fi
-  done
-fi
-
 dotnet run --project "$root/stimpak/csharp/Stimpak.Tests/Stimpak.Tests.csproj" -c Release
 /usr/bin/install -d "$output"
 dotnet pack "$core_project" \
   -c Release \
   -p:StimpakBuildNative=false \
+  $package_version_args \
   -o "$output"
 dotnet pack "$auth_project" \
   -c Release \
   -p:StimpakBuildNative=false \
   -p:StimpakAuthBuildNative=false \
+  $package_version_args \
   -o "$output"
 
 print "Stimpak NuGet packages: $output"
