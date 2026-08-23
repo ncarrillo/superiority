@@ -109,7 +109,7 @@ pub(crate) fn show_about() {
     NSApplication::sharedApplication(main_thread_marker()).orderFrontStandardAboutPanel(None);
 }
 
-/// Whether the reader has asked the system for less movement. Honoured by the
+/// whether the reader has asked the system for less movement. Honoured by the
 /// picker's choreography, which keeps every fade and drops every journey.
 pub(in crate::app) fn reduce_motion() -> bool {
     if std::env::var_os("SUPERIORITY_REDUCED_MOTION").is_some() {

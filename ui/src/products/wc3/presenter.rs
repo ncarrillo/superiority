@@ -1,4 +1,4 @@
-//! The Reforged hall's presentation state, policy, and assembly.
+//! the Reforged hall's presentation state, policy, and assembly.
 //!
 //! The mirror of [`super::super::scr::presenter::Console`], scaled to a realm:
 //! one hall at a time, its transcript and its member list, the filtering and
@@ -30,7 +30,7 @@ use crate::{
     },
 };
 
-/// The hall the window is in.
+/// the hall the window is in.
 struct HallChannel {
     name: String,
     transcript: Vec<TranscriptLine>,
@@ -38,11 +38,11 @@ struct HallChannel {
     filter: String,
 }
 
-/// The transcript history bound; older lines fall off the top.
+/// the transcript history bound; older lines fall off the top.
 const MAX_TRANSCRIPT_LINES: usize = 2_000;
 const TRANSCRIPT_DRAIN: usize = 500;
 
-/// The Reforged hall's whole presentation, minus the composer, titlebar, and
+/// the Reforged hall's whole presentation, minus the composer, titlebar, and
 /// account plaque, which stay with the host.
 pub struct Hall<C: AnimationClock> {
     channel: Option<HallChannel>,
@@ -76,7 +76,7 @@ impl<C: AnimationClock> Hall<C> {
         self.channel.as_ref().map(|channel| channel.name.as_str())
     }
 
-    /// The lowercased hall name the roster state is scoped by.
+    /// the lowercased hall name the roster state is scoped by.
     fn scope(name: &str) -> String {
         name.to_lowercase()
     }
@@ -110,7 +110,7 @@ impl<C: AnimationClock> Hall<C> {
         self.roster.focused = focused;
     }
 
-    /// A clone of the shared transcript selection, for the host's copy keystroke.
+    /// a clone of the shared transcript selection, for the host's copy keystroke.
     #[must_use]
     pub fn transcript_selection(&self) -> TranscriptSelection {
         self.transcript.selection.clone()
@@ -120,7 +120,7 @@ impl<C: AnimationClock> Hall<C> {
         self.transcript.selection.clear();
     }
 
-    /// The transcript lines as `(row, text)`, for the copy keystroke.
+    /// the transcript lines as `(row, text)`, for the copy keystroke.
     #[must_use]
     pub fn transcript_rows_text(&self) -> Vec<(usize, String)> {
         self.channel
@@ -136,7 +136,7 @@ impl<C: AnimationClock> Hall<C> {
             .unwrap_or_default()
     }
 
-    /// Resets to no hall — a fresh sign-in, a sign-out, or an account switch.
+    /// resets to no hall — a fresh sign-in, a sign-out, or an account switch.
     pub fn clear(&mut self) {
         self.roster.clear_interaction();
         self.roster.selections.clear();
@@ -144,7 +144,7 @@ impl<C: AnimationClock> Hall<C> {
         self.channel = None;
     }
 
-    /// Installs the hall's name and membership, animating the roster if it is
+    /// installs the hall's name and membership, animating the roster if it is
     /// the same hall and resetting the view if it is a new one. Members arrive
     /// already resolved into [`RosterUser`]s by the host's adapter.
     /// `session_online` seeds the "you entered" line's population and
@@ -206,7 +206,7 @@ impl<C: AnimationClock> Hall<C> {
         });
     }
 
-    /// Appends one transcript line, following the bottom when the reader is
+    /// appends one transcript line, following the bottom when the reader is
     /// already there. Reforged has no per-line reveal.
     pub fn append_line(&mut self, line: TranscriptLine) {
         let follows_bottom = self.transcript_follows_bottom();
@@ -249,7 +249,7 @@ impl<C: AnimationClock> Hall<C> {
         self.roster.set_selection(scope, selected);
     }
 
-    /// Narrows the roster, animating the change and dropping a hidden selection.
+    /// narrows the roster, animating the change and dropping a hidden selection.
     pub fn set_filter(&mut self, next: String, now: C) {
         let Some(channel) = self.channel.as_ref() else {
             return;
@@ -272,7 +272,7 @@ impl<C: AnimationClock> Hall<C> {
             .begin_transition(scope, previous, &next_members, now, |member| member.handle);
     }
 
-    /// The membership after the filter, present-first then absent, alphabetical
+    /// the membership after the filter, present-first then absent, alphabetical
     /// within each — the order the list draws.
     #[must_use]
     pub fn visible_members(&self) -> Vec<RosterUser> {
@@ -372,7 +372,7 @@ impl<C: AnimationClock> Hall<C> {
         self.roster.finish_transition(now);
     }
 
-    /// The transcript. No host interaction rides on it — selection is carried by
+    /// the transcript. No host interaction rides on it — selection is carried by
     /// the shared handle inside the rows — so this needs nothing from the host.
     #[must_use]
     pub fn transcript_viewport(&self, _now: C) -> wc3_chat::TranscriptViewport {
@@ -396,7 +396,7 @@ impl<C: AnimationClock> Hall<C> {
         transcript
     }
 
-    /// The whole member-list panel, wired to the host. The one place a
+    /// the whole member-list panel, wired to the host. The one place a
     /// [`HallHost`] is required, because every row and the header carry a
     /// callback that mutates the host.
     #[must_use]
@@ -545,7 +545,7 @@ impl<C: AnimationClock> Hall<C> {
     }
 }
 
-/// One selectable member row wired to the host.
+/// one selectable member row wired to the host.
 fn roster_row<C: AnimationClock, H: HallHost<C>>(
     member: &RosterUser,
     selected: bool,
@@ -569,18 +569,18 @@ fn roster_row<C: AnimationClock, H: HallHost<C>>(
     }))
 }
 
-/// What the hall needs from whichever host is drawing it: a way to reach the
+/// what the hall needs from whichever host is drawing it: a way to reach the
 /// hall for a callback, and the focus transitions that are the host's own (the
 /// composer it sits beside, or the absence of one, is the host's).
 pub trait HallHost<C: AnimationClock>: Render + Sized {
     fn wc3_hall(&self) -> Option<&Hall<C>>;
     fn wc3_hall_mut(&mut self) -> Option<&mut Hall<C>>;
-    /// Give the roster focus. A host with a composer also parks it.
+    /// give the roster focus. A host with a composer also parks it.
     fn wc3_focus_roster(&mut self, window: &mut Window, cx: &mut Context<Self>);
-    /// Pointer entered or left the roster; the host decides whether to take
+    /// pointer entered or left the roster; the host decides whether to take
     /// focus, since only it knows if a dialog is up.
     fn wc3_roster_pointer(&mut self, hovered: bool, window: &mut Window, cx: &mut Context<Self>);
-    /// Clear the roster filter (and the input backing it, if the host has one).
+    /// clear the roster filter (and the input backing it, if the host has one).
     fn wc3_clear_roster_filter(&mut self, cx: &mut Context<Self>);
 }
 

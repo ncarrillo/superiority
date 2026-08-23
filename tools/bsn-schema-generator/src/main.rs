@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use superiority_core::metadata::{IntegerRange, Metadata, TypeKind, TypeShape, read_metadata};
-/// Where StarCraft II's schema is written when nothing says otherwise. Another
+/// where StarCraft II's schema is written when nothing says otherwise. Another
 /// product that turns out to use BSN writes somewhere else — see `--out`.
 const DEFAULT_OUT_DIR: &str = "core/src/games/sc2/native/schema";
 /// StarCraft II's metadata blob, likewise.
@@ -427,7 +427,7 @@ fn emit_choice(out: &mut String, meta: &Metadata, id: u32, shape: &TypeShape) {
     writeln!(out, "        }}\n    }}\n}}\n").unwrap();
 }
 
-/// The Rust type expression for a field. Named types are referenced through the
+/// the Rust type expression for a field. Named types are referenced through the
 /// schema root so cross-module fields resolve: `super::<module>::<Name>`.
 fn field_type(meta: &Metadata, id: u32) -> String {
     let shape = meta.shape(id).unwrap();
@@ -481,7 +481,7 @@ fn int_type(range: Option<IntegerRange>) -> String {
     name.to_string()
 }
 
-/// The BSN domain a type belongs to — the file it lands in.
+/// the BSN domain a type belongs to — the file it lands in.
 fn module_of(meta: &Metadata, id: u32) -> String {
     let raw = raw_name(meta, id);
     let stripped = raw.strip_prefix("Battlenet::").unwrap_or(&raw);

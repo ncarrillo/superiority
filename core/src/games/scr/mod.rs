@@ -33,11 +33,11 @@ pub mod rpc;
 pub mod session;
 pub mod user;
 
-/// Where the classic RPC channel answers. Aurora returns only the load
+/// where the classic RPC channel answers. Aurora returns only the load
 /// balancer's root; the client appends this route itself.
 pub const CLASSIC_RPC_PATH: &str = "/S1/v2/rpc/client";
 
-/// The FourCCs and versions the retail client presents, recovered from build
+/// the FourCCs and versions the retail client presents, recovered from build
 /// `1.23.10_2e031d5be4` and its `libClientSdk.dylib`. The edge validates them,
 /// so none of these is a guess.
 ///
@@ -49,7 +49,7 @@ pub const SESSION_TYPE: u32 = 0x4444_4354; // "DDCT"
 pub const GAME_VERSION: &str = "1.23.10.13515";
 pub const CLIENT_CAPABILITIES: u32 = 0x0003_0100;
 
-/// Stable 20-byte install identity, sent as the base64 text below.
+/// stable 20-byte install identity, sent as the base64 text below.
 pub const CLIENT_IDENTITY: &[u8] = b"DJqHt+VTbDlhkzsfTvFlKrRHZjw=";
 
 #[cfg(test)]

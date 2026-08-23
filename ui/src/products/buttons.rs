@@ -1,4 +1,4 @@
-//! The modern button — one weight system, dressed per realm.
+//! the modern button — one weight system, dressed per realm.
 //!
 //! From `Canvas.dc.html`'s BUTTONS section: primary carries fill and bloom,
 //! ghost is border-only, and danger reuses each realm's error channel — SC2's
@@ -24,22 +24,27 @@ const WC3_FONT: &str = crate::products::wc3::theme::FONT_TITLE;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ButtonWeight {
-    /// Fill and bloom: the action the dialog is about.
+    /// fill and bloom: the action the dialog is about.
     Primary,
-    /// Border only (Remastered: bare command text): everything else.
+    /// border only (Remastered: bare command text): everything else.
     Ghost,
+    /// border only in every realm, Remastered included — for a row of realms
+    /// side by side, where each button has to read as the same kind of thing.
+    /// the game picker's tiles wear this; a console dialog keeps its bare
+    /// ghost.
+    Outline,
 }
 
-/// Which channel the button speaks in.
+/// which channel the button speaks in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ButtonTone {
-    /// The realm's own chrome accent.
+    /// the realm's own chrome accent.
     Chrome,
-    /// The realm's error channel: alert orange, caution amber, ember.
+    /// the realm's error channel: alert orange, caution amber, ember.
     Danger,
 }
 
-/// What the button is doing, when it is not being pointed at.
+/// what the button is doing, when it is not being pointed at.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ButtonLife {
     #[default]
@@ -48,7 +53,7 @@ pub enum ButtonLife {
     Loading,
 }
 
-/// One realm's ink for one tone: the border, fill alpha or bevel, and text
+/// one realm's ink for one tone: the border, fill alpha or bevel, and text
 /// at each state the pointer can put it in.
 struct ButtonInk {
     edge: u32,
@@ -68,7 +73,7 @@ struct ButtonInk {
     bevel: Option<[(f32, f32); 3]>,
 }
 
-/// The colour a fill alpha rides on, per tone.
+/// the colour a fill alpha rides on, per tone.
 const fn base(variant: ModalVariant, tone: ButtonTone) -> u32 {
     match (variant, tone) {
         (ModalVariant::Sc2, ButtonTone::Chrome) => 0x0033_a8f0,
@@ -82,7 +87,7 @@ const fn base(variant: ModalVariant, tone: ButtonTone) -> u32 {
 
 fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonInk {
     use ButtonTone::{Chrome, Danger};
-    use ButtonWeight::{Ghost, Primary};
+    use ButtonWeight::{Ghost, Outline, Primary};
     use ModalVariant::{Reforged, Remastered, Sc2};
     match (variant, weight, tone) {
         (Sc2, Primary, Chrome) => ButtonInk {
@@ -113,7 +118,7 @@ fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonI
             glow_hover: Some((20.0, 0xf0a0_3073)),
             bevel: None,
         },
-        (Sc2, Ghost, Chrome) => ButtonInk {
+        (Sc2, Ghost | Outline, Chrome) => ButtonInk {
             edge: 0x0033_a8f0,
             edge_hover: 0x0033_a8f0,
             edge_pressed: 0x0033_a8f0,
@@ -127,7 +132,7 @@ fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonI
             glow_hover: None,
             bevel: None,
         },
-        (Sc2, Ghost, Danger) => ButtonInk {
+        (Sc2, Ghost | Outline, Danger) => ButtonInk {
             edge: 0x00f0_a030,
             edge_hover: 0x00f0_a030,
             edge_pressed: 0x00f0_a030,
@@ -197,6 +202,36 @@ fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonI
             glow_hover: None,
             bevel: None,
         },
+        // the console's framed ghost: the chrome red as a hairline, the same
+        // rust text, and the terminal's inverse-video press
+        (Remastered, Outline, Chrome) => ButtonInk {
+            edge: 0x00c9_3a2c,
+            edge_hover: 0x00ff_6a58,
+            edge_pressed: 0x00ff_6a58,
+            fill: 0.0,
+            fill_hover: 0.0,
+            fill_pressed: 1.0,
+            text: 0x00d8_8070,
+            text_hover: 0x00ff_d0c8,
+            text_pressed: 0x001a_0505,
+            glow: None,
+            glow_hover: None,
+            bevel: None,
+        },
+        (Remastered, Outline, Danger) => ButtonInk {
+            edge: 0x00e8_a838,
+            edge_hover: 0x00ff_cf6a,
+            edge_pressed: 0x00ff_cf6a,
+            fill: 0.0,
+            fill_hover: 0.0,
+            fill_pressed: 1.0,
+            text: 0x00e8_a838,
+            text_hover: 0x00ff_f4dc,
+            text_pressed: 0x0014_0d05,
+            glow: None,
+            glow_hover: None,
+            bevel: None,
+        },
         (Reforged, Primary, Chrome) => ButtonInk {
             edge: 0x00e8_c874,
             edge_hover: 0x00ff_e9a8,
@@ -225,7 +260,7 @@ fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonI
             glow_hover: Some((18.0, 0xc86a_3a61)),
             bevel: Some([(0.25, 0.12), (0.36, 0.18), (0.20, 0.24)]),
         },
-        (Reforged, Ghost, Chrome) => ButtonInk {
+        (Reforged, Ghost | Outline, Chrome) => ButtonInk {
             edge: 0x005e_4a26,
             edge_hover: 0x008a_6d3b,
             edge_pressed: 0x008a_6d3b,
@@ -239,7 +274,7 @@ fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonI
             glow_hover: None,
             bevel: None,
         },
-        (Reforged, Ghost, Danger) => ButtonInk {
+        (Reforged, Ghost | Outline, Danger) => ButtonInk {
             edge: 0x008a_4a26,
             edge_hover: 0x00c8_6a3a,
             edge_pressed: 0x00c8_6a3a,
@@ -256,7 +291,7 @@ fn ink(variant: ModalVariant, weight: ButtonWeight, tone: ButtonTone) -> ButtonI
     }
 }
 
-/// How a realm mutes a button that cannot answer: (border, text). `None`
+/// how a realm mutes a button that cannot answer: (border, text). `None`
 /// border means none is drawn, which is Remastered's ghost either way.
 const fn muted(variant: ModalVariant, weight: ButtonWeight, life: ButtonLife) -> (u32, u32) {
     use ModalVariant::{Reforged, Remastered, Sc2};
@@ -264,19 +299,19 @@ const fn muted(variant: ModalVariant, weight: ButtonWeight, life: ButtonLife) ->
         (Sc2, ButtonLife::Loading) => (0x33a8_f080, 0x006b_c2f2),
         (Sc2, _) => match weight {
             ButtonWeight::Primary => (0x33a8_f02e, 0x0033_506e),
-            ButtonWeight::Ghost => (0x33a8_f024, 0x002c_4258),
+            ButtonWeight::Ghost | ButtonWeight::Outline => (0x33a8_f024, 0x002c_4258),
         },
         (Remastered, ButtonLife::Loading) => (0xc93a_2c66, 0x00d8_8070),
         (Remastered, _) => (0xc93a_2c2e, 0x006e_352c),
         (Reforged, ButtonLife::Loading) => (0x8a6d_3bff, 0x00c8_b088),
         (Reforged, _) => match weight {
             ButtonWeight::Primary => (0x4a3a_22ff, 0x006e_5f48),
-            ButtonWeight::Ghost => (0x3a2d_18ff, 0x0054_462e),
+            ButtonWeight::Ghost | ButtonWeight::Outline => (0x3a2d_18ff, 0x0054_462e),
         },
     }
 }
 
-/// The words as the realm sets them: Remastered's commands wear brackets.
+/// the words as the realm sets them: Remastered's commands wear brackets.
 /// Everyone else's label passes through, already cased by the caller.
 #[must_use]
 pub fn worded(variant: ModalVariant, label: &str) -> String {
@@ -299,7 +334,7 @@ fn bloom(shadow: (f32, u32)) -> Vec<BoxShadow> {
     vec![BoxShadow::new(px(0.0), px(0.0), rgba(shadow.1).into()).blur_radius(px(shadow.0))]
 }
 
-/// The button, styled and reactive but unsized and unwired: the caller sets
+/// the button, styled and reactive but unsized and unwired: the caller sets
 /// its box and hooks the click on the returned element. A `Disabled` or
 /// `Loading` button neither reacts nor invites — no hover, no press, no
 /// pointer.
@@ -390,7 +425,7 @@ pub fn button(
         })
 }
 
-/// Puts an alpha on a `0x00RRGGBB` colour.
+/// puts an alpha on a `0x00RRGGBB` colour.
 const fn fade(colour: u32, alpha: f32) -> u32 {
     let alpha = (alpha * 255.0) as u32;
     (colour << 8) | if alpha > 255 { 255 } else { alpha }

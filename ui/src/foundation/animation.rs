@@ -62,7 +62,7 @@ pub(crate) fn animation_progress(elapsed: Duration, duration: Duration) -> f32 {
     ease_in_out((elapsed.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0))
 }
 
-/// Evaluates a CSS `cubic-bezier(x1, y1, x2, y2)` timing function by solving
+/// evaluates a CSS `cubic-bezier(x1, y1, x2, y2)` timing function by solving
 /// x for t and reading y off it. Two dozen bisections land well inside a
 /// pixel and cost nothing at this size — the same solve the games list's
 /// choreography carries privately; new motion should ease off this one.

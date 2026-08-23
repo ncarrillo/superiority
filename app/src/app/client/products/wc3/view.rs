@@ -3,8 +3,8 @@
 //! a chromeless titlebar whose identity plaque IS the menu, square rank
 //! tiles in the roster, and zero web-blue anywhere.
 //!
-//! The header buttons are gone — Games List, Settings, and Sever Connection
-//! live in the account popout behind the plaque. The public-realm rail went
+//! The header buttons are gone — Settings and Games List live in the account
+//! popout behind the plaque, in the order the other two realms keep. The public-realm rail went
 //! with them: a single-channel realm's window is the channel, and `/join`
 //! in the composer is the door.
 
@@ -105,7 +105,7 @@ impl SuperiorityView {
             .into_any_element()
     }
 
-    /// The titlebar is the channel-tab strip, in carved stone: StarCraft II's
+    /// the titlebar is the channel-tab strip, in carved stone: StarCraft II's
     /// tab geometry in Reforged's material (the `Channel Tabs` design), with
     /// the identity plaque at its end. The plaque is the menu. Each joined
     /// AuroraChat room owns a tab; + starts a `/join`.
@@ -270,7 +270,7 @@ impl SuperiorityView {
         header
     }
 
-    /// The portrait the realm shows for this account: its member entry in
+    /// the portrait the realm shows for this account: its member entry in
     /// whichever hall it stands in (the active one first), or Reforged's
     /// canonical fallback before any hall has answered.
     fn wc3_local_portrait(&self) -> String {
@@ -293,9 +293,10 @@ impl SuperiorityView {
             .unwrap_or_else(|| avatar::source(None))
     }
 
-    /// The account popout: stone panel, micro corner studs, the plaque's own
-    /// portrait header, then the menu the header buttons used to be. Sever
-    /// Connection sits in ember behind a rule.
+    /// the account popout: stone panel, micro corner studs, the plaque's own
+    /// portrait header, then the menu the header buttons used to be — Settings,
+    /// then Games List, the order StarCraft II and Remastered keep. Signing out
+    /// belongs to the picker's top bar, not to a realm's menu.
     pub(in crate::app::client) fn wc3_account_popout(&self, cx: &mut Context<Self>) -> AnyElement {
         let identity = self
             .session
@@ -427,12 +428,6 @@ impl SuperiorityView {
                     .flex()
                     .flex_col()
                     .py(px(6.0))
-                    .child(row("wc3-menu-games", "Games List").on_click(cx.listener(
-                        |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.show_games_list(window, cx);
-                        },
-                    )))
                     .child(row("wc3-menu-settings", "Settings").on_click(cx.listener(
                         |this, _, _, cx| {
                             cx.stop_propagation();
@@ -441,33 +436,12 @@ impl SuperiorityView {
                             cx.notify();
                         },
                     )))
-                    .child(
-                        div()
-                            .h(px(1.0))
-                            .my(px(6.0))
-                            .mx(px(12.0))
-                            .bg(rgb(ui_wc3_theme::STONE_DIM)),
-                    )
-                    .child(
-                        div()
-                            .id("wc3-menu-sever")
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .px(px(14.0))
-                            .text_size(px(13.5))
-                            .text_color(rgb(ui_wc3_theme::EMBER))
-                            .cursor_pointer()
-                            .hover(|row| {
-                                row.bg(rgba(0xc85a_281f))
-                                    .text_color(rgb(ui_wc3_theme::EMBER_BRIGHT))
-                            })
-                            .child("Sever Connection")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.sign_out(window, cx);
-                            })),
-                    ),
+                    .child(row("wc3-menu-games", "Games List").on_click(cx.listener(
+                        |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.show_games_list(window, cx);
+                        },
+                    ))),
             );
         let overlay = div()
             .id("wc3-account-dismiss")
@@ -517,46 +491,48 @@ impl SuperiorityView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> ui_wc3_roster::RosterPanel {
-        let (total, members, filter, focused, selected, scroll, roster_input) = {
-            let wc3 = self
-                .session
-                .wc3()
-                .expect("the Reforged surface has Reforged UI state");
-            (
-                wc3.active().map_or(0, |channel| channel.members.len()),
-                wc3.visible_members()
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-                wc3.active()
-                    .map_or_else(String::new, |channel| channel.roster_filter.clone()),
-                wc3.roster.focused && wc3.roster_input.is_focused(window),
-                wc3.selected_member(),
-                wc3.roster.scroll.0.borrow().base_handle.clone(),
-                wc3.roster_input.clone(),
-            )
-        };
+        let now = Instant::now();
+        let wc3 = self
+            .session
+            .wc3()
+            .expect("the Reforged surface has Reforged UI state");
+        let total = wc3.active().map_or(0, |channel| channel.members.len());
+        let members = wc3
+            .visible_members()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let filter = wc3
+            .active()
+            .map_or_else(String::new, |channel| channel.roster_filter.clone());
+        let focused = wc3.roster.focused && wc3.roster_input.is_focused(window);
+        let selected = wc3.selected_member();
+        let scroll = wc3.roster.scroll.0.borrow().base_handle.clone();
+        let roster_input = wc3.roster_input.clone();
+        let animation = wc3.roster_animation(now);
         let filtered = members.len();
-        let mut list = ui_wc3_roster::list_layer("wc3-roster-list")
-            .overflow_y_scroll()
-            .track_scroll(&scroll)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    this.focus_wc3_roster(window, cx);
-                }),
-            )
-            .on_click(cx.listener(|this, _, _, cx| {
-                if let Some(wc3) = this.session.wc3_mut() {
-                    wc3.set_selected_member(None);
+        // the same slots the other two rosters use: a row that left folds
+        // away, one that arrived grows in. a row on its way out is drawn but
+        // answers to nothing — whoever it was has gone
+        let rows = ui_roster_pattern::animated_rows(
+            members,
+            animation,
+            now,
+            |member| member.handle,
+            ui_wc3_theme::ROSTER_ROW_HEIGHT,
+            ui_wc3_theme::ROSTER_ROW_GAP,
+            |member, motion| {
+                let handle = member.handle;
+                let group = format!("wc3-roster-member-{handle}");
+                if motion == ui_roster_pattern::RowMotion::Removed {
+                    return ui_wc3_roster::RosterRow::new(
+                        format!("wc3-roster-member-removed-{handle}"),
+                        group,
+                        shared_wc3_roster_user(member),
+                        selected == Some(handle),
+                    )
+                    .into_any_element();
                 }
-                cx.notify();
-            }))
-            .child(ui_wc3_roster::segment_header(filtered));
-        for member in &members {
-            let handle = member.handle;
-            let group = format!("wc3-roster-member-{handle}");
-            list = list.child(
                 ui_wc3_roster::RosterRow::new(
                     group.clone(),
                     group,
@@ -578,9 +554,36 @@ impl SuperiorityView {
                     input.focus(window, cx);
                     cx.stop_propagation();
                     cx.notify();
-                })),
-            );
-        }
+                }))
+                .into_any_element()
+            },
+        );
+        let list = ui_wc3_roster::list_layer("wc3-roster-list")
+            .overflow_y_scroll()
+            .track_scroll(&scroll)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    this.focus_wc3_roster(window, cx);
+                }),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                if let Some(wc3) = this.session.wc3_mut() {
+                    wc3.set_selected_member(None);
+                }
+                cx.notify();
+            }))
+            // a wheel turn mid-transition takes over: the slots settle at once
+            // rather than fighting the scroll
+            .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                if let Some(wc3) = this.session.wc3_mut()
+                    && wc3.roster.animation.take().is_some()
+                {
+                    cx.notify();
+                }
+            }))
+            .child(ui_wc3_roster::segment_header(filtered))
+            .children(rows);
         let list = list.vertical_scrollbar_in(
             &scroll,
             ui_shared_modal::ModalVariant::Reforged.scrollbar(),
@@ -706,7 +709,7 @@ impl SuperiorityView {
         )
     }
 
-    /// The shared workspace footer geometry, spoken in Reforged's stone and
+    /// the shared workspace footer geometry, spoken in Reforged's stone and
     /// gold: the realm composer spans the remaining width and Social occupies
     /// the same fixed seat it does in SC:R and SC2.
     fn wc3_footer(&self, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -996,7 +999,7 @@ impl SuperiorityView {
     }
 }
 
-/// A bottom-bar seat in the realm's stone: bronze border over a stone
+/// a bottom-bar seat in the realm's stone: bronze border over a stone
 /// gradient, warming at the pointer. The caller gives it a glyph and a click.
 fn wc3_bar_seat(id: &'static str, open: bool) -> Stateful<Div> {
     div()
@@ -1030,7 +1033,7 @@ fn wc3_bar_seat(id: &'static str, open: bool) -> Stateful<Div> {
         .active(|seat| seat.border_color(rgb(ui_wc3_theme::GOLD_BRIGHT)))
 }
 
-/// The CLAN mark: a banner hanging from its rod, a cross-guard on the cloth.
+/// the CLAN mark: a banner hanging from its rod, a cross-guard on the cloth.
 fn wc3_banner_glyph() -> AnyElement {
     // the design's 20-unit drawing, set at 18px
     let scale = 18.0 / 20.0;
@@ -1095,7 +1098,7 @@ fn wc3_banner_glyph() -> AnyElement {
     .into_any_element()
 }
 
-/// The SOCIAL mark: two kin figures, the second a step back in bronze.
+/// the SOCIAL mark: two kin figures, the second a step back in bronze.
 fn wc3_kin_glyph() -> AnyElement {
     // the design's 22×20 drawing, set at 18×16
     let scale = 18.0 / 22.0;
@@ -1141,7 +1144,7 @@ fn wc3_kin_glyph() -> AnyElement {
     .into_any_element()
 }
 
-/// The signal badge on SOCIAL: Superiority speaking, not the game — the
+/// the signal badge on SOCIAL: Superiority speaking, not the game — the
 /// shell's alert orange with a dark count, lifted off the seat's corner.
 fn wc3_signal_badge(count: usize) -> Div {
     div()
@@ -1167,7 +1170,7 @@ fn wc3_signal_badge(count: usize) -> Div {
         .child(count.to_string())
 }
 
-/// The identity plaque: name and presence stacked against the rank tile,
+/// the identity plaque: name and presence stacked against the rank tile,
 /// under a gold breath that deepens when reached for. The caller wires the
 /// click — the plaque is the account menu's handle.
 fn wc3_identity_plaque(identity: &str, region: &'static str, open: bool, portrait: &str) -> Div {
@@ -1239,7 +1242,7 @@ fn wc3_identity_plaque(identity: &str, region: &'static str, open: bool, portrai
         .child(wc3_portrait_tile(portrait, 32.0))
 }
 
-/// A square portrait tile: the account's Reforged portrait in the same
+/// a square portrait tile: the account's Reforged portrait in the same
 /// stone-and-bronze frame the roster gives every member — square, never
 /// rounded. The initial it used to carry was a placeholder for rank icons
 /// that never came; the portrait is what the realm actually knows you by.

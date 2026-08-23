@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use superiority_core::{
     chat::{ChatChannel, ChatEvent, ChatFriend, ChatUser, RosterSnapshot, channel_title},
-    connection::{ClientEvent, ConnectionStage},
+    connection::{AccountSummary, ClientEvent, ConnectionStage},
     native::PresenceState,
 };
 
@@ -141,6 +141,28 @@ pub struct Friend {
     pub presence: Presence,
 }
 
+#[derive(Serialize)]
+pub struct SessionAccount {
+    /// stable Battle.net identity. Unlike a `BattleTag`, this cannot be renamed.
+    pub account_id: Option<u64>,
+    pub battle_tag: Option<String>,
+    pub region: Option<u32>,
+    /// retail product `FourCCs` reported by Battle.net, when the account service
+    /// supplied a catalogue.
+    pub games: Option<Vec<String>>,
+}
+
+impl From<&AccountSummary> for SessionAccount {
+    fn from(account: &AccountSummary) -> Self {
+        Self {
+            account_id: account.account_id,
+            battle_tag: account.battle_tag.clone(),
+            region: account.region,
+            games: account.games.clone(),
+        }
+    }
+}
+
 impl From<&ChatFriend> for Friend {
     fn from(friend: &ChatFriend) -> Self {
         Self {
@@ -163,6 +185,10 @@ pub enum Event {
     AuthenticationRequired {
         auth_id: u64,
         url: String,
+    },
+    /// who the session authenticated as. arrives once per connection.
+    Account {
+        account: SessionAccount,
     },
     Joined {
         channel_index: u8,
@@ -220,6 +246,19 @@ pub enum Event {
         inviter: Option<String>,
         channel_index: u8,
     },
+    GroupSummary {
+        club_id: u32,
+        name: Option<String>,
+        kind: u8,
+        category: u8,
+        private: bool,
+        member: bool,
+        member_count: Option<u32>,
+        online: Option<u32>,
+    },
+    GroupSearch {
+        club_ids: Vec<u32>,
+    },
     /// the session is still up.
     CommandError {
         message: String,
@@ -229,7 +268,7 @@ pub enum Event {
         message: String,
     },
     /// decoded, but with no binding-level meaning yet. only the variant is
-    /// named: these carry block lists and group names, and debug-formatting
+    /// named: these include block lists, and debug-formatting
     /// them would put personal data — and core's internal shape — into a
     /// public contract.
     Other {
@@ -339,14 +378,16 @@ pub fn translate(event: &ClientEvent, auth_id: u64, names: &Names) -> Event {
             message: message.clone(),
         },
         ClientEvent::Chat(chat) => translate_chat(chat, names),
-        ClientEvent::Account(_) => Event::Other { kind: "account" },
+        ClientEvent::Account(account) => Event::Account {
+            account: account.into(),
+        },
         ClientEvent::ProductCredential { .. } => Event::Other {
             kind: "product-credential",
         },
     }
 }
 
-#[allow(clippy::match_same_arms)]
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 fn translate_chat(event: &ChatEvent, names: &Names) -> Event {
     match event {
         ChatEvent::Joined {
@@ -430,6 +471,28 @@ fn translate_chat(event: &ChatEvent, names: &Names) -> Event {
             inviter: inviter.clone(),
             channel_index: *channel_index,
         },
+        ChatEvent::GroupSummary {
+            club_id,
+            name,
+            kind,
+            category,
+            private,
+            member,
+            member_count,
+            online,
+        } => Event::GroupSummary {
+            club_id: *club_id,
+            name: name.clone(),
+            kind: *kind,
+            category: *category,
+            private: *private,
+            member: *member,
+            member_count: *member_count,
+            online: *online,
+        },
+        ChatEvent::GroupSearch { club_ids } => Event::GroupSearch {
+            club_ids: club_ids.clone(),
+        },
         other => Event::Other {
             kind: name_of(other),
         },
@@ -440,6 +503,7 @@ fn translate_chat(event: &ChatEvent, names: &Names) -> Event {
 mod tests {
     use super::*;
     use superiority_core::chat::PublicChannel;
+    use superiority_core::connection::AccountSummary;
 
     fn catalog(entries: &[(u16, &str)]) -> ClientEvent {
         ClientEvent::Chat(ChatEvent::PublicChannelCatalog(
@@ -495,5 +559,28 @@ mod tests {
         });
         let json = serde_json::to_string(&translate(&joined, 0, &names)).unwrap();
         assert!(json.contains(r#""name":"General""#), "{json}");
+    }
+
+    #[test]
+    fn account_identity_is_part_of_the_binding_contract() {
+        let account = ClientEvent::Account(AccountSummary {
+            account_id: Some(42),
+            battle_tag: Some("Medic#1234".to_owned()),
+            region: Some(1),
+            games: Some(vec!["S2".to_owned()]),
+        });
+        let json = serde_json::to_string(&translate(&account, 0, &Names::default())).unwrap();
+        assert!(json.contains(r#""type":"account""#), "{json}");
+        assert!(json.contains(r#""account_id":42"#), "{json}");
+    }
+
+    #[test]
+    fn group_search_payloads_are_not_reduced_to_other() {
+        let search = ClientEvent::Chat(ChatEvent::GroupSearch {
+            club_ids: vec![7, 9],
+        });
+        let json = serde_json::to_string(&translate(&search, 0, &Names::default())).unwrap();
+        assert!(json.contains(r#""type":"group_search""#), "{json}");
+        assert!(json.contains(r#""club_ids":[7,9]"#), "{json}");
     }
 }

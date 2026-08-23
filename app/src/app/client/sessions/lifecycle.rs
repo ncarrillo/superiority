@@ -30,7 +30,7 @@ impl SuperiorityView {
         cx.notify();
     }
 
-    /// Goes back out to the games list.
+    /// goes back out to the games list.
     ///
     /// Not a sign-out: every product stays connected, and this session is still
     /// running when you come back to it. It is navigation, so it animates the
@@ -45,7 +45,7 @@ impl SuperiorityView {
         cx.notify();
     }
 
-    /// Refreshes the authoritative product catalogue and every provisioned
+    /// refreshes the authoritative product catalogue and every provisioned
     /// product connection without changing accounts. Workers receive
     /// `Disconnect` followed by a serialized reconnect: the account guard is
     /// retained, cached product tickets are reused, and the SC2 account service
@@ -140,7 +140,7 @@ impl SuperiorityView {
         cx.notify();
     }
 
-    /// Signs the authoritative Battle.net account out everywhere. Product
+    /// signs the authoritative Battle.net account out everywhere. Product
     /// credentials are distinct tokens, so every worker must delete its own;
     /// the next SC2 sign-in then establishes a new authority and catalogue.
     pub(in crate::app::client) fn sign_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -171,7 +171,7 @@ impl SuperiorityView {
         self.games.owned = None;
         self.games.live.clear();
         self.dismiss_overlay(window, cx);
-        // Account selection always restarts at the authority session. With the
+        // account selection always restarts at the authority session. With the
         // licence set cleared there is deliberately no product card to enter.
         let _ = self.focus_product(Product::StarCraft2);
         if let Some(wc3) = self.session.wc3_mut() {

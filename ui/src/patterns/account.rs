@@ -1,4 +1,4 @@
-//! Product-neutral geometry for the account control attached to a desktop
+//! product-neutral geometry for the account control attached to a desktop
 //! window corner. Product renderers own the frame, colors, and portrait art.
 
 pub const HEADER_HEIGHT: f32 = 43.0;

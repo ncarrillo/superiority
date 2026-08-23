@@ -381,6 +381,7 @@ impl SuperiorityView {
                 startup_update_check_pending,
                 startup_update_check_started: None,
                 startup_connection_pending,
+                preview_fixture: preview_update,
             },
             overlays: OverlayComponent {
                 active: None,
@@ -442,7 +443,20 @@ impl SuperiorityView {
         if preview_scr_social {
             this.install_scr_social_preview(cx);
         }
+        if preview_update {
+            this.install_update_preview(cx);
+        }
         this
+    }
+
+    /// the update dialog over every realm: the picker enters whichever card is
+    /// pressed, and in a mode that connects nothing the other realms need a
+    /// session — blank is enough — before they can be focused at all.
+    fn install_update_preview(&mut self, cx: &mut Context<Self>) {
+        for product in [Product::Remastered, Product::Warcraft3] {
+            self.suspended
+                .insert(product, ProductSession::blank(product, None, None, cx));
+        }
     }
 
     fn install_scr_social_preview(&mut self, cx: &mut Context<Self>) {
@@ -510,7 +524,7 @@ impl SuperiorityView {
         self.overlays.closing = false;
     }
 
-    /// Prepares every other protocol worker without connecting it. The
+    /// prepares every other protocol worker without connecting it. The
     /// authoritative SC2 session must return its license catalogue first; an
     /// unprovisioned product never gets as far as a sign-in request.
     fn start_other_products(&mut self, cx: &mut Context<Self>) {
@@ -531,7 +545,7 @@ impl SuperiorityView {
         }
     }
 
-    /// Installs the authoritative account catalogue and queues only products
+    /// installs the authoritative account catalogue and queues only products
     /// licensed to it. Each protocol keeps its own rotating credential, but
     /// every worker must resolve that credential to the same numeric account.
     pub(in crate::app::client) fn adopt_authoritative_account(
@@ -586,14 +600,14 @@ impl SuperiorityView {
         }
     }
 
-    /// How many realms are still on their way back in: the one connecting now
+    /// how many realms are still on their way back in: the one connecting now
     /// and everything queued behind it. The picker's REFRESH chip counts these
     /// down.
     pub(in crate::app::client) fn realms_in_flight(&self) -> usize {
         usize::from(self.runtime.connecting.is_some()) + self.runtime.connect_queue.len()
     }
 
-    /// Sends the next queued sign-in once the one in flight is done, either way.
+    /// sends the next queued sign-in once the one in flight is done, either way.
     ///
     /// "Done" is deliberately generous: a product that failed has still let go
     /// of the browser, and holding the queue behind it would leave every other

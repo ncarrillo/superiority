@@ -1,4 +1,4 @@
-//! Runtime configuration and counters for Live sharing.
+//! runtime configuration and counters for Live sharing.
 //!
 //! The main thread writes [`UplinkConfig`] when the user flips a toggle; the
 //! network-thread tap and the uplink worker read snapshots of it. Counters in
@@ -14,14 +14,14 @@ use std::{
 
 use zeroize::Zeroizing;
 
-/// Environment override for the backend base URL (scheme + host, no path).
+/// environment override for the backend base URL (scheme + host, no path).
 pub const ENDPOINT_ENV: &str = "SUPERIORITY_LIVE_ENDPOINT";
-/// Environment override for the feed token, for development runs.
+/// environment override for the feed token, for development runs.
 pub const TOKEN_ENV: &str = "SC2_LIVE_TOKEN";
-/// Where releases point when no override is set: the deployed Live backend.
+/// where releases point when no override is set: the deployed Live backend.
 pub const DEFAULT_ENDPOINT_BASE: &str = "https://live.superioritybot.com";
 
-/// Filename of the stored feed registration, kept beside the Battle.net
+/// filename of the stored feed registration, kept beside the Battle.net
 /// credential in Application Support.
 pub const IDENTITY_FILENAME: &str = "live-feed.json";
 
@@ -29,19 +29,19 @@ pub const IDENTITY_FILENAME: &str = "live-feed.json";
 pub struct UplinkConfig {
     /// Master switch. Off means the tap projects nothing and sends nothing.
     pub enabled: bool,
-    /// Channel identity strings (`public:1028`, `private:Op Test`,
+    /// channel identity strings (`public:1028`, `private:Op Test`,
     /// `club:5322`) the user chose to share.
     pub shared_channels: BTreeSet<String>,
-    /// Backend origin override; the env var and then the default fill in.
+    /// backend origin override; the env var and then the default fill in.
     pub endpoint_base: Option<String>,
-    /// The secret feed token minted at registration.
+    /// the secret feed token minted at registration.
     pub token: Option<Zeroizing<String>>,
-    /// The public feed slug the token writes into.
+    /// the public feed slug the token writes into.
     pub feed_id: Option<String>,
 }
 
 impl UplinkConfig {
-    /// The backend origin to talk to: env override, then stored value, then
+    /// the backend origin to talk to: env override, then stored value, then
     /// the compiled-in default.
     #[must_use]
     pub fn endpoint_base(&self) -> String {
@@ -57,19 +57,19 @@ impl UplinkConfig {
             .to_owned()
     }
 
-    /// Installs a registered identity (secret token + public slug).
+    /// installs a registered identity (secret token + public slug).
     pub fn adopt_identity(&mut self, token: String, feed_id: String) {
         self.token = Some(Zeroizing::new(token));
         self.feed_id = Some(feed_id);
     }
 
-    /// Forgets the identity so the worker mints a fresh link on next use.
+    /// forgets the identity so the worker mints a fresh link on next use.
     pub fn forget_identity(&mut self) {
         self.token = None;
         self.feed_id = None;
     }
 
-    /// The token to present: env override first so development runs never
+    /// the token to present: env override first so development runs never
     /// touch the Keychain.
     #[must_use]
     pub fn effective_token(&self) -> Option<Zeroizing<String>> {
@@ -84,13 +84,13 @@ impl UplinkConfig {
     }
 }
 
-/// Counters shared between the uplink worker and the UI. All monotonic or
+/// counters shared between the uplink worker and the UI. All monotonic or
 /// latching; the UI only ever reads.
 #[derive(Default)]
 pub struct UplinkStats {
     pub sent: AtomicU64,
     pub dropped: AtomicU64,
-    /// Latched on a 401/403 until the app restarts or a new link is minted.
+    /// latched on a 401/403 until the app restarts or a new link is minted.
     pub auth_failed: AtomicBool,
     last_error: Mutex<Option<String>>,
     feed_url: Mutex<Option<String>>,
@@ -122,14 +122,14 @@ impl UplinkStats {
         }
     }
 
-    /// The shareable live link, once registration has happened.
+    /// the shareable live link, once registration has happened.
     #[must_use]
     pub fn feed_url(&self) -> Option<String> {
         self.feed_url.lock().ok().and_then(|slot| slot.clone())
     }
 }
 
-/// The feed registration, persisted as one JSON blob so the token, slug, and
+/// the feed registration, persisted as one JSON blob so the token, slug, and
 /// link never drift apart. It lives in a private file — not the Keychain —
 /// exactly like the Battle.net credential, so it never prompts for a password.
 /// The token is only a feed write-credential, less sensitive than the account
@@ -172,7 +172,7 @@ mod identity_store {
         })
     }
 
-    /// Loads the stored feed identity, if any. A missing or corrupt file reads
+    /// loads the stored feed identity, if any. A missing or corrupt file reads
     /// as absent, so a bad write is always recoverable by re-registering.
     #[must_use]
     pub fn load_identity() -> Option<StoredIdentity> {

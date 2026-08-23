@@ -62,7 +62,7 @@ impl SuperiorityView {
 }
 
 impl SuperiorityView {
-    /// A realm's own window, arriving the way StarCraft II's chrome does: a
+    /// a realm's own window, arriving the way StarCraft II's chrome does: a
     /// short reveal when it first comes on screen, in live mode. Remastered
     /// and Reforged used to simply appear where the picker had been.
     fn realm_window_reveal(
@@ -84,15 +84,20 @@ impl SuperiorityView {
         }
     }
 
-    /// The picker, with the state walk driven by the frame clock. It has no
+    /// the picker, with the state walk driven by the frame clock. It has no
     /// session to poll, so the walk is wound on here rather than by the client
     /// loop that does not run in this mode.
+    ///
+    /// `None` on the frame the picker hands over: the walk is wound on before
+    /// anything is drawn, and a handoff means the realm is drawn this frame —
+    /// not a settled picker for one frame and the realm the next, which read
+    /// as a flash of the list between the flood and the chat.
     fn games_view(
         &mut self,
         screen: GamesScreen,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> Option<AnyElement> {
         let now = Instant::now();
         match screen {
             GamesScreen::States => {
@@ -108,6 +113,9 @@ impl SuperiorityView {
                     self.games.land_connections(now);
                 }
                 self.games.advance_motion(now);
+                if self.games.has_entered() {
+                    return None;
+                }
                 // the top bar's clocks: a refresh lands when nothing is left in
                 // flight, an arm lapses, a severed plaque lets go; while any
                 // of them runs the bar is read again next frame
@@ -125,7 +133,7 @@ impl SuperiorityView {
             GamesScreen::States => self.games_screen(window, cx),
             GamesScreen::Picker => self.picker_screen(window, cx),
         };
-        ui_workspace::root()
+        let view = ui_workspace::root()
             .id("superiority-games")
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
@@ -179,7 +187,8 @@ impl SuperiorityView {
                 Animation::new(STATE_DWELL).repeat(),
                 |sheet, _| sheet,
             )
-            .into_any_element()
+            .into_any_element();
+        Some(view)
     }
 }
 
@@ -205,8 +214,14 @@ impl Render for SuperiorityView {
             && !self.games.has_entered()
         {
             self.sync_live_games();
-            return self.games_view(screen, window, cx);
+            if screen == GamesScreen::Picker && self.updates.update_dialog_visible {
+                return self.update_stage(window, cx);
+            }
+            if let Some(view) = self.games_view(screen, window, cx) {
+                return view;
+            }
         }
+        let afterglow = self.entered_afterglow(window, cx);
         // Remastered has its own window. It is a single-channel realm with no
         // tab strip and its own palette, and dressing StarCraft II's window in
         // green would not have made it one.
@@ -216,6 +231,7 @@ impl Render for SuperiorityView {
                 .id("superiority-scr-shell")
                 .size_full()
                 .relative()
+                .children(afterglow)
                 .child(self.realm_window_reveal(
                     "scr-window-reveal",
                     "scr-chrome-reveal",
@@ -263,6 +279,7 @@ impl Render for SuperiorityView {
                 // shared window's are
                 .on_drag_move::<TabDragPayload>(cx.listener(Self::update_wc3_tab_drag))
                 .on_drop(cx.listener(Self::finish_wc3_tab_drag))
+                .children(afterglow)
                 .child(self.realm_window_reveal(
                     "wc3-window-reveal",
                     "wc3-chrome-reveal",
@@ -323,7 +340,8 @@ impl Render for SuperiorityView {
             .on_key_down(cx.listener(Self::on_key_down))
             .on_drag_move::<TabDragPayload>(cx.listener(Self::update_tab_drag))
             .on_drop(cx.listener(Self::finish_tab_drag))
-            .relative();
+            .relative()
+            .children(afterglow);
         if self.chrome.modal_assets_warming {
             root = root.child(self.chrome.modal_asset_warmup());
         }

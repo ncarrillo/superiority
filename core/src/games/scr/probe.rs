@@ -1,4 +1,4 @@
-//! A one-shot diagnostic for the classic upgrade, behind `SUPERIORITY_SCR_PROBE`.
+//! a one-shot diagnostic for the classic upgrade, behind `SUPERIORITY_SCR_PROBE`.
 //!
 //! The edge answers `HTTP/1.0 404 OK` — an empty header block and a reason
 //! phrase that does not match its own status — for every request tried so far,
@@ -21,7 +21,7 @@ use rand::RngCore as _;
 
 use crate::games::scr::{CLASSIC_RPC_PATH, handoff::ClassicHandoff};
 
-/// One way of asking, and what it is testing.
+/// one way of asking, and what it is testing.
 struct Variant {
     what: &'static str,
     path: String,
@@ -35,7 +35,7 @@ pub fn run_is_wanted() -> bool {
     std::env::var_os("SUPERIORITY_SCR_PROBE").is_some()
 }
 
-/// Tries each variant and returns one line per attempt.
+/// tries each variant and returns one line per attempt.
 #[must_use]
 pub fn run(handoff: &ClassicHandoff, timeout: Duration) -> String {
     let host = handoff.host.as_str();

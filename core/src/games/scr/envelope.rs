@@ -10,11 +10,11 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::{Error, Result, platform::wire::websocket::PayloadTransform};
 
-/// The constant the SDK mixes the product code with to reach its initial
+/// the constant the SDK mixes the product code with to reach its initial
 /// connection state.
 const CHECK_VALUE_MASK: u32 = 0x1083_1105;
 
-/// Where the fold starts, which the current SDK derives from the product rather
+/// where the fold starts, which the current SDK derives from the product rather
 /// than holding as a constant.
 ///
 /// This was `5` — a value read off a capture — until it was traced to
@@ -69,7 +69,7 @@ impl CheckValueEnvelope {
         Self { seed }
     }
 
-    /// Derives the envelope from the nonce a connection handshook with — see
+    /// derives the envelope from the nonce a connection handshook with — see
     /// [`crate::platform::wire::websocket::RpcSocket::handshake_key`] — and the
     /// product whose channel it is.
     pub fn from_websocket_key(websocket_key: &str, product: u32) -> Result<Self> {

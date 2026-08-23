@@ -371,7 +371,7 @@ impl fmt::Debug for ChatMember {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChatChannel {
-    /// Client-local channel index used by the shared send/leave/tab contract.
+    /// client-local channel index used by the shared send/leave/tab contract.
     /// Battle.net's structured channel identifier remains opaque inside the
     /// session and never crosses into UI state.
     pub id: u8,
@@ -425,7 +425,7 @@ pub struct ChatFriend {
     pub presence: FriendPresence,
 }
 
-/// The account's clan membership as reported by the retail Clan service.
+/// the account's clan membership as reported by the retail Clan service.
 /// `Pending` is deliberately distinct from `None`: Battle.net sends an empty
 /// `ReceivedMyClanOnLogin` callback for an account with no clan, so the client
 /// does not manufacture a no-clan state while that callback is still in flight.
@@ -457,7 +457,7 @@ pub struct ClanMember {
 pub struct ClanSnapshot {
     pub membership: ClanMembership,
     pub members: Vec<ClanMember>,
-    /// Clan reads are optional to the chat session. A malformed or rejected
+    /// clan reads are optional to the chat session. A malformed or rejected
     /// roster is surfaced here instead of disconnecting the realm hall.
     pub read_error: Option<String>,
 }
@@ -1517,7 +1517,7 @@ fn parse_chat_message(body: &[u8]) -> Result<String> {
     )
 }
 
-/// Builds WC3's `aurora_chat.SendWhisperRequest` from the installed retail
+/// builds WC3's `aurora_chat.SendWhisperRequest` from the installed retail
 /// SDK's generated serializer: account id is varint field 1 and message is
 /// string field 2.
 fn send_whisper_request(account_id: u64, text: &str) -> Result<Vec<u8>> {
@@ -1604,7 +1604,7 @@ fn parse_friend_update(body: &[u8]) -> Result<FriendUpdate> {
     }))
 }
 
-/// Metadata-only protocol tracing for live validation. Raw callback bodies,
+/// metadata-only protocol tracing for live validation. Raw callback bodies,
 /// identifiers, names, and chat text deliberately never enter the trace.
 fn trace_classic(message: impl std::fmt::Display) {
     let message = message.to_string();

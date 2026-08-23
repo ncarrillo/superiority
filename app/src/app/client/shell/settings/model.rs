@@ -1,6 +1,6 @@
 use super::*;
 
-/// The settings pages. Named rather than numbered because the sidebar and the
+/// the settings pages. Named rather than numbered because the sidebar and the
 /// page dispatch used to be two positional lists that had to agree — dropping
 /// one page from a bare array silently renumbered the rest.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,7 +11,7 @@ pub(in crate::app::client) enum SettingsPage {
 }
 
 impl SettingsPage {
-    /// What the sidebar offers, in order. There is no `Privacy`: the blocked
+    /// what the sidebar offers, in order. There is no `Privacy`: the blocked
     /// list is not a setting and is moving to the social pane.
     pub(in crate::app::client) const SHOWN: &'static [Self] =
         &[Self::Appearance, Self::Chat, Self::Live];

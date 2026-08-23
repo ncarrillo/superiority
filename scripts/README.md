@@ -13,6 +13,14 @@
 
 - `prepare-app-assets.zsh` converts the extracted SC2 and WC3 asset trees into
   the curated resources embedded by the desktop clients.
+- `stage-stimpak-macos.zsh` builds, signs, and stages the current macOS Stimpak
+  native runtime for NuGet packaging.
+- `build-stimpak-windows-macos.zsh` cross-compiles unsigned Windows Stimpak
+  runtimes on the macOS host.
+- `sign-stage-stimpak-windows-macos.zsh` Authenticode-signs those DLL/EXE files
+  with `osslsigncode` and stages them, without a Windows VM or SignTool.
+- `package-stimpak-nuget.zsh` tests and packs all staged runtimes, rejecting any
+  staged Windows DLL or executable whose Authenticode signature does not verify.
 
 ## Publishing and infrastructure
 

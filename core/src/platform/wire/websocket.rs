@@ -27,7 +27,7 @@ pub(crate) const MAX_HANDSHAKE_BYTES: usize = 64 * 1024;
 /// RFC 6455's magic string, which the accept digest is built over.
 const WEBSOCKET_ACCEPT_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-/// How a connection is framed once it is upgraded.
+/// how a connection is framed once it is upgraded.
 ///
 /// Two peers, two levels of conformance. The account channels are well-formed
 /// and `tungstenite` handles them. Remastered's classic edge masks its
@@ -39,7 +39,7 @@ enum Transport {
 }
 
 impl Transport {
-    /// Both transports speak in `tungstenite::Message` so the socket above does
+    /// both transports speak in `tungstenite::Message` so the socket above does
     /// not have to know which one it has.
     fn send(&mut self, message: Message) -> Result<()> {
         match self {
@@ -106,7 +106,7 @@ impl Transport {
     }
 }
 
-/// Which endpoint a socket is opened against. Battle.net serves more than one
+/// which endpoint a socket is opened against. Battle.net serves more than one
 /// on the same host and port: the account service answers at `/` under the
 /// protobuf RPC subprotocol, and a product's own channel answers at its own
 /// path — Remastered's classic RPC is `/S1/v2/rpc/client`.
@@ -119,7 +119,7 @@ pub struct SocketProfile<'a> {
     /// `None` asks for no subprotocol at all, which is not the same as asking
     /// for one and being given nothing.
     pub subprotocol: Option<&'a str>,
-    /// Accept an upgrade response that is a good `101` but not a well-formed
+    /// accept an upgrade response that is a good `101` but not a well-formed
     /// HTTP/1.1 one.
     ///
     /// Remastered's classic edge answers with a status line tungstenite refuses
@@ -131,7 +131,7 @@ pub struct SocketProfile<'a> {
 }
 
 impl SocketProfile<'static> {
-    /// The account service: protobuf RPC at the root.
+    /// the account service: protobuf RPC at the root.
     pub const BGS: Self = Self {
         path: "/",
         subprotocol: Some("v1.rpc.battle.net"),
@@ -139,7 +139,7 @@ impl SocketProfile<'static> {
     };
 }
 
-/// A transform sitting between the RPC framing and the wire. Remastered's
+/// a transform sitting between the RPC framing and the wire. Remastered's
 /// classic channel wraps every payload in a feedback XOR keyed off the
 /// handshake nonce; the account service wraps nothing.
 pub trait PayloadTransform: Send {
@@ -235,14 +235,14 @@ impl RpcSocket {
         })
     }
 
-    /// The `Sec-WebSocket-Key` this connection handshook with, for a transform
+    /// the `Sec-WebSocket-Key` this connection handshook with, for a transform
     /// that is keyed off the nonce.
     #[must_use]
     pub fn handshake_key(&self) -> &str {
         &self.handshake_key
     }
 
-    /// Put a transform between the framing and the wire. Applies to every frame
+    /// put a transform between the framing and the wire. Applies to every frame
     /// in both directions from here on, so it is installed before anything is
     /// sent.
     pub fn set_transform(&mut self, transform: Box<dyn PayloadTransform>) {
@@ -261,7 +261,7 @@ impl RpcSocket {
         self.send_raw(&payload)
     }
 
-    /// One payload the caller framed itself. Remastered's classic channel
+    /// one payload the caller framed itself. Remastered's classic channel
     /// frames its own, so it goes out through here rather than through the
     /// BGS header path — the transform still applies either way.
     pub fn send_raw(&mut self, payload: &[u8]) -> Result<()> {
@@ -273,7 +273,7 @@ impl RpcSocket {
         Ok(())
     }
 
-    /// Sends one text frame.
+    /// sends one text frame.
     ///
     /// Remastered's account layer speaks JSON over text frames rather than
     /// protobuf over binary ones, so it is the one caller of this. No transform
@@ -283,7 +283,7 @@ impl RpcSocket {
         Ok(())
     }
 
-    /// Reads one frame as text, whether it arrived as a text frame or a binary
+    /// reads one frame as text, whether it arrived as a text frame or a binary
     /// one.
     ///
     /// Aurora sends the same JSON both ways — the retail client reads either
@@ -311,7 +311,7 @@ impl RpcSocket {
         }
     }
 
-    /// One payload, transformed but not parsed, for a caller that does its own
+    /// one payload, transformed but not parsed, for a caller that does its own
     /// framing. Ping and pong are answered by the socket and skipped here.
     pub fn receive_raw(&mut self) -> Result<Vec<u8>> {
         let deadline = Instant::now() + self.patience;
@@ -439,7 +439,7 @@ fn transport_error(message: impl Into<String>) -> Error {
     Error::Transport(message.into())
 }
 
-/// Ends a blocked read on a socket from another thread. Cutting the connection
+/// ends a blocked read on a socket from another thread. Cutting the connection
 /// makes the read fail at once instead of waiting on a service that has stopped
 /// answering.
 pub struct SocketInterrupt(TcpStream);
@@ -450,7 +450,7 @@ impl SocketInterrupt {
     }
 }
 
-/// Performs the websocket upgrade by hand, then hands the upgraded stream to
+/// performs the websocket upgrade by hand, then hands the upgraded stream to
 /// tungstenite for framing.
 ///
 /// Only the two things that matter are checked: the status is `101`, and the
@@ -495,7 +495,7 @@ fn upgrade_leniently(
     tls.write_all(request.as_bytes())?;
     tls.flush()?;
 
-    // Read exactly the head and not one byte more.
+    // read exactly the head and not one byte more.
     //
     // a byte over-read here is the first byte of the first frame, and there is
     // nowhere to put it back: the framing below starts from an empty buffer, so

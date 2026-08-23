@@ -37,7 +37,7 @@ pub enum Step {
 pub struct WarcraftSession {
     classic: ClassicSession,
     initial_events: VecDeque<ChatEvent>,
-    /// Stable numeric Battle.net identity from the JSON-BGS logon.
+    /// stable numeric Battle.net identity from the JSON-BGS logon.
     account_id: u64,
     battle_tag: Option<String>,
     connected_region: Option<u32>,
@@ -77,7 +77,7 @@ impl WarcraftSession {
             authentication.session.battle_tag.as_deref(),
             connection.connected_region,
         );
-        // Account identity is known before ProcessTask consumes a product
+        // account identity is known before ProcessTask consumes a product
         // handoff. Reject a stale token here so it can be rotated through the
         // authoritative shared SSO session without touching the wrong edge.
         validate_account(
@@ -288,7 +288,7 @@ fn cookie_path() -> Option<PathBuf> {
     root.map(|root| root.join("Superiority").join("WC3").join(COOKIE_FILENAME))
 }
 
-/// Removes WC3's opaque classic-session cookie during an explicit sign-out.
+/// removes WC3's opaque classic-session cookie during an explicit sign-out.
 pub fn delete_offline_cookie() -> Result<()> {
     let Some(path) = cookie_path() else {
         return Ok(());

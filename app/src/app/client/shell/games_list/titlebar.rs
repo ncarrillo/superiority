@@ -1,4 +1,4 @@
-//! What the picker's top bar is doing: the REFRESH chip's poll, the SIGN OUT
+//! what the picker's top bar is doing: the REFRESH chip's poll, the SIGN OUT
 //! chip's two-click arm, and the plaque that greys out while a sign-out is
 //! in flight.
 //!
@@ -8,27 +8,27 @@
 
 use super::*;
 
-/// How long UP TO DATE stays up before the chip reverts to REFRESH.
+/// how long UP TO DATE stays up before the chip reverts to REFRESH.
 pub(in crate::app::client) const REFRESH_DONE_HOLD: Duration = Duration::from_millis(800);
-/// How long an armed SIGN OUT waits for its confirming click.
+/// how long an armed SIGN OUT waits for its confirming click.
 pub(in crate::app::client) const SIGN_OUT_ARM: Duration = Duration::from_secs(3);
-/// The least time the bar says SEVERING, so a hand-off that is over before
+/// the least time the bar says SEVERING, so a hand-off that is over before
 /// the next frame still reads as having happened.
 const SEVERING_HOLD: Duration = Duration::from_millis(600);
 
-/// One refresh of every realm's status, from the click to the flash that
+/// one refresh of every realm's status, from the click to the flash that
 /// says it landed.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::app::client) struct RefreshRun {
     pub(in crate::app::client) started: Instant,
-    /// How many realms were sent back round. The count on the chip is this
+    /// how many realms were sent back round. The count on the chip is this
     /// minus whatever is still in flight.
     pub(in crate::app::client) total: usize,
-    /// When the last of them settled; the chip flashes UP TO DATE from here.
+    /// when the last of them settled; the chip flashes UP TO DATE from here.
     pub(in crate::app::client) done_at: Option<Instant>,
 }
 
-/// The identity the bar keeps showing, greyed, while the account it named is
+/// the identity the bar keeps showing, greyed, while the account it named is
 /// being signed out. Battle.net forgets the name at once; the bar must not.
 #[derive(Clone, Debug)]
 pub(in crate::app::client) struct SeveredPlaque {
@@ -37,35 +37,35 @@ pub(in crate::app::client) struct SeveredPlaque {
     pub(in crate::app::client) region: Option<u32>,
 }
 
-/// What the REFRESH chip shows.
+/// what the REFRESH chip shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::app::client) enum RefreshChip {
     Ready,
-    /// The arrow sweeps and the label counts the realms that have answered.
+    /// the arrow sweeps and the label counts the realms that have answered.
     Polling {
         done: usize,
         total: usize,
     },
-    /// The flash after the last answer.
+    /// the flash after the last answer.
     UpToDate,
-    /// Mid sign-out there is nothing left to refresh.
+    /// mid sign-out there is nothing left to refresh.
     Disabled,
 }
 
-/// What the SIGN OUT chip shows.
+/// what the SIGN OUT chip shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::app::client) enum SignOutChip {
     Ready,
-    /// One click down; the next one within the window signs out.
+    /// one click down; the next one within the window signs out.
     Armed,
-    /// The sign-out is in flight.
+    /// the sign-out is in flight.
     Severing,
-    /// Nobody is signed in to sign out.
+    /// nobody is signed in to sign out.
     Inert,
 }
 
 impl GamesComponent {
-    /// A refresh has been asked for: `total` realms are going back round.
+    /// a refresh has been asked for: `total` realms are going back round.
     pub(in crate::app::client) fn begin_refresh(&mut self, total: usize, now: Instant) {
         self.refresh = Some(RefreshRun {
             started: now,
@@ -74,7 +74,7 @@ impl GamesComponent {
         });
     }
 
-    /// The REFRESH chip, given how many realms are still reconnecting.
+    /// the REFRESH chip, given how many realms are still reconnecting.
     pub(in crate::app::client) fn refresh_chip(&self, in_flight: usize) -> RefreshChip {
         if self.severing.is_some() {
             return RefreshChip::Disabled;
@@ -91,7 +91,7 @@ impl GamesComponent {
         }
     }
 
-    /// The SIGN OUT chip, given whether anyone is signed in.
+    /// the SIGN OUT chip, given whether anyone is signed in.
     pub(in crate::app::client) fn sign_out_chip(
         &self,
         signed_in: bool,
@@ -112,7 +112,7 @@ impl GamesComponent {
         SignOutChip::Ready
     }
 
-    /// A press on SIGN OUT. The first arms the chip; the second, inside the
+    /// a press on SIGN OUT. The first arms the chip; the second, inside the
     /// window, confirms — and returns true so the caller signs out.
     pub(in crate::app::client) fn press_sign_out(&mut self, now: Instant) -> bool {
         let confirmed = self
@@ -125,7 +125,7 @@ impl GamesComponent {
         confirmed
     }
 
-    /// The sign-out is going out: keep the plaque, greyed, until the account
+    /// the sign-out is going out: keep the plaque, greyed, until the account
     /// is gone or a new one has arrived.
     pub(in crate::app::client) fn begin_severing(
         &mut self,
@@ -141,7 +141,7 @@ impl GamesComponent {
         });
     }
 
-    /// Moves the bar's clocks on: lands a refresh once nothing is in flight,
+    /// moves the bar's clocks on: lands a refresh once nothing is in flight,
     /// lets UP TO DATE and an un-confirmed arm lapse, and ends SEVERING once
     /// a new identity is in or the reconnect behind the sign-out has stopped.
     /// Returns whether anything changed.
@@ -183,7 +183,7 @@ impl GamesComponent {
         changed
     }
 
-    /// Whether the bar has a clock running that the next frame must read.
+    /// whether the bar has a clock running that the next frame must read.
     pub(in crate::app::client) fn titlebar_live(&self) -> bool {
         self.refresh.is_some() || self.sign_out_armed.is_some() || self.severing.is_some()
     }

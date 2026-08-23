@@ -32,7 +32,6 @@ impl SuperiorityView {
         self.session.composer.composer_focused = false;
         self.overlays.active = None;
         self.session.channels.chat_entry_reveal = None;
-        self.session.chat.transcript.scroll.scroll_to_bottom();
         self.begin_channel_transition(outgoing, outgoing_selected_user);
         Self::trace(format_args!("selected tab {index}"));
         cx.notify();

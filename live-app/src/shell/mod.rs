@@ -1,4 +1,4 @@
-//! Browser host shell for a Live feed — the game picker, and the realm you
+//! browser host shell for a Live feed — the game picker, and the realm you
 //! enter from it.
 //!
 //! The picker is a faithful port of the desktop's `picker_section`: the
@@ -111,7 +111,7 @@ pub(crate) struct LiveShell {
     cards: [CardStatus; 3],
     views: Vec<MountedView>,
     screen: Screen,
-    /// The picker's selection and choreography, on the browser's millisecond
+    /// the picker's selection and choreography, on the browser's millisecond
     /// clock — the same `PickerState` the desktop shell drives.
     picker: PickerState<f64>,
     loading: bool,
@@ -264,7 +264,7 @@ impl LiveShell {
 
     // ── picker state ─────────────────────────────────────────────────────────
 
-    /// Reaches for a card: hovering one also selects it, so the room follows
+    /// reaches for a card: hovering one also selects it, so the room follows
     /// the pointer; leaving leaves the selection where it was.
     fn reach(&mut self, card: Option<usize>) -> bool {
         let mask = self.actionable_mask();
@@ -281,12 +281,12 @@ impl LiveShell {
         self.picker.move_choice(delta, js_sys::Date::now(), &mask);
     }
 
-    /// The three cards' actionability, the mask the shared picker filters on.
+    /// the three cards' actionability, the mask the shared picker filters on.
     fn actionable_mask(&self) -> [bool; GAMES.len()] {
         std::array::from_fn(|index| self.actionable(index))
     }
 
-    /// The rooms to paint behind the cards, bottom first — a crossfade between
+    /// the rooms to paint behind the cards, bottom first — a crossfade between
     /// the game left and the one arriving.
     fn rooms(&self, now: f64) -> Vec<(usize, f32)> {
         let mask = self.actionable_mask();
@@ -298,7 +298,7 @@ impl LiveShell {
             .card_motion(index, slot_offset(index, size), now, false)
     }
 
-    /// Winds the choreography: the entrance starts on the first frame, and
+    /// winds the choreography: the entrance starts on the first frame, and
     /// entering a realm hands over once the card has dissolved. Returns whether
     /// another frame is needed.
     fn advance_motion(&mut self, now: f64, cx: &mut Context<Self>) -> bool {
@@ -385,7 +385,7 @@ impl LiveShell {
             .into_any_element()
     }
 
-    /// The stacked lockup: the mark, the wordmark, and the tagline, centred
+    /// the stacked lockup: the mark, the wordmark, and the tagline, centred
     /// above the cards and fading in with the entrance.
     fn lockup(&self, stage: &StageMotion) -> AnyElement {
         div()
@@ -592,7 +592,7 @@ impl LiveShell {
             .into_any_element()
     }
 
-    /// The winner lifted out of the row: it starts exactly on its slot, then
+    /// the winner lifted out of the row: it starts exactly on its slot, then
     /// glides to the middle and grows into the flood.
     fn leaving_card(
         &self,
@@ -804,7 +804,7 @@ impl Focusable for LiveShell {
 const SHEET: u32 = 0x0004_060a;
 const PAPER: u32 = 0x00e6_edf7;
 
-/// A drawn return-key mark, since the browser font bundle carries no ⏎.
+/// a drawn return-key mark, since the browser font bundle carries no ⏎.
 fn return_glyph(color: u32) -> impl IntoElement {
     canvas(
         |_, _, _| (),
@@ -831,7 +831,7 @@ fn return_glyph(color: u32) -> impl IntoElement {
     .flex_shrink_0()
 }
 
-/// Where card `index` sits from the row's centre, in pixels — the distance it
+/// where card `index` sits from the row's centre, in pixels — the distance it
 /// glides to the middle when it wins.
 fn slot_offset(index: usize, size: CardSize) -> f32 {
     let count = (0..GAMES.len()).filter(|i| GAMES[*i].shown).count();
@@ -840,7 +840,7 @@ fn slot_offset(index: usize, size: CardSize) -> f32 {
     (middle - position as f32) * (size.width + size.gap_between)
 }
 
-/// Where a card's slot starts, from the left of the row.
+/// where a card's slot starts, from the left of the row.
 fn index_offset(index: usize, size: CardSize) -> f32 {
     let position = (0..index).filter(|i| GAMES[*i].shown).count();
     position as f32 * (size.width + size.gap_between)

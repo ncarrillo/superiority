@@ -1,4 +1,4 @@
-//! Product-neutral member-list filtering, placement, and transition mechanics.
+//! product-neutral member-list filtering, placement, and transition mechanics.
 
 use std::{cmp::Ordering, collections::HashSet, hash::Hash, ops::Range, time::Duration};
 
@@ -316,7 +316,7 @@ pub fn filtered_count<T>(
     items.iter().filter(|item| matches(item, &filter)).count()
 }
 
-/// Shared member-list ordering inside a relationship band: people who are
+/// shared member-list ordering inside a relationship band: people who are
 /// present read first, absent people collect at the bottom, and both groups
 /// remain alphabetical. Product surfaces decide which of their protocol
 /// presence states count as absent.

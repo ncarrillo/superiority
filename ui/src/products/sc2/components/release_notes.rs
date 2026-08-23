@@ -8,15 +8,95 @@ use gpui::{
 };
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use crate::products::sc2::theme::{FONT_INTERFACE, FONT_INTERNATIONAL};
-
-const BODY_TEXT: u32 = 0x00db_e7f7;
-const HEADING_TEXT: u32 = 0x0062_c9ff;
-const MUTED_TEXT: u32 = 0x009f_b5cf;
-const LINK_TEXT: u32 = 0x003e_b8ff;
-const CODE_TEXT: u32 = 0x008e_daff;
-const STRONG_TEXT: u32 = 0x00f2_f7ff;
 use crate::foundation::text_input::SELECTION_BACKGROUND;
+use crate::products::modal::ModalVariant;
+use crate::products::{sc2, scr, wc3};
+
+/// the notes' dressing for one realm: the faces the headings and body are set
+/// in, and the ink ramp. Colours are `0xRRGGBB` unless the name says `_fill`
+/// or `_edge`, which are `0xRRGGBBAA`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NotesStyle {
+    pub body_font: &'static str,
+    pub heading_font: &'static str,
+    pub body: u32,
+    pub heading: u32,
+    /// quotes and struck-through text.
+    pub muted: u32,
+    /// links, list markers, and the quote bar.
+    pub link: u32,
+    pub code: u32,
+    pub strong: u32,
+    pub code_fill: u32,
+    pub code_edge: u32,
+    pub table_edge: u32,
+    pub rule: u32,
+    /// the text-selection highlight.
+    pub selection: u32,
+}
+
+impl NotesStyle {
+    /// `StarCraft II`'s: the ink the notes were first drawn in.
+    pub const SC2: Self = Self {
+        body_font: sc2::theme::FONT_INTERNATIONAL,
+        heading_font: sc2::theme::FONT_INTERFACE,
+        body: 0x00db_e7f7,
+        heading: 0x0062_c9ff,
+        muted: 0x009f_b5cf,
+        link: 0x003e_b8ff,
+        code: 0x008e_daff,
+        strong: 0x00f2_f7ff,
+        code_fill: 0x0611_1bd9,
+        code_edge: 0x144f_78d9,
+        table_edge: 0x144f_78a8,
+        rule: 0x3eb8_ff66,
+        selection: SELECTION_BACKGROUND,
+    };
+    /// the Terran console's: the rust ramp for the words, the chrome red for
+    /// what is structural or pressable.
+    pub const REMASTERED: Self = Self {
+        body_font: scr::theme::FONT_INTERNATIONAL,
+        heading_font: scr::theme::FONT_INTERFACE,
+        body: 0x00f0_e6da,
+        heading: scr::theme::ACCENT,
+        muted: 0x00b8_8a7c,
+        link: scr::theme::ACCENT,
+        code: scr::theme::TEXT,
+        strong: 0x00ff_f4ea,
+        code_fill: 0x1a08_06d9,
+        code_edge: 0xc93a_2c80,
+        table_edge: 0xc93a_2c59,
+        rule: 0xff8a_7866,
+        selection: 0xff8a_7859,
+    };
+    /// the realm hall's: parchment for the words, gold for the headings and
+    /// links, stone for the edges.
+    pub const REFORGED: Self = Self {
+        body_font: wc3::theme::FONT_INTERFACE,
+        heading_font: wc3::theme::FONT_TITLE,
+        body: wc3::theme::PARCHMENT,
+        heading: wc3::theme::GOLD,
+        muted: wc3::theme::MUTED,
+        link: wc3::theme::GOLD_BRIGHT,
+        code: wc3::theme::GOLD_DIM,
+        strong: 0x00ff_f6e6,
+        code_fill: 0x1a12_08d9,
+        code_edge: 0x5e4a_26d9,
+        table_edge: 0x5e4a_26a8,
+        rule: 0xe8c8_7466,
+        selection: 0xe8c8_7459,
+    };
+
+    /// the style for the realm a dialog is dressed as.
+    #[must_use]
+    pub const fn for_variant(variant: ModalVariant) -> Self {
+        match variant {
+            ModalVariant::Sc2 => Self::SC2,
+            ModalVariant::Remastered => Self::REMASTERED,
+            ModalVariant::Reforged => Self::REFORGED,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReleaseNotesDocument {
@@ -400,28 +480,37 @@ fn link_at(links: &[(Range<usize>, String)], offset: usize) -> Option<&(Range<us
 }
 
 #[must_use]
-pub fn view(document: &ReleaseNotesDocument, selection: &ReleaseNotesSelection) -> Div {
+pub fn view(
+    document: &ReleaseNotesDocument,
+    selection: &ReleaseNotesSelection,
+    style: &NotesStyle,
+) -> Div {
     let mut content = div()
         .w_full()
         .flex()
         .flex_col()
-        .font_family(FONT_INTERNATIONAL)
+        .font_family(style.body_font)
         .text_size(px(14.0))
         .line_height(px(22.0))
-        .text_color(rgb(BODY_TEXT));
+        .text_color(rgb(style.body));
 
     for (row, block) in document.blocks.iter().enumerate() {
-        content = content.child(render_block(block, row, selection));
+        content = content.child(render_block(block, row, selection, style));
     }
     content
 }
 
-fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesSelection) -> Div {
+fn render_block(
+    block: &ReleaseNotesBlock,
+    row: usize,
+    selection: &ReleaseNotesSelection,
+    style: &NotesStyle,
+) -> Div {
     let selected = selection.selection_for_row(row, block.inline.text.len());
     let rich_text = || SelectableRichText {
         id: format!("release-notes-text-{row}").into(),
         row,
-        text: styled_inline(&block.inline, selected.as_ref()),
+        text: styled_inline(&block.inline, selected.as_ref(), style),
         links: block
             .inline
             .spans
@@ -446,11 +535,11 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
                 .mt(px(top))
                 .mb(px(bottom))
                 .min_w_0()
-                .font_family(FONT_INTERFACE)
+                .font_family(style.heading_font)
                 .font_weight(FontWeight::BOLD)
                 .text_size(px(font_size))
                 .line_height(px(line_height))
-                .text_color(rgb(HEADING_TEXT))
+                .text_color(rgb(style.heading))
                 .child(rich_text())
         }
         BlockKind::Paragraph { quote_depth } if *quote_depth > 0 => div()
@@ -460,7 +549,7 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
             .pl(px(14.0 + (*quote_depth as f32 - 1.0) * 12.0))
             .pr(px(14.0))
             .py(px(10.0))
-            .text_color(rgb(MUTED_TEXT))
+            .text_color(rgb(style.muted))
             .child(
                 div()
                     .absolute()
@@ -468,7 +557,7 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
                     .top_0()
                     .bottom_0()
                     .w(px(3.0))
-                    .bg(rgb(LINK_TEXT)),
+                    .bg(rgb(style.link)),
             )
             .child(rich_text()),
         BlockKind::Paragraph { .. } => div().w_full().min_w_0().mb(px(16.0)).child(rich_text()),
@@ -486,7 +575,7 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
                 div()
                     .w(px(22.0))
                     .flex_shrink_0()
-                    .text_color(rgb(LINK_TEXT))
+                    .text_color(rgb(style.link))
                     .child(marker.clone()),
             )
             .child(div().min_w_0().flex_1().child(rich_text())),
@@ -496,13 +585,13 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
             .mb(px(16.0))
             .px(px(12.0))
             .py(px(9.0))
-            .bg(rgba(0x0611_1bd9))
+            .bg(rgba(style.code_fill))
             .border_1()
-            .border_color(rgba(0x144f_78d9))
+            .border_color(rgba(style.code_edge))
             .font_family("Menlo")
             .text_size(px(12.0))
             .line_height(px(20.0))
-            .text_color(rgb(CODE_TEXT))
+            .text_color(rgb(style.code))
             .child(rich_text()),
         BlockKind::TableRow { header } => div()
             .w_full()
@@ -510,17 +599,21 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
             .px(px(8.0))
             .py(px(6.0))
             .border_b_1()
-            .border_color(rgba(0x144f_78a8))
+            .border_color(rgba(style.table_edge))
             .when(*header, |row| {
                 row.font_weight(FontWeight::BOLD)
-                    .text_color(rgb(HEADING_TEXT))
+                    .text_color(rgb(style.heading))
             })
             .child(rich_text()),
-        BlockKind::Rule => div().w_full().h(px(1.0)).my(px(18.0)).bg(rgba(0x3eb8_ff66)),
+        BlockKind::Rule => div().w_full().h(px(1.0)).my(px(18.0)).bg(rgba(style.rule)),
     }
 }
 
-fn styled_inline(inline: &InlineText, selection: Option<&Range<usize>>) -> StyledText {
+fn styled_inline(
+    inline: &InlineText,
+    selection: Option<&Range<usize>>,
+    notes: &NotesStyle,
+) -> StyledText {
     let mut boundaries = vec![0, inline.text.len()];
     for span in &inline.spans {
         boundaries.extend([span.range.start, span.range.end]);
@@ -546,20 +639,20 @@ fn styled_inline(inline: &InlineText, selection: Option<&Range<usize>>) -> Style
                 InlineStyle::Emphasis => style.font_style = Some(FontStyle::Italic),
                 InlineStyle::Strong => {
                     style.font_weight = Some(FontWeight::BOLD);
-                    style.color = Some(rgb(STRONG_TEXT).into());
+                    style.color = Some(rgb(notes.strong).into());
                 }
                 InlineStyle::Strikethrough => {
                     style.strikethrough = Some(StrikethroughStyle {
                         thickness: px(1.0),
-                        color: Some(rgb(MUTED_TEXT).into()),
+                        color: Some(rgb(notes.muted).into()),
                     });
                 }
-                InlineStyle::Code => style.color = Some(rgb(CODE_TEXT).into()),
-                InlineStyle::Link(_) => style.color = Some(rgb(LINK_TEXT).into()),
+                InlineStyle::Code => style.color = Some(rgb(notes.code).into()),
+                InlineStyle::Link(_) => style.color = Some(rgb(notes.link).into()),
             }
         }
         if selection.is_some_and(|selection| selection.contains(&range.start)) {
-            style.background_color = Some(rgba(SELECTION_BACKGROUND).into());
+            style.background_color = Some(rgba(notes.selection).into());
         }
         if style != HighlightStyle::default() {
             highlights.push((range, style));

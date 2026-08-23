@@ -1,4 +1,4 @@
-//! The card system's data: the six states, the per-game palette, the three
+//! the card system's data: the six states, the per-game palette, the three
 //! design-time games, and the sizes the card is drawn at. Nothing here reads a
 //! live session — a host adapts its session into [`CardData`]/[`LiveCard`] and
 //! hands that to the renderers.
@@ -6,23 +6,23 @@
 use crate::foundation::assets::AssetPaths;
 use crate::products::sc2::theme::{FONT_INTERFACE, FONT_NAVIGATION};
 
-/// The six states a game card is ever in. Structure and behaviour never change
+/// the six states a game card is ever in. Structure and behaviour never change
 /// between them — only what the card is dressed in — so they are a table rather
 /// than six views.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Default)]
 pub enum CardState {
-    /// Resting. The art is dimmed and the bevel is at half brightness.
+    /// resting. The art is dimmed and the bevel is at half brightness.
     #[default]
     Idle,
-    /// The realm wakes: the art blooms and zooms and the ping appears.
+    /// the realm wakes: the art blooms and zooms and the ping appears.
     Focused,
-    /// A scan beam sweeps the art while the status names the protocol stage.
+    /// a scan beam sweeps the art while the status names the protocol stage.
     Connecting,
-    /// The badge lands, the status turns green, the verb flips to ENTER.
+    /// the badge lands, the status turns green, the verb flips to ENTER.
     Connected,
-    /// No identity here yet. Grey, and the bevel drops to a whisper.
+    /// no identity here yet. Grey, and the bevel drops to a whisper.
     NoAccount,
-    /// Cold, with an ember beacon and a retry countdown.
+    /// cold, with an ember beacon and a retry countdown.
     Unreachable,
 }
 
@@ -68,7 +68,7 @@ impl CardState {
         }
     }
 
-    /// What the button says. The verb is the state — there is no separate
+    /// what the button says. The verb is the state — there is no separate
     /// enabled flag to fall out of step with it.
     #[must_use]
     pub const fn verb(self) -> &'static str {
@@ -81,13 +81,13 @@ impl CardState {
         }
     }
 
-    /// Only a card you can actually enter offers the return key.
+    /// only a card you can actually enter offers the return key.
     #[must_use]
     pub const fn shows_return_key(self) -> bool {
         matches!(self, Self::Connected)
     }
 
-    /// How much of the art's own light is left. gpui has no brightness filter,
+    /// how much of the art's own light is left. gpui has no brightness filter,
     /// so this is opacity over the card's near-black fill, which comes to the
     /// same thing.
     #[must_use]
@@ -101,7 +101,7 @@ impl CardState {
         }
     }
 
-    /// The zoom is drawn by overhanging the frame rather than by a transform:
+    /// the zoom is drawn by overhanging the frame rather than by a transform:
     /// the art is laid out larger than the window it shows through.
     #[must_use]
     pub const fn art_overhang(self) -> f32 {
@@ -113,7 +113,7 @@ impl CardState {
         }
     }
 
-    /// A card with nothing behind it loses its colour entirely.
+    /// a card with nothing behind it loses its colour entirely.
     #[must_use]
     pub const fn colourless(self) -> bool {
         matches!(self, Self::NoAccount | Self::Unreachable)
@@ -147,7 +147,7 @@ impl CardState {
         matches!(self, Self::Unreachable)
     }
 
-    /// How far the handshake has got. `None` draws no bar at all rather than an
+    /// how far the handshake has got. `None` draws no bar at all rather than an
     /// empty one, which would read as stalled.
     #[must_use]
     pub const fn progress(self) -> Option<f32> {
@@ -158,26 +158,26 @@ impl CardState {
     }
 }
 
-/// Everything a card reads, per game. Behaviour and structure never change;
+/// everything a card reads, per game. Behaviour and structure never change;
 /// only these tokens do, which is what lets one card definition dress itself as
 /// three games.
 #[derive(Clone, Copy)]
 pub struct GamePalette {
     pub name: &'static str,
     pub program: &'static str,
-    /// Whether this client can actually take you into the game. Each enabled
+    /// whether this client can actually take you into the game. Each enabled
     /// product has its own recovered protocol and realm presentation.
     pub playable: bool,
-    /// Whether the picker draws this card at all.
+    /// whether the picker draws this card at all.
     ///
     /// A game with nothing behind it yet is hidden rather than shown dark.
     pub shown: bool,
     pub font: &'static str,
-    /// The title is set in the game's own voice: shouted for the two space
+    /// the title is set in the game's own voice: shouted for the two space
     /// games, spoken for the fantasy one. gpui has no small caps, so the
     /// difference is spelled by casing the string itself.
     pub upper: bool,
-    /// The realm's art, as the two paths a host resolver chooses between.
+    /// the realm's art, as the two paths a host resolver chooses between.
     pub art: AssetPaths,
     pub card_fill: u32,
     pub fade: u32,
@@ -190,13 +190,13 @@ pub struct GamePalette {
     pub dim: u32,
     pub sub: u32,
     pub clan: u32,
-    /// The edge a resting card wears, and the fainter one a card with nobody
+    /// the edge a resting card wears, and the fainter one a card with nobody
     /// behind it does. Like every colour the card blends, these are
     /// `0x00RRGGBB`: a transition mixes them channel by channel, so an alpha
     /// byte hiding in one of them would be mixed as if it were blue.
     pub structural: u32,
     pub structural_dim: u32,
-    /// The realm's own accent for quiet status: the CONNECTED beacon, the
+    /// the realm's own accent for quiet status: the CONNECTED beacon, the
     /// destination arrow, and the button's resting ink. A solid green chip on
     /// all three cards was the loudest thing on the page; this is the same
     /// fact said in each card's voice (`Canvas-2` critique, 1).
@@ -204,24 +204,24 @@ pub struct GamePalette {
     /// Reforged's art zone is painted light, not photographed: ember from
     /// below-left, moonlight at the top-right corner (`Canvas-2` critique, 4).
     pub torchlit: bool,
-    /// The identity this game knows you by, which is not the same on all
+    /// the identity this game knows you by, which is not the same on all
     /// three: `StarCraft: Remastered` has no clans to tag you with.
     pub clan_tag: Option<&'static str>,
     pub handle: &'static str,
     pub region: &'static str,
     pub ping: &'static str,
     pub channel: &'static str,
-    /// What the picker says about this game when it is not being walked
+    /// what the picker says about this game when it is not being walked
     /// through its states: where you were last, or who is in there now.
     pub recency: &'static str,
-    /// The state the picker shows this game in. One realm is connected and the
+    /// the state the picker shows this game in. One realm is connected and the
     /// others are not, which is the ordinary case rather than a demonstration.
     pub resting: CardState,
-    /// The protocol stage, named in the game's own words.
+    /// the protocol stage, named in the game's own words.
     pub handshake: &'static str,
-    /// How this game's type and buttons are described in the palette table.
+    /// how this game's type and buttons are described in the palette table.
     pub type_note: &'static str,
-    /// The name the palette table gives this dressing.
+    /// the name the palette table gives this dressing.
     pub dressing: &'static str,
 }
 
@@ -262,7 +262,7 @@ impl GamePalette {
         }
     }
 
-    /// The clan tag the status line opens with, when the state is one that
+    /// the clan tag the status line opens with, when the state is one that
     /// names you at all. It is split out because it takes the game's clan
     /// colour rather than the colour of the line it sits on.
     #[must_use]
@@ -273,7 +273,7 @@ impl GamePalette {
         }
     }
 
-    /// The rest of that line. It says something different in every state, which
+    /// the rest of that line. It says something different in every state, which
     /// is most of what tells the states apart at a glance.
     #[must_use]
     pub fn status(&self, state: CardState) -> String {
@@ -289,7 +289,7 @@ impl GamePalette {
         }
     }
 
-    /// The colour that line takes: the state's own where it has one, and the
+    /// the colour that line takes: the state's own where it has one, and the
     /// game's ordinary body colour where it does not.
     #[must_use]
     pub const fn status_colour(&self, state: CardState) -> u32 {
@@ -302,7 +302,7 @@ impl GamePalette {
         }
     }
 
-    /// The edge the card wears. A lit card takes its focus colour, an
+    /// the edge the card wears. A lit card takes its focus colour, an
     /// unreachable one its error colour, and a card with nobody behind it
     /// recedes further than an idle one.
     #[must_use]
@@ -321,7 +321,7 @@ impl GamePalette {
     }
 }
 
-/// The three games, with the design-time identity the cards are dressed in.
+/// the three games, with the design-time identity the cards are dressed in.
 /// Nothing here is read from a live session — this is the card system's own
 /// fixture, so the six states can be looked at without three accounts and a
 /// broken network.
@@ -441,26 +441,26 @@ pub const GAMES: [GamePalette; 3] = [
     },
 ];
 
-/// What a host's live session says about the game behind a card. A host adapts
+/// what a host's live session says about the game behind a card. A host adapts
 /// its own session shape into this; the renderers read only this, so the card
 /// says what the session says or says nothing.
 #[derive(Clone, Default)]
 pub struct LiveCard {
-    /// Who you are in there — the clan tag and name the roster knows.
+    /// who you are in there — the clan tag and name the roster knows.
     pub clan_tag: Option<String>,
     pub handle: Option<String>,
-    /// Where you are, and how many are there with you.
+    /// where you are, and how many are there with you.
     pub channel: Option<String>,
-    /// The Battle.net region this product's session came in through.
+    /// the Battle.net region this product's session came in through.
     pub region: Option<u32>,
     pub online: Option<usize>,
-    /// What the connection is doing, while it is doing it.
+    /// what the connection is doing, while it is doing it.
     pub progress: Option<String>,
     /// "Step 2 of 4" while the handshake runs.
     pub step: Option<String>,
 }
 
-/// Everything a card renderer needs from the host to draw one card: which state
+/// everything a card renderer needs from the host to draw one card: which state
 /// it rests in, whether the account owns and can play it, whether this is a
 /// live client rather than the design screens, and the live session behind it.
 #[derive(Clone)]
@@ -472,7 +472,7 @@ pub struct CardData {
     pub live: Option<LiveCard>,
 }
 
-/// The region this session came in through, in the words Battle.net uses for
+/// the region this session came in through, in the words Battle.net uses for
 /// them. The ids are the service's own; anything we have no name for is left
 /// unsaid rather than guessed at.
 #[must_use]
@@ -486,7 +486,7 @@ pub fn region_name(region: Option<u32>) -> Option<&'static str> {
     }
 }
 
-/// The card is drawn at three sizes and is otherwise one definition: the hero
+/// the card is drawn at three sizes and is otherwise one definition: the hero
 /// where a single state is being read, the picker where the realms are chosen
 /// between, and the trio where all three palettes are compared at once.
 #[derive(Clone, Copy)]
@@ -501,7 +501,7 @@ pub struct CardSize {
     pub status: f32,
     pub button: f32,
     pub badge: f32,
-    /// The gutter the section keeps at the window's edge, and the gap between
+    /// the gutter the section keeps at the window's edge, and the gap between
     /// cards. Both close up as the window narrows, because a card is worth
     /// more than the air beside it.
     pub section_pad: f32,
@@ -523,14 +523,14 @@ pub const HERO_CARD: CardSize = CardSize {
     gap_between: 32.0,
 };
 
-/// Three abreast, which is what the design draws.
+/// three abreast, which is what the design draws.
 pub const PICKER_WIDE: CardSize = CardSize {
     width: 290.0,
     art: 150.0,
     ..HERO_CARD
 };
 
-/// Narrow enough that three no longer fit: the cards give up some width before
+/// narrow enough that three no longer fit: the cards give up some width before
 /// they give up their row.
 pub const PICKER_MEDIUM: CardSize = CardSize {
     width: 260.0,
@@ -540,7 +540,7 @@ pub const PICKER_MEDIUM: CardSize = CardSize {
     ..HERO_CARD
 };
 
-/// One or two across, with the art shorter so a stacked card still shows its
+/// one or two across, with the art shorter so a stacked card still shows its
 /// face and its lines without scrolling.
 pub const PICKER_NARROW: CardSize = CardSize {
     width: 300.0,
@@ -550,7 +550,7 @@ pub const PICKER_NARROW: CardSize = CardSize {
     ..HERO_CARD
 };
 
-/// The card sizes itself to the window rather than to the design's one
+/// the card sizes itself to the window rather than to the design's one
 /// screenshot: three abreast where there is room, fewer where there is not.
 #[must_use]
 pub fn picker_size(width: f32) -> CardSize {

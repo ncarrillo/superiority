@@ -21,8 +21,6 @@ public interface IChatSession : IDisposable
 
     void Connect();
 
-    void JoinPublic(ushort channelId);
-
     void SendMessage(byte channelIndex, string body);
 
     void SendWhisper(string name, string body);

@@ -16,6 +16,10 @@ pub(in crate::app::client) struct ChannelState {
     pub(in crate::app::client) identities_pending: bool,
     pub(in crate::app::client) roster_filter: String,
     pub(in crate::app::client) unread: bool,
+    /// where the reader left this tab's transcript. each tab keeps its own
+    /// offset, so coming back lands where you were, and the crossfade between
+    /// two tabs draws each at its own position rather than both at one.
+    pub(in crate::app::client) scroll: ScrollHandle,
 }
 
 pub(in crate::app::client) struct ChannelTransitionSnapshot {
@@ -41,6 +45,7 @@ impl ChannelState {
             roster_complete: true,
             roster_filter: String::new(),
             unread: false,
+            scroll: ScrollHandle::new(),
         }
     }
 
@@ -61,6 +66,7 @@ impl ChannelState {
             roster_complete: true,
             roster_filter: String::new(),
             unread: false,
+            scroll: ScrollHandle::new(),
         }
     }
 
@@ -91,6 +97,7 @@ impl ChannelState {
             roster_complete: false,
             roster_filter: String::new(),
             unread: false,
+            scroll: ScrollHandle::new(),
         }
     }
 }

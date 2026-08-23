@@ -1,4 +1,4 @@
-//! Product-neutral channel transition, roster state, and responsive layout.
+//! product-neutral channel transition, roster state, and responsive layout.
 
 use std::{
     borrow::Borrow,

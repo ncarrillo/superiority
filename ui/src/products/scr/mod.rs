@@ -1,4 +1,4 @@
-//! Shared StarCraft: Remastered presentation for desktop and Live.
+//! shared StarCraft: Remastered presentation for desktop and Live.
 
 use std::time::Duration;
 
@@ -13,5 +13,5 @@ pub use model::{
 };
 pub use presenter::{Console, ConsoleHost};
 
-/// How long a freshly landed transcript line takes to reveal itself.
+/// how long a freshly landed transcript line takes to reveal itself.
 pub const CHAT_ENTRY_REVEAL: Duration = Duration::from_millis(350);

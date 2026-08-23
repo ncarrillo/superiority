@@ -118,11 +118,17 @@ impl SuperiorityView {
             return;
         }
         let Some(service) = &self.updates.update_service else {
-            self.show_channel_warning(
-                "Software update",
-                "Automatic updates are available in packaged application builds.",
-                None,
-            );
+            if self.updates.preview_fixture {
+                self.updates.update_dialog_visible = true;
+                self.updates.update_dialog_closing = false;
+                self.updates.update_hide_due = None;
+            } else {
+                self.show_channel_warning(
+                    "Software update",
+                    "Automatic updates are available in packaged application builds.",
+                    None,
+                );
+            }
             cx.notify();
             return;
         };

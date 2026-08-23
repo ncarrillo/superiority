@@ -45,6 +45,7 @@ tools/brand-assets
 *credentials*.bin
 stimpak/csharp/**/bin/
 stimpak/csharp/**/obj/
+stimpak/csharp/artifacts/
 research/.venv
 sunken-server
 scripts/extract-wc3-backgrounds.zsh

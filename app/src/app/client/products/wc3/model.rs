@@ -69,13 +69,13 @@ pub(in crate::app::client) struct Wc3SessionUi {
     pub(in crate::app::client) transcript: ui_wc3_chat::TranscriptState,
     pub(in crate::app::client) roster:
         ui_workspace_pattern::RosterState<String, Wc3Member, Instant, u64>,
-    /// The realm directory advertised by the gateway. `/join` resolves a name
+    /// the realm directory advertised by the gateway. `/join` resolves a name
     /// from this authoritative list; joined rooms then receive stable local
     /// ids from the WC3 session and live independently in `channels`.
     pub(in crate::app::client) public_channels: Vec<String>,
     pub(in crate::app::client) channels: Vec<Wc3ChannelState>,
     pub(in crate::app::client) active_channel: usize,
-    /// The strip's own motion — drag reorder and the long-name marquee —
+    /// the strip's own motion — drag reorder and the long-name marquee —
     /// keyed by channel id, the way StarCraft II's is keyed by tab id.
     pub(in crate::app::client) navigation: ui_workspace::NavigationState<u64, Instant>,
     pub(in crate::app::client) hovered_tab: Option<u64>,
@@ -85,7 +85,7 @@ pub(in crate::app::client) struct Wc3SessionUi {
     pub(in crate::app::client) clan_scroll: ScrollHandle,
 }
 
-/// A tab on its way out: the strip folds it over `TAB_CLOSE_DURATION`, then
+/// a tab on its way out: the strip folds it over `TAB_CLOSE_DURATION`, then
 /// the hall is left.
 pub(in crate::app::client) struct Wc3TabClose {
     pub(in crate::app::client) index: usize,
@@ -154,15 +154,29 @@ impl Wc3SessionUi {
             .selection(&scope)
             .filter(|selected| members.iter().any(|member| member.handle == *selected));
         self.roster.set_selection(scope.clone(), selected);
-        if let Some(current) = self
+        if let Some(index) = self
             .channels
-            .iter_mut()
-            .find(|current| current.id == channel.id)
+            .iter()
+            .position(|current| current.id == channel.id)
         {
-            current.name = channel.name.clone();
+            // only the channel in front is being watched: a change behind
+            // another tab lands without a transition of its own, and must not
+            // cut short one the front channel is running
+            let previous = (index == self.active_channel).then(|| {
+                visible_members_in(&self.channels[index])
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            });
+            let current = &mut self.channels[index];
+            current.name.clone_from(&channel.name);
             current.members = members;
+            if let Some(previous) = previous {
+                self.begin_roster_transition(previous);
+            }
             return;
         }
+        let previous = self.visible_snapshot();
         self.channels.push(Wc3ChannelState {
             id: channel.id,
             name: channel.name.clone(),
@@ -178,6 +192,7 @@ impl Wc3SessionUi {
         self.active_channel = self.channels.len() - 1;
         self.transcript.selection.clear();
         self.transcript.scroll.scroll_to_bottom();
+        self.begin_roster_transition(previous);
     }
 
     pub(in crate::app::client) fn append_event(&mut self, event: &WarcraftChatEvent, time: String) {
@@ -187,6 +202,7 @@ impl Wc3SessionUi {
                 name,
                 member_count,
             } => {
+                let previous = self.visible_snapshot();
                 if let Some(index) = self
                     .channels
                     .iter()
@@ -211,6 +227,7 @@ impl Wc3SessionUi {
                     });
                     self.active_channel = self.channels.len() - 1;
                 }
+                self.begin_roster_transition(previous);
             }
             WarcraftChatEvent::ChannelLeft { channel_id } => {
                 if let Some(index) = self
@@ -276,6 +293,7 @@ impl Wc3SessionUi {
     }
 
     pub(in crate::app::client) fn set_roster_filter(&mut self, filter: String) {
+        let previous = self.visible_snapshot();
         if let Some(channel) = self.active_mut() {
             channel.roster_filter = filter;
         }
@@ -287,6 +305,7 @@ impl Wc3SessionUi {
         }) {
             self.set_selected_member(None);
         }
+        self.begin_roster_transition(previous);
     }
 
     pub(in crate::app::client) fn set_selected_member(&mut self, selected: Option<u64>) {
@@ -310,29 +329,45 @@ impl Wc3SessionUi {
     }
 
     pub(in crate::app::client) fn visible_members(&self) -> Vec<&Wc3Member> {
+        self.active().map(visible_members_in).unwrap_or_default()
+    }
+
+    /// what the roster is showing right now, cloned, so a change can be
+    /// animated from it.
+    fn visible_snapshot(&self) -> Vec<Wc3Member> {
+        self.visible_members().into_iter().cloned().collect()
+    }
+
+    /// animates the roster from `previous` — the rows it showed before a
+    /// change — to what the channel in front shows now: rows that left fold
+    /// away, rows that arrived grow in, and a wholesale change reveals. the
+    /// same mechanics the other two realms' rosters use; until this the
+    /// Reforged list simply snapped.
+    fn begin_roster_transition(&mut self, previous: Vec<Wc3Member>) {
         let Some(channel) = self.active() else {
-            return Vec::new();
+            self.roster.animation = None;
+            return;
         };
-        let mut members = ui_roster_pattern::filtered_refs(
-            &channel.members,
-            &channel.roster_filter,
-            |member, query| {
-                ui_roster_pattern::filter_matches(&member.name, query)
-                    || member
-                        .clan_abbreviation
-                        .as_ref()
-                        .is_some_and(|clan| ui_roster_pattern::filter_matches(clan, query))
-            },
-        );
-        members.sort_by(|left, right| {
-            ui_roster_pattern::present_before_absent(
-                left.absent(),
-                left.visible_name(),
-                right.absent(),
-                right.visible_name(),
-            )
-        });
-        members
+        let scope = roster_scope(channel.id);
+        let next = visible_members_in(channel)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        self.roster
+            .begin_transition(scope, previous, &next, Instant::now(), |member| {
+                member.handle
+            });
+    }
+
+    /// the roster's running transition, if it belongs to the channel in front.
+    pub(in crate::app::client) fn roster_animation(
+        &self,
+        now: Instant,
+    ) -> Option<&ui_roster_pattern::TimedTransition<String, Wc3Member, Instant, u64>> {
+        let channel = self.active()?;
+        self.roster.animation.as_ref().filter(|animation| {
+            animation.scope == roster_scope(channel.id) && animation.is_running(now)
+        })
     }
 
     pub(in crate::app::client) fn active(&self) -> Option<&Wc3ChannelState> {
@@ -351,17 +386,20 @@ impl Wc3SessionUi {
         if index >= self.channels.len() || index == self.active_channel {
             return false;
         }
+        let previous = self.visible_snapshot();
         self.active_channel = index;
         self.channels[index].unread = false;
         self.roster_input
             .set_content(self.channels[index].roster_filter.clone());
         self.transcript.selection.clear();
         self.transcript.scroll.scroll_to_bottom();
+        self.begin_roster_transition(previous);
         true
     }
 
     pub(in crate::app::client) fn remove_channel(&mut self, index: usize) -> Option<u8> {
         let id = self.channels.get(index)?.id;
+        let previous = self.visible_snapshot();
         self.channels.remove(index);
         self.roster.selections.remove(&roster_scope(id));
         if self.channels.is_empty() {
@@ -376,8 +414,34 @@ impl Wc3SessionUi {
         self.roster_input.set_content(filter);
         self.transcript.selection.clear();
         self.transcript.scroll.scroll_to_bottom();
+        self.begin_roster_transition(previous);
         Some(id)
     }
+}
+
+/// the rows one channel shows: its members through its filter, present people
+/// first.
+fn visible_members_in(channel: &Wc3ChannelState) -> Vec<&Wc3Member> {
+    let mut members = ui_roster_pattern::filtered_refs(
+        &channel.members,
+        &channel.roster_filter,
+        |member, query| {
+            ui_roster_pattern::filter_matches(&member.name, query)
+                || member
+                    .clan_abbreviation
+                    .as_ref()
+                    .is_some_and(|clan| ui_roster_pattern::filter_matches(clan, query))
+        },
+    );
+    members.sort_by(|left, right| {
+        ui_roster_pattern::present_before_absent(
+            left.absent(),
+            left.visible_name(),
+            right.absent(),
+            right.visible_name(),
+        )
+    });
+    members
 }
 
 fn roster_scope(channel_id: u8) -> String {

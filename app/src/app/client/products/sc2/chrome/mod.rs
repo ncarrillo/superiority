@@ -25,7 +25,7 @@ pub(in crate::app::client) struct ChromeComponent {
     /// while the first dialog is animating open.
     pub(in crate::app::client) modal_assets_warming: bool,
     pub(in crate::app::client) modal_warmup_started: bool,
-    /// The shared modal shell's baked light, cached per size. Dialogs that
+    /// the shared modal shell's baked light, cached per size. Dialogs that
     /// have moved to the new frame draw from here; the nine-patch assets
     /// above stay until the last legacy dialog does.
     pub(in crate::app::client) modal_textures: ui_shared_modal::ModalTextures,

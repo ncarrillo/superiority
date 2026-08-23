@@ -44,13 +44,13 @@ pub const AURORA_PORT: u16 = 1119;
 const AURORA_PATH: &str = "/";
 const AURORA_SUBPROTOCOL: &str = "jsonrpc.aurora.v1.30.battle.net";
 
-/// The non-secret marker that asks Battle.net for a fresh challenge rather than
+/// the non-secret marker that asks Battle.net for a fresh challenge rather than
 /// replaying a credential. Not a key: it is all zeroes by construction.
 pub const CHALLENGE_BOOTSTRAP_CREDENTIAL: &[u8] = b"US-00000000000000000000000000000000-0000";
 
 const SESSION_KEY_BYTES: usize = 64;
 
-/// What the logon hands back, and what the classic channel replays.
+/// what the logon hands back, and what the classic channel replays.
 #[derive(Debug)]
 pub struct AuroraSession {
     pub session_key: SecretBytes,
@@ -66,7 +66,7 @@ pub struct AuroraSession {
     pub battle_tag: Option<String>,
 }
 
-/// Resolves a Battle.net web sign-in, returning the credential it produced.
+/// resolves a Battle.net web sign-in, returning the credential it produced.
 pub trait ChallengeHandler {
     fn resolve(&mut self, url: &Url) -> Result<SecretBytes>;
 }
@@ -188,7 +188,7 @@ impl AuroraClient {
         }
     }
 
-    /// Signs in and asks where the classic server is.
+    /// signs in and asks where the classic server is.
     ///
     /// `credential` is a cached web credential, or
     /// [`CHALLENGE_BOOTSTRAP_CREDENTIAL`] to ask for a fresh challenge.
@@ -441,7 +441,7 @@ fn parse_endpoint(body: &Value) -> Result<ClassicHandoff> {
     Ok(handoff)
 }
 
-/// Every field in the payload, as number, wire type, and size.
+/// every field in the payload, as number, wire type, and size.
 ///
 /// Only fields 1 and 2 are read. Anything else the response carries is dropped
 /// silently, which is exactly the kind of thing that hides in a payload for
@@ -469,7 +469,7 @@ fn describe(raw: &[u8]) -> String {
         .join(", ")
 }
 
-/// The challenge carries the sign-in URL as base64 text. Only Battle.net's own
+/// the challenge carries the sign-in URL as base64 text. Only Battle.net's own
 /// hosts are accepted: this URL is followed with a browser.
 pub fn decode_web_auth_url(payload: &str) -> Result<Url> {
     let decoded = BASE64

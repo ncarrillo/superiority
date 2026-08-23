@@ -17,10 +17,6 @@ public sealed class SampleSession : IChatSession
     {
     }
 
-    public void JoinPublic(ushort channelId)
-    {
-    }
-
     public void SendMessage(byte channelIndex, string body)
     {
     }
@@ -46,7 +42,7 @@ public sealed class SampleSession : IChatSession
 
     private static IEnumerable<SC2Event> Script()
     {
-        yield return new StageChanged(Stage.Connected);
+        yield return new StageChanged(Stage.ChatBootstrap);
         yield return new PublicChannelsReceived([new PublicChannel(1028, "General")]);
         yield return new Joined(0, new PublicChannel(1028, "General"), 1);
         yield return new RosterReceived(0, true, [
@@ -58,6 +54,7 @@ public sealed class SampleSession : IChatSession
             Person("Zeratul", null, Presence.Available),
             Person("Carlos Perez", null, Presence.Offline),
         ]);
+        yield return new StageChanged(Stage.Connected);
         yield return new MessageReceived(0, Person("MarshalRaynor", null, Presence.InGame),
             "anyone up for a 2v2?");
         yield return new MessageReceived(0, Person("QueenOfBlades", null, Presence.Available),

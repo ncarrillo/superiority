@@ -24,9 +24,9 @@ const PORTRAIT_FACE: f32 = 24.0;
 const ROW_INSET: f32 = 14.0;
 const STATUS_DOT: f32 = 9.0;
 
-/// The count readout sits between the muted rust and the accent.
+/// the count readout sits between the muted rust and the accent.
 const COUNT: u32 = 0x00b0_4a3e;
-/// The panel is a veil over the window art, not a wall.
+/// the panel is a veil over the window art, not a wall.
 const PANEL_VEIL: u32 = 0x0603_02e0;
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;

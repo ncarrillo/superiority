@@ -1,4 +1,4 @@
-//! The Remastered Live view: a read-only [`Console`] host over the product's
+//! the Remastered Live view: a read-only [`Console`] host over the product's
 //! feed. It owns one channel's console, adapts the product routes' DTOs into the
 //! shared presentation models, and polls stream and roster while it is the
 //! focused product.
@@ -69,7 +69,7 @@ impl ScrLiveView {
         view
     }
 
-    /// The shell parks every view but the focused one; a parked view keeps its
+    /// the shell parks every view but the focused one; a parked view keeps its
     /// console and stops polling streams.
     pub(crate) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if self.active != active {
@@ -502,7 +502,7 @@ fn scr_presence(value: &str) -> RosterPresence {
     }
 }
 
-/// A stable console id for a channel key: the numeric public id when the key
+/// a stable console id for a channel key: the numeric public id when the key
 /// carries one, otherwise a hash of the key.
 fn channel_id(key: &str) -> u32 {
     if let Some(rest) = key.strip_prefix("public:")

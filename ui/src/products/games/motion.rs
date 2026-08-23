@@ -1,4 +1,4 @@
-//! The picker's choreography — the entrance, and entering a realm — as pure
+//! the picker's choreography — the entrance, and entering a realm — as pure
 //! motion over an [`AnimationClock`], so the desktop drives it with `Instant`
 //! and the browser with `f64` milliseconds and both play the same sequence.
 
@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::foundation::animation::{AnimationClock, cubic_bezier};
 
-/// The entrance plays once per launch. Its beats, from the motion sheet: the
+/// the entrance plays once per launch. Its beats, from the motion sheet: the
 /// stage blooms and the title settles, then the cards rise left to right, and
 /// the card you can already press lights last.
 const TITLE_AT: Duration = Duration::from_millis(120);
@@ -19,7 +19,7 @@ const CARD_TRAVEL: Duration = Duration::from_millis(700);
 const TITLE_RISE: f32 = 14.0;
 const CARD_RISE: f32 = 28.0;
 
-/// Entering a realm: the unchosen cards lose first, then the chosen one glides
+/// entering a realm: the unchosen cards lose first, then the chosen one glides
 /// to the middle and grows while its nebula floods the stage, and finally it
 /// dissolves into that flood.
 const LOSERS_AT: Duration = Duration::ZERO;
@@ -38,7 +38,7 @@ pub fn settle(fraction: f32) -> f32 {
     cubic_bezier(0.16, 1.0, 0.3, 1.0, fraction)
 }
 
-/// Where a beat that starts at `at` and runs for `over` has got to.
+/// where a beat that starts at `at` and runs for `over` has got to.
 fn beat(elapsed: Duration, at: Duration, over: Duration) -> f32 {
     let Some(since) = elapsed.checked_sub(at) else {
         return 0.0;
@@ -50,11 +50,11 @@ fn beat(elapsed: Duration, at: Duration, over: Duration) -> f32 {
     settle((since.as_secs_f32() / span).clamp(0.0, 1.0))
 }
 
-/// What the picker is in the middle of. Generic over the clock so a host can
+/// what the picker is in the middle of. Generic over the clock so a host can
 /// drive it with whatever time source it has.
 #[derive(Clone, Copy)]
 pub enum Motion<C> {
-    /// Built, but not yet on screen. The entrance is timed from the first frame.
+    /// built, but not yet on screen. The entrance is timed from the first frame.
     Waiting,
     Entrance {
         started: C,
@@ -70,7 +70,7 @@ pub enum Motion<C> {
     },
 }
 
-/// How the stage as a whole is dressed at this instant.
+/// how the stage as a whole is dressed at this instant.
 pub struct StageMotion {
     pub title: f32,
     pub title_rise: f32,
@@ -81,7 +81,7 @@ pub struct StageMotion {
     pub progress: f32,
 }
 
-/// And how one card is.
+/// and how one card is.
 pub struct CardMotion {
     pub opacity: f32,
     pub offset: f32,
@@ -99,7 +99,7 @@ impl<C: AnimationClock> Motion<C> {
         }
     }
 
-    /// Whether anything is still moving.
+    /// whether anything is still moving.
     #[must_use]
     pub fn settled(self, now: C) -> bool {
         match self {
@@ -111,7 +111,7 @@ impl<C: AnimationClock> Motion<C> {
         }
     }
 
-    /// How far into entering a realm this is, for a caller that needs to know
+    /// how far into entering a realm this is, for a caller that needs to know
     /// where to snap back from.
     #[must_use]
     pub fn commitment(self, now: C) -> f32 {
@@ -254,7 +254,7 @@ impl<C: AnimationClock> Motion<C> {
         }
     }
 
-    /// The entrance's per-card beat, the one thing the stage cannot answer for
+    /// the entrance's per-card beat, the one thing the stage cannot answer for
     /// every card at once.
     #[must_use]
     pub fn entrance_card(self, index: usize, now: C, reduced: bool) -> Option<CardMotion> {
@@ -278,7 +278,7 @@ impl<C: AnimationClock> Motion<C> {
     }
 }
 
-/// How long entering a realm takes, end to end.
+/// how long entering a realm takes, end to end.
 #[must_use]
 pub fn entering_length() -> Duration {
     DISSOLVE_AT + ENTER_PROGRESS
@@ -289,7 +289,7 @@ fn entrance_length() -> Duration {
     last_card.max(LIT_AT)
 }
 
-/// Reduced motion keeps every fade and drops every journey.
+/// reduced motion keeps every fade and drops every journey.
 fn travel(distance: f32, reduced: bool) -> f32 {
     if reduced { 0.0 } else { distance }
 }

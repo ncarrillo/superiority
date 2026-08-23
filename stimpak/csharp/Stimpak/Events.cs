@@ -60,6 +60,7 @@ public sealed record Friend(
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type", UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToNearestAncestor)]
 [JsonDerivedType(typeof(StageChanged), "stage")]
 [JsonDerivedType(typeof(AuthenticationRequired), "authentication_required")]
+[JsonDerivedType(typeof(AccountConnected), "account")]
 [JsonDerivedType(typeof(Joined), "joined")]
 [JsonDerivedType(typeof(JoinRejected), "join_rejected")]
 [JsonDerivedType(typeof(Left), "left")]
@@ -73,6 +74,8 @@ public sealed record Friend(
 [JsonDerivedType(typeof(FriendsReceived), "friends")]
 [JsonDerivedType(typeof(GroupInvitation), "group_invitation")]
 [JsonDerivedType(typeof(PartyInvitation), "party_invitation")]
+[JsonDerivedType(typeof(GroupSummaryReceived), "group_summary")]
+[JsonDerivedType(typeof(GroupSearchReceived), "group_search")]
 [JsonDerivedType(typeof(CommandFailed), "command_error")]
 [JsonDerivedType(typeof(SessionFailed), "error")]
 [JsonDerivedType(typeof(UnrecognisedEvent), "other")]
@@ -100,6 +103,16 @@ public sealed record StageChanged(
 public sealed record AuthenticationRequired(
     [property: JsonPropertyName("auth_id")] ulong AuthId,
     [property: JsonPropertyName("url")] string Url) : SC2Event;
+
+public sealed record AccountSummary(
+    [property: JsonPropertyName("account_id")] ulong? AccountId,
+    [property: JsonPropertyName("battle_tag")] string? BattleTag,
+    [property: JsonPropertyName("region")] uint? Region,
+    [property: JsonPropertyName("games")] IReadOnlyList<string>? Games);
+
+/// <summary>the Battle.net account established for this connection.</summary>
+public sealed record AccountConnected(
+    [property: JsonPropertyName("account")] AccountSummary Account) : SC2Event;
 
 public sealed record Joined(
     [property: JsonPropertyName("channel_index")] byte ChannelIndex,
@@ -155,6 +168,19 @@ public sealed record PartyInvitation(
     [property: JsonPropertyName("inviter")] string? Inviter,
     [property: JsonPropertyName("channel_index")] byte ChannelIndex) : SC2Event;
 
+public sealed record GroupSummaryReceived(
+    [property: JsonPropertyName("club_id")] uint ClubId,
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("kind")] byte Kind,
+    [property: JsonPropertyName("category")] byte Category,
+    [property: JsonPropertyName("private")] bool Private,
+    [property: JsonPropertyName("member")] bool Member,
+    [property: JsonPropertyName("member_count")] uint? MemberCount,
+    [property: JsonPropertyName("online")] uint? Online) : SC2Event;
+
+public sealed record GroupSearchReceived(
+    [property: JsonPropertyName("club_ids")] IReadOnlyList<uint> ClubIds) : SC2Event;
+
 public sealed record CommandFailed(
     [property: JsonPropertyName("message")] string Message) : SC2Event;
 
@@ -162,9 +188,21 @@ public sealed record SessionFailed(
     [property: JsonPropertyName("message")] string Message) : SC2Event;
 
 /// <summary>decoded, but with no case in this binding yet. the variant is named
-/// without its payload, which keeps block lists and group names out of it.</summary>
+/// without its payload, which keeps block lists out of it.</summary>
 public sealed record UnrecognisedEvent(
     [property: JsonPropertyName("kind")] string Kind) : SC2Event;
+
+/// <summary>
+/// an event type introduced by a newer native library. Its raw JSON is kept so
+/// a host can log or forward it without losing the event entirely.
+/// </summary>
+public sealed record UnknownEvent(string EventType, string RawJson) : SC2Event;
+
+/// <summary>
+/// native JSON that did not satisfy the managed event schema. This is surfaced
+/// instead of being silently discarded.
+/// </summary>
+public sealed record EventProtocolError(string Detail, string RawJson) : SC2Event;
 
 /// <summary>
 /// the session has finished and this client will report nothing further. the

@@ -1,4 +1,4 @@
-//! Product-owned Live adapters and presentation.
+//! product-owned Live adapters and presentation.
 
 pub(crate) mod sc2;
 pub(crate) mod scr;

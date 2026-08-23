@@ -274,7 +274,7 @@ impl TextInput {
         }
     }
 
-    /// Dresses the input in a host's ink. Idempotent, like
+    /// dresses the input in a host's ink. Idempotent, like
     /// `set_placeholder`: surfaces call it at render.
     pub fn set_ink(&self, ink: FieldInk) {
         *self.ink.borrow_mut() = ink;

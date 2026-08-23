@@ -12,7 +12,7 @@ pub(in crate::app::client) enum Overlay {
 
 pub(in crate::app::client) const MODAL_CLOSE_DURATION: Duration = Duration::from_millis(260);
 
-/// The dressing the shared modal wears in a product's window. A dialog takes
+/// the dressing the shared modal wears in a product's window. A dialog takes
 /// the personality of whichever realm it is opened over — Settings over the
 /// Terran console is a console dialog, not a StarCraft II one that wandered
 /// in.

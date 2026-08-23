@@ -8,6 +8,16 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>Stimpak</RootNamespace>
     <AssemblyName>Stimpak</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>Stimpak</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Nicholas Carrillo</Authors>
+    <Description>StarCraft II Battle.net bot client with a native Rust core and typed .NET events.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ncarrillo/superiority</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>starcraft;starcraft2;battlenet;bot;chat</PackageTags>
   </PropertyGroup>
 
   <!--
@@ -28,13 +38,7 @@
           BeforeTargets="ResolveStimpakNative"
           Condition="'$(StimpakBuildNative)' == 'true'">
     <Exec Command="cargo build --release -p stimpak -p stimpak-auth-window"
-          WorkingDirectory="$(MSBuildThisFileDirectory)../../../"
-          ContinueOnError="true">
-      <Output TaskParameter="ExitCode" PropertyName="StimpakCargoExit" />
-    </Exec>
-    <Message Importance="high"
-             Condition="'$(StimpakCargoExit)' != '0'"
-             Text="cargo build failed or cargo is unavailable; falling back to whatever is already in $(StimpakNativeDir)" />
+          WorkingDirectory="$(MSBuildThisFileDirectory)../../../" />
   </Target>
 
   <Target Name="ResolveStimpakNative" BeforeTargets="AssignTargetPaths">
@@ -58,4 +62,23 @@
              Code="SUP001"
              Text="No native library found in $(StimpakNativeDir). Run 'cargo build --release -p stimpak' from the repository root, or set StimpakNativeDir to a directory that already holds one." />
   </Target>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../include/stimpak.h" Pack="true" PackagePath="build/native/include/" />
+    <None Include="buildTransitive/Stimpak.targets"
+          Pack="true"
+          PackagePath="buildTransitive/Stimpak.targets" />
+    <StimpakPackageNative Include="$(MSBuildThisFileDirectory)../artifacts/runtimes/**/*" />
+    <None Include="@(StimpakPackageNative)"
+          Pack="true"
+          PackagePath="runtimes/" />
+  </ItemGroup>
+
+  <Target Name="ValidateStimpakPackage" BeforeTargets="Pack">
+    <Error Condition="'@(StimpakPackageNative)' == ''"
+           Text="No staged native runtimes found under stimpak/csharp/artifacts/runtimes. See stimpak/README.md." />
+  </Target>
+
+  <Import Project="buildTransitive/Stimpak.targets" />
 </Project>

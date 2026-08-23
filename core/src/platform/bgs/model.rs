@@ -62,7 +62,7 @@ impl fmt::Debug for SecretBytes {
 #[derive(Clone)]
 pub struct LogonSession {
     pub account_id: Option<EntityId>,
-    /// The account's `BattleTag`. This is the only name the logon carries that
+    /// the account's `BattleTag`. This is the only name the logon carries that
     /// is meant to be read: the account service's `name` for a game account is
     /// an internal one — `S22` for a `StarCraft II` account — and no call on
     /// this service hands back a product's display name.
@@ -250,7 +250,7 @@ impl NativeHandoff {
     }
 }
 
-/// The logon a product's own client sends. Which product this is for is the
+/// the logon a product's own client sends. Which product this is for is the
 /// caller's to say — it used to be written in here as `"S2"`, which is why
 /// there was no way to sign in as anything else.
 pub fn default_logon_request(
@@ -327,7 +327,7 @@ pub fn challenge_url(challenge: ChallengeExternalRequest) -> Result<Url> {
 }
 
 #[must_use]
-/// A product record registered beneath an account, as the account service
+/// a product record registered beneath an account, as the account service
 /// names it.
 ///
 /// `program` is the FourCC every part of this protocol keys a product by —
@@ -337,15 +337,15 @@ pub fn challenge_url(challenge: ChallengeExternalRequest) -> Result<Url> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GameProgram {
     pub program: u32,
-    /// The service's own name for it, when it gave one.
+    /// the service's own name for it, when it gave one.
     pub name: Option<String>,
     pub is_trial: bool,
     pub is_restricted: bool,
-    /// How many game accounts sit under it, across every region.
+    /// how many game accounts sit under it, across every region.
     pub accounts: usize,
 }
 
-/// The account inputs Battle.net Desktop evaluates before it adds retail
+/// the account inputs Battle.net Desktop evaluates before it adds retail
 /// products to the library.
 ///
 /// These are deliberately kept separate. A game-account handle says that a
@@ -369,7 +369,7 @@ impl AccountCatalog {
         }
     }
 
-    /// Applies Battle.net Desktop catalog v30's retail-product rules for the
+    /// applies Battle.net Desktop catalog v30's retail-product rules for the
     /// three products Superiority supports.
     ///
     /// Recovered from the signed `starcraft_ii`, `starcraft_remastered`, and
@@ -405,7 +405,7 @@ impl AccountCatalog {
         products
     }
 
-    /// Evaluates the signed catalog at the current time. IGR access remains an
+    /// evaluates the signed catalog at the current time. IGR access remains an
     /// explicit input because it is a separate launcher condition, not a
     /// conclusion that can be drawn from an ordinary account license.
     #[must_use]
@@ -419,7 +419,7 @@ impl AccountCatalog {
 }
 
 impl GameProgram {
-    /// Reads product records out of an account state. Two fields describe them
+    /// reads product records out of an account state. Two fields describe them
     /// and they do not always agree: `game_level_info` carries presentation
     /// flags and names, while `game_accounts` carries login handles.
     ///
@@ -463,7 +463,7 @@ impl GameProgram {
         games
     }
 
-    /// The FourCC as it reads on the wire, for tracing and for matching
+    /// the FourCC as it reads on the wire, for tracing and for matching
     /// against a product code.
     #[must_use]
     pub fn code(&self) -> String {

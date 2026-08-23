@@ -1,4 +1,4 @@
-//! Asking Battle.net where Remastered's classic server is, and being handed a
+//! asking Battle.net where Remastered's classic server is, and being handed a
 //! one-time ticket to reach it.
 //!
 //! This is the same `GameUtilities.ProcessClientRequest` call `StarCraft II`
@@ -29,13 +29,13 @@ use crate::{
 const REQUEST_TYPE: &str = "classic.protocol.v1.aurora.ConnectToServerRequest";
 const RESPONSE_TYPE: &str = "classic.protocol.v1.aurora.ConnectToServerResponse";
 
-/// Where the classic channel is, and the ticket that opens it.
+/// where the classic channel is, and the ticket that opens it.
 #[derive(Clone, Debug)]
 pub struct ClassicHandoff {
     pub url: String,
     pub host: String,
     pub port: u16,
-    /// The route to ask for, which is always [`CLASSIC_RPC_PATH`].
+    /// the route to ask for, which is always [`CLASSIC_RPC_PATH`].
     ///
     /// Whatever path Aurora's URL carries is **metadata, not a route**. It has
     /// named `/v1/rpc/client` and, in the capture this was recovered from,
@@ -45,7 +45,7 @@ pub struct ClassicHandoff {
     /// `/v1/rpc/client` — the edge answered `HTTP/1.0 404 OK` to each.
     pub path: String,
     pub ticket: SecretBytes,
-    /// Every field the `ConnectToServer` payload carried, for the trace. Only
+    /// every field the `ConnectToServer` payload carried, for the trace. Only
     /// two of them are read; this is what the rest were.
     pub shape: String,
 }
@@ -84,7 +84,7 @@ impl ClassicHandoff {
     }
 }
 
-/// The request that asks for a classic server.
+/// the request that asks for a classic server.
 #[must_use]
 pub fn connect_to_server_request() -> ClientRequest {
     let payload = Message::new()

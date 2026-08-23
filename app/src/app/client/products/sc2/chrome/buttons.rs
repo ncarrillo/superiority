@@ -3,7 +3,7 @@ use super::super::*;
 pub(in crate::app::client) const BUTTON_ART_VERTICAL_BLEED: f32 = 6.0;
 
 impl ChromeComponent {
-    /// The nine-patch legacy button. Nothing calls it any more — the modern
+    /// the nine-patch legacy button. Nothing calls it any more — the modern
     /// per-personality button took every seat — but it stays until the modern
     /// one is validated, per the migration plan.
     #[expect(

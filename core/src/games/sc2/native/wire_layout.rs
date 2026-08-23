@@ -362,7 +362,7 @@ pub(super) fn register(codec: &mut Codec) -> Result<()> {
     Ok(())
 }
 
-/// The marked types that reflect no members at all. A layout is a field count
+/// the marked types that reflect no members at all. A layout is a field count
 /// followed by one entry per field, and filler is only ever emitted before a
 /// field, so a type with no fields transmits nothing whatever its order would
 /// have been. These need no recovery from generated code.

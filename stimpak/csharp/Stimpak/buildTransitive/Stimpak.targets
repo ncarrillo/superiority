@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <_StimpakPackageRoot>$(MSBuildThisFileDirectory)../</_StimpakPackageRoot>
+    <_StimpakRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_StimpakRuntimeIdentifier>
+    <_StimpakRuntimeIdentifier Condition="'$(_StimpakRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</_StimpakRuntimeIdentifier>
+  </PropertyGroup>
+
+  <!-- NuGet ZIP entries do not retain Unix executable bits. The helper is
+       copied explicitly because a framework-dependent build may otherwise
+       leave RID-native assets in the global package cache. -->
+  <Target Name="StimpakCopyNativeRuntime"
+          AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup Condition="Exists('$(_StimpakPackageRoot)runtimes')">
+      <_StimpakNative Include="$(_StimpakPackageRoot)runtimes/$(_StimpakRuntimeIdentifier)/native/*" />
+    </ItemGroup>
+    <Error Condition="Exists('$(_StimpakPackageRoot)runtimes') and '@(_StimpakNative)' == ''"
+           Text="The Stimpak package has no native runtime for $(_StimpakRuntimeIdentifier)." />
+    <Copy Condition="'@(_StimpakNative)' != ''"
+          SourceFiles="@(_StimpakNative)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+    <Exec Condition="'$(OS)' != 'Windows_NT' and Exists('$(OutDir)stimpak-auth-window')"
+          Command="/bin/chmod +x &quot;$(OutDir)stimpak-auth-window&quot;" />
+  </Target>
+</Project>

@@ -1,4 +1,4 @@
-//! Product-neutral tab pointer, reorder, and marquee state.
+//! product-neutral tab pointer, reorder, and marquee state.
 
 use std::{collections::HashMap, hash::Hash, time::Duration};
 

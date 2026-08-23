@@ -103,7 +103,7 @@ impl SuperiorityView {
 }
 
 impl SuperiorityView {
-    /// Drains the products that are running but not on screen.
+    /// drains the products that are running but not on screen.
     ///
     /// Every playable product connects, so a session you are not looking at is
     /// still signing in, still joining, still being talked to. Without this its

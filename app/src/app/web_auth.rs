@@ -41,7 +41,7 @@ mod macos {
         0x7A, 0x48, 0xAF, 0x1D, 0x4B, 0x08, 0x4F, 0x37, 0x9F, 0x4F, 0x5D, 0x6E, 0x81, 0x3F, 0xE2,
         0xA4,
     ];
-    /// Give the shared Battle.net SSO store time to complete a redirect before
+    /// give the shared Battle.net SSO store time to complete a redirect before
     /// presenting chrome. A real login still appears; an automatic product
     /// authorization never flashes a window for a page nobody has to read.
     const SILENT_SSO_GRACE_SECONDS: f64 = 1.0;

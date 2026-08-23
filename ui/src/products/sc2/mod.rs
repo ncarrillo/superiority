@@ -1,4 +1,4 @@
-//! Shared StarCraft II presentation for desktop and Live.
+//! shared StarCraft II presentation for desktop and Live.
 
 pub mod assets;
 pub mod components;

@@ -1,4 +1,4 @@
-//! Product-neutral UI primitives.
+//! product-neutral UI primitives.
 
 pub mod animation;
 pub mod assets;

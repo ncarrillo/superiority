@@ -1,10 +1,9 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
-using System.Threading.Channels;
 
 namespace Stimpak;
 
-public sealed class StimpakException(string message) : Exception(message);
+public sealed class StimpakException(string message, Exception? innerException = null)
+    : Exception(message, innerException);
 
 /// <summary>a starcraft ii chat session.</summary>
 /// <remarks>
@@ -27,6 +26,9 @@ public sealed class StimpakException(string message) : Exception(message);
 /// </example>
 public sealed class StimpakClient : IDisposable
 {
+    public const uint SupportedNativeAbi = 1;
+    public const uint SupportedEventSchema = 1;
+
     /// <summary>
     /// how long the pump parks per wait. not a latency budget: an event
     /// arriving mid-wait returns immediately. it only bounds how quickly the
@@ -35,21 +37,18 @@ public sealed class StimpakClient : IDisposable
     private static readonly TimeSpan PumpSlice = TimeSpan.FromMilliseconds(250);
 
     /// <summary>
-    /// how long dispose waits for the pump to leave native code. beyond this
-    /// the pump takes over closing, so a stuck sign-in cannot hold up a host's
-    /// shutdown and cannot be freed out from under either.
+    /// how long dispose waits for the pump to leave native code. Beyond this
+    /// the pump takes over closing, so a stalled native poll cannot hold up a
+    /// host's shutdown and cannot be freed out from under either.
     /// </summary>
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(1);
 
-    private static readonly JsonSerializerOptions Options = new();
-
-    private readonly Channel<SC2Event> _events = Channel.CreateUnbounded<SC2Event>(
-        new UnboundedChannelOptions { SingleWriter = true, SingleReader = false });
-
+    private readonly EventBuffer _events;
     private readonly Thread _pump;
     private IntPtr _handle;
     private volatile bool _stopping;
     private int _closeRequested;
+    private StimpakConnectOptions? _lastConnect;
 
     /// <summary>
     /// raised on the pump thread. handlers must not block; anything slow
@@ -58,9 +57,14 @@ public sealed class StimpakClient : IDisposable
     public event Action<SC2Event>? EventReceived;
 
     /// <summary>
-    /// who this session knows about. owned here because handles are issued by
-    /// one connection and mean nothing in the next, so the registry has to die
-    /// with the session that filled it.
+    /// raised on the pump thread when a full managed stream discards its oldest
+    /// unread event. The argument is the lifetime total.
+    /// </summary>
+    public event Action<long>? EventOverflowed;
+
+    /// <summary>
+    /// who this connection knows about. Handles are issued by one connection
+    /// and mean nothing in the next, so a disconnected stage clears it.
     /// </summary>
     /// <remarks>
     /// it is not fed automatically. call <see cref="PeopleRegistry.Apply"/> as
@@ -75,6 +79,12 @@ public sealed class StimpakClient : IDisposable
 
     public static string NativeVersion =>
         Marshal.PtrToStringUTF8(Native.Version()) ?? "unknown";
+
+    public static uint NativeAbiVersion => Native.AbiVersion();
+
+    public static uint NativeEventSchemaVersion => Native.EventSchemaVersion();
+
+    public long DroppedEventCount => _events.DroppedCount;
 
     /// <summary>
     /// false means sign-in falls to you: handle <see cref="AuthenticationRequired"/>
@@ -93,12 +103,21 @@ public sealed class StimpakClient : IDisposable
     /// library opens and <see cref="AuthenticationRequired"/> never arrives.
     /// </param>
     public StimpakClient(string credentialPath, string? authWindowPath = null)
+        : this(new StimpakClientOptions(credentialPath) { AuthWindowPath = authWindowPath })
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(credentialPath);
-        _handle = Native.Open(credentialPath, authWindowPath);
+    }
+
+    public StimpakClient(StimpakClientOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.CredentialPath);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.EventCapacity, 1);
+        EnsureCompatible();
+        _events = new EventBuffer(options.EventCapacity);
+        _handle = Native.Open(options.CredentialPath, options.AuthWindowPath);
         if (_handle == IntPtr.Zero)
         {
-            throw new StimpakException($"could not open a client against {credentialPath}");
+            throw new StimpakException($"could not open a client against {options.CredentialPath}");
         }
         _pump = new Thread(Pump)
         {
@@ -106,6 +125,29 @@ public sealed class StimpakClient : IDisposable
             IsBackground = true,
         };
         _pump.Start();
+    }
+
+    private static void EnsureCompatible()
+    {
+        uint abi;
+        uint schema;
+        try
+        {
+            abi = Native.AbiVersion();
+            schema = Native.EventSchemaVersion();
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            throw new StimpakException(
+                $"the native Stimpak library is missing or incompatible: {error.Message}", error);
+        }
+        if (abi != SupportedNativeAbi || schema != SupportedEventSchema)
+        {
+            throw new StimpakException(
+                $"native compatibility mismatch: managed ABI/schema " +
+                $"{SupportedNativeAbi}/{SupportedEventSchema}, native {abi}/{schema}");
+        }
     }
 
     private IntPtr Handle =>
@@ -146,27 +188,30 @@ public sealed class StimpakClient : IDisposable
                 continue;
             }
 
-            SC2Event? next;
+            SC2Event next;
             try
             {
                 var json = Marshal.PtrToStringUTF8(raw);
-                next = json is null ? null : JsonSerializer.Deserialize<SC2Event>(json, Options);
-            }
-            catch (JsonException)
-            {
-                next = null;
+                next = json is null
+                    ? new EventProtocolError("native event string was not UTF-8", "")
+                    : EventJson.Deserialize(json);
             }
             finally
             {
                 Native.FreeString(raw);
             }
 
-            if (next is null)
+            if (_events.Publish(next) != 0)
             {
-                continue;
+                try
+                {
+                    EventOverflowed?.Invoke(_events.DroppedCount);
+                }
+                catch (Exception)
+                {
+                    // diagnostics obey the same isolation as event subscribers.
+                }
             }
-
-            _events.Writer.TryWrite(next);
             try
             {
                 EventReceived?.Invoke(next);
@@ -181,7 +226,7 @@ public sealed class StimpakClient : IDisposable
                 break;
             }
         }
-        _events.Writer.TryComplete();
+        _events.Complete();
         // dispose may have given up waiting and left the close to us, because
         // freeing the client while this thread was inside a native call would
         // have been a use-after-free.
@@ -209,10 +254,60 @@ public sealed class StimpakClient : IDisposable
     /// this false so it can start unattended.
     /// </param>
     public void Connect(bool forceInteractive = false) =>
-        Check(Native.Connect(Handle, forceInteractive));
+        Connect(new StimpakConnectOptions { ForceInteractive = forceInteractive });
+
+    /// <summary>
+    /// connects and joins every requested channel before the connected stage.
+    /// Empty <see cref="StimpakConnectOptions.Channels"/> means General.
+    /// </summary>
+    public void Connect(StimpakConnectOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.ExpectedAccountId == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options), "an expected account id must be non-zero");
+        }
+        var channels = options.Channels?.ToArray() ??
+            throw new ArgumentException("channels cannot be null", nameof(options));
+        foreach (var channel in channels)
+        {
+            ArgumentNullException.ThrowIfNull(channel);
+            switch (channel)
+            {
+                case PrivateChannelTarget privateChannel:
+                    ArgumentException.ThrowIfNullOrWhiteSpace(privateChannel.Name);
+                    break;
+                case GroupChannelTarget { ClubId: 0 }:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(options), "a group id must be non-zero");
+            }
+        }
+        var snapshot = options with { Channels = channels };
+        var json = EventJson.SerializeTargets(channels);
+        Check(Native.ConnectConfigured(
+            Handle,
+            snapshot.ForceInteractive,
+            snapshot.ExpectedAccountId ?? 0,
+            json));
+        _lastConnect = snapshot;
+    }
+
+    /// <summary>disconnects and restores the preceding connection's channels.</summary>
+    public void Reconnect(bool forceInteractive = false)
+    {
+        Disconnect();
+        Connect((_lastConnect ?? new StimpakConnectOptions()) with
+        {
+            ForceInteractive = forceInteractive,
+        });
+    }
 
     /// <summary>drops the session; the client can connect again afterwards.</summary>
     public void Disconnect() => Check(Native.Disconnect(Handle));
+
+    /// <summary>disconnects and deletes this client's cached credential.</summary>
+    public void SignOut() => Check(Native.SignOut(Handle));
 
     public void JoinPublic(ushort channelId) => Check(Native.JoinPublic(Handle, channelId));
 
@@ -221,6 +316,18 @@ public sealed class StimpakClient : IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
         Check(Native.JoinPrivate(Handle, name));
+    }
+
+    public void JoinGroup(uint clubId)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(clubId);
+        Check(Native.JoinGroup(Handle, clubId));
+    }
+
+    public void SearchGroups(string query)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        Check(Native.SearchGroups(Handle, query));
     }
 
     /// <summary><paramref name="channelIndex"/> is the one the <see cref="Joined"/> event carried.</summary>
@@ -243,6 +350,9 @@ public sealed class StimpakClient : IDisposable
     public void AnswerGroupInvitation(uint clubId, bool accept) =>
         Check(Native.AnswerGroupInvitation(Handle, clubId, accept));
 
+    public void AnswerPartyInvitation(byte channelIndex, bool accept) =>
+        Check(Native.AnswerPartyInvitation(Handle, channelIndex, accept));
+
     /// <summary>completes an <see cref="AuthenticationRequired"/> sign-in.</summary>
     public void SubmitAuth(ulong authId, string token)
     {
@@ -250,15 +360,17 @@ public sealed class StimpakClient : IDisposable
         Check(Native.SubmitAuth(Handle, authId, token));
     }
 
+    public void CancelAuth(ulong authId) => Check(Native.CancelAuth(Handle, authId));
+
     /// <summary>
-    /// every event as it arrives. suspends rather than blocking, so it costs
-    /// no thread while idle.
+    /// unread roster snapshots for the same channel are coalesced. The stream
+    /// is bounded and suspends rather than blocking while idle.
     /// </summary>
     public IAsyncEnumerable<SC2Event> ReadEventsAsync(CancellationToken cancellation = default) =>
-        _events.Reader.ReadAllAsync(cancellation);
+        _events.ReadAllAsync(cancellation);
 
     /// <summary>for driving the client from an existing loop instead of a consumer.</summary>
-    public bool TryRead(out SC2Event? next) => _events.Reader.TryRead(out next);
+    public bool TryRead(out SC2Event? next) => _events.TryRead(out next);
 
     public void Dispose()
     {
@@ -267,7 +379,7 @@ public sealed class StimpakClient : IDisposable
         {
             return;
         }
-        _events.Writer.TryComplete();
+        _events.Complete();
 
         // disposing from a subscriber runs on the pump itself; joining would
         // wait on this very thread. let the loop unwind and close on its way
@@ -278,8 +390,7 @@ public sealed class StimpakClient : IDisposable
         }
 
         // the client is only freed once the pump is provably out of native
-        // code. a sign-in window can hold it for minutes, and freeing under it
-        // would be a use-after-free — so if the wait expires, the pump closes.
+        // code. If the wait expires, the pump closes after the poll unwinds.
         if (_pump.Join(CloseTimeout))
         {
             CloseHandle();

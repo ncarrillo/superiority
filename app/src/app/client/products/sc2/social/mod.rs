@@ -26,7 +26,7 @@ const SOCIAL_SECTION_HEIGHT: f32 = 26.0;
 const SOCIAL_WHISPER_ROW_HEIGHT: f32 = 44.0;
 const SOCIAL_DIMMED_OPACITY: f32 = 0.45;
 
-/// The shared Social interaction dressed in the focused realm's visual
+/// the shared Social interaction dressed in the focused realm's visual
 /// language. Keeping this palette beside the shared state prevents a product
 /// adapter from accidentally growing a second Social implementation.
 #[derive(Clone, Copy)]

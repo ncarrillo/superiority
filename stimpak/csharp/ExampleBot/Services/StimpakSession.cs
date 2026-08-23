@@ -13,8 +13,6 @@ public sealed class StimpakSession(string credentialPath, string? authWindowPath
 
     public void Connect() => _client.Connect();
 
-    public void JoinPublic(ushort channelId) => _client.JoinPublic(channelId);
-
     public void SendMessage(byte channelIndex, string body) =>
         _client.SendMessage(channelIndex, body);
 

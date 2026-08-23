@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 namespace Stimpak;
 
 /// <summary>
-/// one person, as long as the session lasts.
+/// one channel membership, as long as the connection lasts.
 /// </summary>
 /// <remarks>
 /// presence is state, not something an event carries once. a join names
@@ -16,11 +16,15 @@ namespace Stimpak;
 /// </remarks>
 public sealed class Person : INotifyPropertyChanged
 {
-    internal Person(uint handle)
+    internal Person(byte channelIndex, uint handle)
     {
+        ChannelIndex = channelIndex;
         Handle = handle;
         _name = $"User {handle}";
     }
+
+    /// <summary>the joined channel that owns <see cref="Handle"/>.</summary>
+    public byte ChannelIndex { get; }
 
     /// <summary>identifies this membership within its channel.</summary>
     public uint Handle { get; }

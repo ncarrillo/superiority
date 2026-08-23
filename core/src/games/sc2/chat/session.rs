@@ -1809,7 +1809,7 @@ impl LiveChat {
         Ok(())
     }
 
-    /// Prints the game behind every `lobbyLink(...)` somebody posts, with
+    /// prints the game behind every `lobbyLink(...)` somebody posts, with
     /// `SUPERIORITY_LOBBY_TRACE=1`. The link carries only the advert id; the
     /// server it is on comes from presence, which is the whole point of the
     /// exercise — if these line up, a posted link is a joinable game we can
@@ -2046,7 +2046,7 @@ fn friend_snapshot(
     unique.into_values().collect()
 }
 
-/// The advert ids in `lobbyLink(<id>,<map name>);` tokens. SC2 writes these
+/// the advert ids in `lobbyLink(<id>,<map name>);` tokens. SC2 writes these
 /// with only `m_advertId` — the server label and epoch are dropped — so an id
 /// on its own is a third of an `AdvertHandle`.
 fn lobby_link_advert_ids(body: &str) -> Vec<u32> {

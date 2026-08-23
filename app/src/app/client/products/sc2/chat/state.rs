@@ -1,12 +1,6 @@
 use super::*;
 
 impl SuperiorityView {
-    pub(in crate::app::client) fn chat_follows_bottom(&self) -> bool {
-        let offset = -f32::from(self.session.chat.transcript.scroll.offset().y);
-        let maximum = f32::from(self.session.chat.transcript.scroll.max_offset().y);
-        maximum <= CHAT_BOTTOM_TOLERANCE || (maximum - offset).abs() <= CHAT_BOTTOM_TOLERANCE
-    }
-
     /// append a join or leave, folding it into the previous event when the same
     /// kind landed within the collapse window. merging re-stamps the existing
     /// row so it re-reveals rather than appearing silently.
@@ -211,13 +205,13 @@ impl SuperiorityView {
 
     /// a line that updated in place must not replay its entrance — the counts
     /// change, the row does not re-appear. keep following the bottom, though,
-    /// in case the row grew.
+    /// in case the row grew. a tab that is not open keeps following too: its
+    /// handle holds the request until the tab is next drawn.
     fn keep_following_bottom(&mut self, index: usize) {
-        if index != self.session.channels.active_tab {
-            return;
-        }
-        if self.chat_follows_bottom() {
-            self.session.chat.transcript.scroll.scroll_to_bottom();
+        if let Some(channel) = self.session.channels.tabs.get(index)
+            && follows_bottom(&channel.scroll)
+        {
+            channel.scroll.scroll_to_bottom();
         }
     }
 
@@ -241,7 +235,7 @@ impl SuperiorityView {
             return;
         }
         let active = index == self.session.channels.active_tab;
-        let follows_bottom = active && self.chat_follows_bottom();
+        let follows_bottom = follows_bottom(&self.session.channels.tabs[index].scroll);
         self.session.channels.tabs[index].transcript.push(line);
         if self.session.channels.tabs[index].transcript.len() > 2_000 {
             self.session.channels.tabs[index].transcript.drain(..500);
@@ -255,9 +249,18 @@ impl SuperiorityView {
                     .saturating_sub(1),
                 started: Instant::now(),
             });
-            if follows_bottom {
-                self.session.chat.transcript.scroll.scroll_to_bottom();
-            }
+        }
+        if follows_bottom {
+            self.session.channels.tabs[index].scroll.scroll_to_bottom();
         }
     }
+}
+
+/// whether a transcript is at (or within a few pixels of) its last line. read
+/// from the handle's last layout, so it also answers for a tab that is not on
+/// screen — a fresh tab has no layout yet and counts as following.
+fn follows_bottom(scroll: &ScrollHandle) -> bool {
+    let offset = -f32::from(scroll.offset().y);
+    let maximum = f32::from(scroll.max_offset().y);
+    maximum <= CHAT_BOTTOM_TOLERANCE || (maximum - offset).abs() <= CHAT_BOTTOM_TOLERANCE
 }

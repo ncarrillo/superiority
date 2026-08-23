@@ -8,38 +8,38 @@ pub const FONT_INTERFACE: &str = "BlizzardGlobal";
 /// embedded by both hosts — the game's type, not a host-dependent Palatino.
 pub const FONT_TITLE: &str = "Friz Quadrata TT";
 
-/// The window itself. The stone lives inside a plain OS border.
+/// the window itself. The stone lives inside a plain OS border.
 pub const SHELL: u32 = 0x000b_0805;
-/// The panels' ground: the roster field and the input wells.
+/// the panels' ground: the roster field and the input wells.
 pub const PANEL: u32 = 0x000a_0704;
 
-/// Bronze-gold structure, brightest first: rank-tile and plaque edges, the
+/// bronze-gold structure, brightest first: rank-tile and plaque edges, the
 /// composer's resting border, and the quietest wells.
 pub const STONE_BRIGHT: u32 = 0x008a_6d3b;
 pub const STONE: u32 = 0x005e_4a26;
 pub const STONE_DIM: u32 = 0x003a_2d18;
 
-/// The gold voice, brightest last.
+/// the gold voice, brightest last.
 pub const GOLD: u32 = 0x00e8_c874;
 pub const GOLD_BRIGHT: u32 = 0x00ff_e9a8;
-/// Gold at rest: the popout rows before the pointer finds them.
+/// gold at rest: the popout rows before the pointer finds them.
 pub const GOLD_DIM: u32 = 0x00c8_b088;
 
 pub const PARCHMENT: u32 = 0x00f2_e8d0;
 pub const MUTED: u32 = 0x009c_8a6e;
-/// The hall's own silence: empty-state words.
+/// the hall's own silence: empty-state words.
 pub const QUIET: u32 = 0x0054_462e;
 
-/// Ember, for severing things.
+/// ember, for severing things.
 pub const EMBER: u32 = 0x00c8_8a6a;
 pub const EMBER_BRIGHT: u32 = 0x00ff_d0b0;
 
-/// The presence dot.
+/// the presence dot.
 pub const MOSS: u32 = 0x007c_c46a;
-/// Errors in the transcript.
+/// errors in the transcript.
 pub const BLOOD: u32 = 0x00a6_322b;
 
-/// The titlebar is the channel-tab strip: the same 43px StarCraft II's bar
+/// the titlebar is the channel-tab strip: the same 43px StarCraft II's bar
 /// stands (`Channel Tabs` design), in stone.
 pub const TITLEBAR_HEIGHT: f32 = crate::products::sc2::theme::TAB_BAR_HEIGHT;
 pub const COMPOSER_HEIGHT: f32 = 34.0;

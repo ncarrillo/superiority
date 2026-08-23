@@ -21,7 +21,7 @@ pub const SPEAKER_AVATAR_SIZE: f32 = 16.0;
 pub const SPEAKER_GAP: f32 = 6.0;
 pub const SPEAKER_NUDGE: f32 = 2.0;
 
-/// A transcript's content column. Its minimum height is the viewport height,
+/// a transcript's content column. Its minimum height is the viewport height,
 /// so a short history rests against the composer; once it grows taller it
 /// becomes ordinary top-to-bottom scroll content. Keeping this product-neutral
 /// prevents desktop and Live (and each game skin) from disagreeing about where
@@ -38,7 +38,7 @@ pub fn bottom_anchored_column(content: Vec<AnyElement>) -> Div {
         .children(content)
 }
 
-/// The one transcript viewport used by every product and host. Product
+/// the one transcript viewport used by every product and host. Product
 /// wrappers supply their font and empty-state treatment, while padding,
 /// scrolling, selection termination, scrollbars, row spacing, and bottom
 /// anchoring remain one implementation.
@@ -75,7 +75,7 @@ impl TranscriptViewport {
         self
     }
 
-    /// The realm's scrollbar colours; the product wrapper always sets them.
+    /// the realm's scrollbar colours; the product wrapper always sets them.
     #[must_use]
     pub fn scrollbar_colors(mut self, colors: ScrollbarColors) -> Self {
         self.scrollbar = colors;
@@ -173,7 +173,7 @@ pub fn inline_time(
         .child(text.into())
 }
 
-/// Shared geometry for an ordinary transcript row. The portrait itself and
+/// shared geometry for an ordinary transcript row. The portrait itself and
 /// all colors remain product-owned; their placement does not.
 #[must_use]
 pub fn row_shell(

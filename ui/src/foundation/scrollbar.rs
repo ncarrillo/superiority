@@ -241,7 +241,7 @@ pub trait WithScrollbar: Sized {
         cx: &mut App,
     ) -> Self::Output;
 
-    /// A vertical scrollbar in Superiority's own chrome — for surfaces that
+    /// a vertical scrollbar in Superiority's own chrome — for surfaces that
     /// belong to no realm (the picker, the tool windows). A product surface
     /// uses [`WithScrollbar::vertical_scrollbar_in`] with its realm's colours.
     #[track_caller]
@@ -260,7 +260,7 @@ pub trait WithScrollbar: Sized {
         )
     }
 
-    /// A vertical scrollbar in the caller's colours: every realm's surface
+    /// a vertical scrollbar in the caller's colours: every realm's surface
     /// passes its own, so a scrollbar never wears another realm's chrome.
     #[track_caller]
     fn vertical_scrollbar_in<T: ScrollableHandle>(

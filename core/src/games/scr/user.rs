@@ -1,4 +1,4 @@
-//! Account-wide player status carried on the classic RPC connection.
+//! account-wide player status carried on the classic RPC connection.
 //!
 //! The SDK calls this service `AuroraUser`, but it is not the JSON Aurora
 //! bootstrap socket. Its generated protobuf request is sent beside LegacyChat
@@ -6,7 +6,7 @@
 
 use crate::platform::wire::raw::{self as protobuf, Message};
 
-/// The three values accepted by `AuroraUserV1Impl::SetPlayerStatus`.
+/// the three values accepted by `AuroraUserV1Impl::SetPlayerStatus`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerStatus {
     Online,
@@ -14,7 +14,7 @@ pub enum PlayerStatus {
     Busy,
 }
 
-/// Builds `aurora_user.UpdatePlayerStatusRequest`.
+/// builds `aurora_user.UpdatePlayerStatusRequest`.
 ///
 /// The SDK maps its public status values 0, 1, and 2 to three mutually
 /// exclusive booleans. It explicitly marks all three fields present, including
@@ -33,7 +33,7 @@ pub fn update_player_status_request(status: PlayerStatus) -> Vec<u8> {
         .into_vec()
 }
 
-/// Decodes the same message when it arrives in `PlayerStatusUpdated`.
+/// decodes the same message when it arrives in `PlayerStatusUpdated`.
 #[must_use]
 pub fn parse_player_status(body: &[u8]) -> Option<PlayerStatus> {
     let online = protobuf::first_varint(body, 1).is_some_and(|value| value != 0);

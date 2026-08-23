@@ -3,7 +3,10 @@
 // response carrying the original token. every wait here drains and
 // acknowledges callbacks while watching for the response it wants.
 
-use std::time::{Duration, Instant};
+use std::{
+    io,
+    time::{Duration, Instant},
+};
 
 use rand::RngCore as _;
 
@@ -93,7 +96,7 @@ pub struct ClassicClient {
 }
 
 impl ClassicClient {
-    /// Opens the channel the game service named. The handoff carries the
+    /// opens the channel the game service named. The handoff carries the
     /// server, the route, and the ticket — none of it is known before the
     /// account layer asks.
     pub fn connect(handoff: &ClassicHandoff, timeout: Duration) -> Result<Self> {
@@ -228,15 +231,31 @@ impl ClassicClient {
         self.socket.send_raw(&rpc)
     }
 
+    /// one frame, waiting as long as `deadline` allows. the socket's own read
+    /// timeout is the live poll interval — far shorter than the patience an
+    /// answer deserves — so a quiet read before the deadline is waited out
+    /// rather than reported. at the deadline this is an ordinary read timeout,
+    /// which every caller already treats as "nothing arrived": reporting it as
+    /// a protocol error let a response that strayed into the next poll take
+    /// the whole session down.
     fn receive(&mut self, deadline: Instant) -> Result<Frame> {
-        if Instant::now() >= deadline {
-            return Err(classic_error(
-                "timed out waiting for a Battle.net RPC response",
-            ));
+        loop {
+            if Instant::now() >= deadline {
+                return Err(Error::Io(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "timed out waiting for a Battle.net RPC response",
+                )));
+            }
+            match self.socket.receive_raw() {
+                Ok(raw) => {
+                    let frame = Frame::decode(&raw)?;
+                    trace_rpc("<-", &frame.header, frame.body.len());
+                    return Ok(frame);
+                }
+                Err(error) if is_quiet_read(&error) => {}
+                Err(error) => return Err(error),
+            }
         }
-        let frame = Frame::decode(&self.socket.receive_raw()?)?;
-        trace_rpc("<-", &frame.header, frame.body.len());
-        Ok(frame)
     }
 
     pub fn close(&mut self) -> Result<()> {
@@ -257,8 +276,13 @@ fn trace_rpc(direction: &str, header: &Header, body_len: usize) {
     );
 }
 
-fn classic_error(message: impl Into<String>) -> Error {
-    Error::ClassicWire(message.into())
+/// a read that ended because nothing arrived within the socket's timeout.
+pub(crate) fn is_quiet_read(error: &Error) -> bool {
+    let kind = match error {
+        Error::Io(error) | Error::WebSocket(tungstenite::Error::Io(error)) => error.kind(),
+        _ => return false,
+    };
+    matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
 #[cfg(test)]

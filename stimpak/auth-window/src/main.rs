@@ -19,7 +19,9 @@ use tao::{
     window::WindowBuilder,
 };
 use url::Url;
-use wry::{WebViewBuilder, WebViewBuilderExtDarwin as _};
+use wry::WebViewBuilder;
+#[cfg(target_os = "macos")]
+use wry::WebViewBuilderExtDarwin as _;
 
 /// its own cookie jar, distinct from the app's and from every other webview on
 /// the machine. a supporting crate must not sign someone in off a session it

@@ -384,25 +384,29 @@ impl ChatComponent {
         )
     }
 
+    /// one channel's transcript, scrolled to wherever that channel's own
+    /// handle says. `current` is the live layer; the other is the outgoing
+    /// side of a tab crossfade, which draws at its own offset too — with one
+    /// shared handle both layers jumped to the same place mid-fade.
     pub(in crate::app::client) fn transcript_view(
         &self,
         channel: Option<&ChannelState>,
-        scrollable: bool,
+        current: bool,
         reveal: Option<&ChatEntryReveal>,
         chrome: &TranscriptChrome<'_>,
         cx: &mut Context<SuperiorityView>,
     ) -> ui_chat::TranscriptViewport {
         let now = Instant::now();
         let mut transcript = ui_chat::TranscriptViewport::new(
-            if scrollable {
+            if current {
                 "chat-transcript-scroll"
             } else {
                 "chat-transcript-transition"
             },
             self.transcript.selection.clone(),
         );
-        if scrollable {
-            transcript = transcript.scroll(&self.transcript.scroll);
+        if let Some(channel) = channel {
+            transcript = transcript.scroll(&channel.scroll);
         }
         if let Some(channel) = channel {
             let context = LineContext {

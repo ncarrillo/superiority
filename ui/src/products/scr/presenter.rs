@@ -1,4 +1,4 @@
-//! The Remastered console's presentation state, policy, and assembly.
+//! the Remastered console's presentation state, policy, and assembly.
 //!
 //! What a host had to write for itself before this existed: the transcript's
 //! reveal and copy, the member list's filtering, ordering, selection,
@@ -30,7 +30,7 @@ use crate::{
     },
 };
 
-/// One transcript line revealing itself as it lands.
+/// one transcript line revealing itself as it lands.
 #[derive(Clone, Copy)]
 struct Reveal<C> {
     channel_id: u32,
@@ -38,7 +38,7 @@ struct Reveal<C> {
     started: C,
 }
 
-/// The channel the console is in.
+/// the channel the console is in.
 struct ConsoleChannel {
     id: u32,
     title: String,
@@ -47,11 +47,11 @@ struct ConsoleChannel {
     filter: String,
 }
 
-/// The transcript history bound; older lines fall off the top.
+/// the transcript history bound; older lines fall off the top.
 const MAX_TRANSCRIPT_LINES: usize = 2_000;
 const TRANSCRIPT_DRAIN: usize = 500;
 
-/// The Remastered console's whole presentation, minus the composer and window
+/// the Remastered console's whole presentation, minus the composer and window
 /// chrome, which stay with the host.
 pub struct Console<C: AnimationClock> {
     channel: Option<ConsoleChannel>,
@@ -115,7 +115,7 @@ impl<C: AnimationClock> Console<C> {
         self.roster.focused = focused;
     }
 
-    /// A clone of the shared transcript selection, for the host's copy keystroke.
+    /// a clone of the shared transcript selection, for the host's copy keystroke.
     #[must_use]
     pub fn transcript_selection(&self) -> TranscriptSelection {
         self.transcript.selection.clone()
@@ -125,7 +125,7 @@ impl<C: AnimationClock> Console<C> {
         self.transcript.selection.clear();
     }
 
-    /// The transcript lines as `(row, text)`, for the copy keystroke.
+    /// the transcript lines as `(row, text)`, for the copy keystroke.
     #[must_use]
     pub fn transcript_rows_text(&self) -> Vec<(usize, String)> {
         self.channel
@@ -141,7 +141,7 @@ impl<C: AnimationClock> Console<C> {
             .unwrap_or_default()
     }
 
-    /// Resets to no channel — a fresh sign-in, a sign-out, or an account switch.
+    /// resets to no channel — a fresh sign-in, a sign-out, or an account switch.
     pub fn clear(&mut self) {
         self.roster.clear_interaction();
         self.roster.selections.clear();
@@ -150,7 +150,7 @@ impl<C: AnimationClock> Console<C> {
         self.channel = None;
     }
 
-    /// Installs the channel's title and membership, animating the roster if it
+    /// installs the channel's title and membership, animating the roster if it
     /// is the same channel and resetting the view if it is a new one. Members
     /// arrive already resolved into [`RosterUser`]s by the host's adapter.
     /// `session_time` seeds the "you joined" line when the channel is new.
@@ -214,7 +214,7 @@ impl<C: AnimationClock> Console<C> {
         });
     }
 
-    /// Appends one transcript line, revealing it and following the bottom when
+    /// appends one transcript line, revealing it and following the bottom when
     /// the reader is already there.
     pub fn append_line(&mut self, line: TranscriptLine, now: C) {
         let follows_bottom = self.transcript_follows_bottom();
@@ -262,7 +262,7 @@ impl<C: AnimationClock> Console<C> {
         self.roster.set_selection(id, selected);
     }
 
-    /// Narrows the roster, animating the change and dropping a hidden selection.
+    /// narrows the roster, animating the change and dropping a hidden selection.
     pub fn set_filter(&mut self, next: String, now: C) {
         let Some(channel) = self.channel.as_ref() else {
             return;
@@ -285,7 +285,7 @@ impl<C: AnimationClock> Console<C> {
             .begin_transition(id, previous, &next_members, now, |member| member.handle);
     }
 
-    /// The membership after the filter, present-first then away, alphabetical
+    /// the membership after the filter, present-first then away, alphabetical
     /// within each — the order the list draws.
     #[must_use]
     pub fn visible_members(&self) -> Vec<RosterUser> {
@@ -380,7 +380,7 @@ impl<C: AnimationClock> Console<C> {
         self.roster.finish_transition(now);
     }
 
-    /// The transcript, with each line's reveal opacity applied. No host
+    /// the transcript, with each line's reveal opacity applied. No host
     /// interaction rides on the transcript — selection is carried by the shared
     /// handle inside the rows — so this needs nothing from the host.
     #[must_use]
@@ -416,7 +416,7 @@ impl<C: AnimationClock> Console<C> {
         transcript
     }
 
-    /// The whole member-list panel, wired to the host. The one place a
+    /// the whole member-list panel, wired to the host. The one place a
     /// [`ConsoleHost`] is required, because every row and the header carry a
     /// callback that mutates the host.
     #[must_use]
@@ -571,7 +571,7 @@ impl<C: AnimationClock> Console<C> {
     }
 }
 
-/// One selectable member row wired to the host.
+/// one selectable member row wired to the host.
 fn roster_row<C: AnimationClock, H: ConsoleHost<C>>(
     member: &RosterUser,
     selected: bool,
@@ -595,17 +595,17 @@ fn roster_row<C: AnimationClock, H: ConsoleHost<C>>(
     }))
 }
 
-/// What the console needs from whichever host is drawing it: a way to reach the
+/// what the console needs from whichever host is drawing it: a way to reach the
 /// console for a callback, and the focus transitions that are the host's own
 /// (the composer it sits beside, or the absence of one, is the host's).
 pub trait ConsoleHost<C: AnimationClock>: Render + Sized {
     fn scr_console(&self) -> Option<&Console<C>>;
     fn scr_console_mut(&mut self) -> Option<&mut Console<C>>;
-    /// Give the roster focus. A host with a composer also parks it.
+    /// give the roster focus. A host with a composer also parks it.
     fn scr_focus_roster(&mut self, window: &mut Window, cx: &mut Context<Self>);
-    /// Pointer entered or left the roster; the host decides whether to take
+    /// pointer entered or left the roster; the host decides whether to take
     /// focus, since only it knows if a dialog is up.
     fn scr_roster_pointer(&mut self, hovered: bool, window: &mut Window, cx: &mut Context<Self>);
-    /// Clear the roster filter (and the input backing it, if the host has one).
+    /// clear the roster filter (and the input backing it, if the host has one).
     fn scr_clear_roster_filter(&mut self, cx: &mut Context<Self>);
 }

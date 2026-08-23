@@ -1,4 +1,4 @@
-//! The settings dialog in the focused realm's own language.
+//! the settings dialog in the focused realm's own language.
 //!
 //! The shell, title, buttons, and checkboxes already dress per product; this
 //! is everything inside the plate — fonts, the ink ramp, the page rail, the
@@ -9,28 +9,28 @@
 
 use super::*;
 
-/// How a glow is cast around a focused or chosen thing: the realm's light at
+/// how a glow is cast around a focused or chosen thing: the realm's light at
 /// the given alpha.
 fn glow(colour: u32, blur: f32) -> Vec<gpui::BoxShadow> {
     vec![gpui::BoxShadow::new(px(0.0), px(0.0), rgba(colour).into()).blur_radius(px(blur))]
 }
 
-/// The dialog's dressing for one realm. Colours are `0xRRGGBB` unless the
+/// the dialog's dressing for one realm. Colours are `0xRRGGBB` unless the
 /// name says `_fill`/`_edge`/`_wash`, which are `0xRRGGBBAA`.
 #[derive(Clone, Copy)]
 pub(in crate::app::client) struct SettingsSkin {
     pub(in crate::app::client) variant: ui_shared_modal::ModalVariant,
-    /// Body and labels.
+    /// body and labels.
     pub(in crate::app::client) interface_font: &'static str,
-    /// Page headings ("Appearance", "Chat", "Live").
+    /// page headings ("Appearance", "Chat", "Live").
     pub(in crate::app::client) heading_font: &'static str,
-    /// The page rail's words.
+    /// the page rail's words.
     pub(in crate::app::client) nav_font: &'static str,
-    /// The tooltip's words.
+    /// the tooltip's words.
     pub(in crate::app::client) tooltip_font: &'static str,
     pub(in crate::app::client) text: u32,
     pub(in crate::app::client) muted: u32,
-    /// The option labels beside checkboxes and the section captions.
+    /// the option labels beside checkboxes and the section captions.
     pub(in crate::app::client) label: u32,
     pub(in crate::app::client) link: u32,
     pub(in crate::app::client) link_lit: u32,
@@ -50,7 +50,7 @@ pub(in crate::app::client) struct SettingsSkin {
     pub(in crate::app::client) tooltip_edge: u32,
     pub(in crate::app::client) tooltip_title: u32,
     pub(in crate::app::client) tooltip_detail: u32,
-    /// The light behind a focused rail item and a chosen tile.
+    /// the light behind a focused rail item and a chosen tile.
     pub(in crate::app::client) focus_wash: u32,
     pub(in crate::app::client) selection_wash: u32,
 }
@@ -155,12 +155,12 @@ impl SettingsSkin {
         }
     }
 
-    /// The glow behind the chosen rail item.
+    /// the glow behind the chosen rail item.
     pub(in crate::app::client) fn focus_glow(&self) -> Vec<gpui::BoxShadow> {
         glow(self.focus_wash, 14.0)
     }
 
-    /// The glow behind the chosen background tile.
+    /// the glow behind the chosen background tile.
     pub(in crate::app::client) fn selection_glow(&self) -> Vec<gpui::BoxShadow> {
         glow(self.selection_wash, 16.0)
     }

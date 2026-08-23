@@ -1,7 +1,7 @@
 use super::*;
 
 impl SettingsComponent {
-    /// The blocked-account list. Not reachable: a list of people is not a
+    /// the blocked-account list. Not reachable: a list of people is not a
     /// setting, so the sidebar no longer offers it and it is moving to the
     /// social pane. Kept compiled — and so kept honest against the roster and
     /// chrome APIs it draws with — so that move is a move rather than a

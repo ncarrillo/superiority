@@ -272,7 +272,7 @@ pub(in crate::app::client) fn unknown_command_notice(word: &str) -> String {
     format!("/{word} is not a command. The commands are /join, /w, and /p.")
 }
 
-/// What the transcript says when you address a party you are not in. The field
+/// what the transcript says when you address a party you are not in. The field
 /// only wears the party scope while there is a party behind it.
 pub(in crate::app::client) fn no_party_notice() -> String {
     "You are not in a party.".to_owned()

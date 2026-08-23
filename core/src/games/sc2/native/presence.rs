@@ -24,7 +24,7 @@ pub const FIELD_AWAY: u32 = 0x10020;
 pub const FIELD_AWAY_FALLBACK: u32 = 0x10010;
 pub const FIELD_BUSY: u32 = 0x10022;
 pub const FIELD_BUSY_FALLBACK: u32 = 0x10011;
-/// The `PresenceFieldSpec` type that carries an account id, from a capture of
+/// the `PresenceFieldSpec` type that carries an account id, from a capture of
 /// field `0x10015`. Note this is *not* the `Battlenet::Presence::FieldVal`
 /// choice tag, where 21 is `s2GameInfoval` — the spec's type byte and the
 /// value's choice tag are separate enumerations, and only the latter matches
@@ -373,7 +373,7 @@ impl PresenceDirectory {
             .unwrap_or(presence_id)
     }
 
-    /// Every advert handle presence is showing, one per person in a joinable
+    /// every advert handle presence is showing, one per person in a joinable
     /// game.
     ///
     /// A value that reads more than one way is settled by the company it keeps:
@@ -412,7 +412,7 @@ impl PresenceDirectory {
         adverts
     }
 
-    /// The game server everybody visible is playing on, when they agree on
+    /// the game server everybody visible is playing on, when they agree on
     /// one — the two thirds of an `AdvertHandle` a chat link throws away.
     ///
     /// Walks every presence and bit-decodes each game info value, so sample it
@@ -425,7 +425,7 @@ impl PresenceDirectory {
             .map(|(server, _)| server)
     }
 
-    /// Completes an advert id lifted out of a `lobbyLink(...)` in chat.
+    /// completes an advert id lifted out of a `lobbyLink(...)` in chat.
     ///
     /// The link carries only `m_advertId`; the server label and epoch are
     /// dropped when it is written, so they are borrowed from a handle we have
@@ -579,7 +579,7 @@ fn decode_toon_handle(value: &[u8]) -> Option<ToonHandle> {
     })
 }
 
-/// The one field whose wire layout is inferred rather than captured, so it
+/// the one field whose wire layout is inferred rather than captured, so it
 /// prints itself the first time anybody is seen in a game. Enable with
 /// `SUPERIORITY_PRESENCE_TRACE=1`; the hex is what confirms — or corrects —
 /// [`decode_game_advert`].
@@ -615,7 +615,7 @@ fn trace_game_info(presence_id: u32, bytes: &[u8]) {
     );
 }
 
-/// The advert out of a `S2GameInfo` presence value.
+/// the advert out of a `S2GameInfo` presence value.
 ///
 /// `S2GameInfo` is `{m_shortLink, m_advert}` bit-packed, and the short link in
 /// front is variable length — 109 bits in the shortest captures, 177 in the
@@ -665,7 +665,7 @@ pub fn game_advert_candidates(value: &[u8]) -> Vec<AdvertHandle> {
         .collect()
 }
 
-/// The advert a value carries, settled against the servers other presences are
+/// the advert a value carries, settled against the servers other presences are
 /// known to be on. A value that reads several ways is common — roughly half of
 /// them — and the reading that names a server somebody else is unambiguously
 /// on is the real one; the rest name servers nobody is on.
@@ -692,7 +692,7 @@ pub fn resolve_advert(
         .map(|(_, advert)| advert)
 }
 
-/// The advert when the value only reads one way, for a blob with no other
+/// the advert when the value only reads one way, for a blob with no other
 /// presences to settle it against.
 #[must_use]
 pub fn decode_game_advert(value: &[u8]) -> Option<AdvertHandle> {
@@ -758,7 +758,7 @@ mod tests {
         "471985cd32010196c701010030c018ab3bf9a911342101775b32",
     ];
 
-    /// A second, larger capture off the same session. Half of these read more
+    /// a second, larger capture off the same session. Half of these read more
     /// than one way on their own, which is what [`resolve_advert`] is for.
     const CAPTURED_GAME_INFO_BUSY: &[&str] = &[
         "411985cd32010196c70101003020",
@@ -830,7 +830,7 @@ mod tests {
             .collect()
     }
 
-    /// One presence per captured value. Each carries a distinct profile as
+    /// one presence per captured value. Each carries a distinct profile as
     /// well, because presences with no identity at all fold into each other.
     fn directory_of(values: &[Vec<u8>]) -> PresenceDirectory {
         let mut directory = PresenceDirectory::default();

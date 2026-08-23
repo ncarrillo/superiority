@@ -135,10 +135,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
                     Stimpak.Stage.Disconnected => DangerBrush,
                     _ => NoticeBrush,
                 };
-                if (stage.Stage == Stimpak.Stage.Connected)
-                {
-                    _session.JoinPublic(StimpakClient.DefaultPublicChannel);
-                }
                 break;
 
             case AuthenticationRequired auth:
@@ -173,12 +169,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
             case MemberJoined member:
                 Recount();
-                Note($"{_session.People.Get(member.User.Handle).Name} joined", OnlineBrush);
+                Note($"{_session.People.Get(member.ChannelIndex, member.User.Handle).Name} joined", OnlineBrush);
                 break;
 
             case MemberLeft member:
                 Recount();
-                Note($"{_session.People.Get(member.User.Handle).Name} left");
+                Note($"{_session.People.Get(member.ChannelIndex, member.User.Handle).Name} left");
                 break;
 
             case MessageReceived message:

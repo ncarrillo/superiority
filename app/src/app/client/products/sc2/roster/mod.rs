@@ -24,7 +24,7 @@ pub(in crate::app::client) struct RosterComponent {
     pub(in crate::app::client) roster_batch_started: Option<Instant>,
     pub(in crate::app::client) roster_flush_at: Option<Instant>,
     pub(in crate::app::client) roster_debounce_window: Duration,
-    /// This product's avatars. Per-session on purpose: the registry is keyed by
+    /// this product's avatars. Per-session on purpose: the registry is keyed by
     /// `ImageTableEntry`, which is `StarCraft II`'s own wire type, and holds
     /// seventeen of `StarCraft II`'s atlases. Another product has a different
     /// avatar model — Remastered resolves its avatars through ToonProfile and

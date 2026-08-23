@@ -1,4 +1,4 @@
-//! The resolved look of a card mid-transition. A [`CardLook`] is every number
+//! the resolved look of a card mid-transition. A [`CardLook`] is every number
 //! the renderer paints already worked out, so the view decides nothing. It is
 //! generic over [`AnimationClock`] so the desktop drives it with `Instant` and
 //! the browser with `f64` milliseconds.
@@ -11,7 +11,7 @@ use crate::foundation::animation::AnimationClock;
 
 use super::model::{CardState, GamePalette};
 
-/// The doc gives every property its own clock: the border settles in 600ms
+/// the doc gives every property its own clock: the border settles in 600ms
 /// while the art is still travelling for 1400, and the handshake bar crawls for
 /// two full seconds. Keeping them apart is most of what makes a state change
 /// read as one thing moving rather than six things snapping.
@@ -21,11 +21,11 @@ const ART_TRAVEL: Duration = Duration::from_millis(1400);
 const MARK: Duration = Duration::from_millis(600);
 const BEAM: Duration = Duration::from_millis(400);
 const HANDSHAKE: Duration = Duration::from_millis(2000);
-/// The room behind the picker takes its time, because it is the biggest thing
+/// the room behind the picker takes its time, because it is the biggest thing
 /// on screen and the pointer only brushed a card.
 pub const ROOM: Duration = Duration::from_millis(700);
 
-/// A card for a game the account does not have is not in a state — it is out of
+/// a card for a game the account does not have is not in a state — it is out of
 /// play. The design's empty state was drawn for somebody who has the game and
 /// no profile on it, so on its own it still reads as an offer: colour in the
 /// bevel, a card at three quarters, art you can make out. These take it the
@@ -34,7 +34,7 @@ const OUT_OF_PLAY_CARD: f32 = 0.4;
 const OUT_OF_PLAY_ART: f32 = 0.18;
 const OUT_OF_PLAY_BUTTON: f32 = 0.35;
 
-/// How far a transition of `duration` has got since it started, eased the way
+/// how far a transition of `duration` has got since it started, eased the way
 /// the doc eases everything.
 #[must_use]
 pub fn eased<C: AnimationClock>(since: C, duration: Duration, now: C) -> f32 {
@@ -50,7 +50,7 @@ fn lerp(from: f32, to: f32, blend: f32) -> f32 {
     to.mul_add(blend, from * (1.0 - blend))
 }
 
-/// Colours cross over channel by channel. They are `0x00RRGGBB` here, which is
+/// colours cross over channel by channel. They are `0x00RRGGBB` here, which is
 /// what `rgb` reads, so the alpha byte is nobody's business.
 fn mix(from: u32, to: u32, blend: f32) -> u32 {
     let channel = |shift: u32| {
@@ -68,7 +68,7 @@ fn mix(from: u32, to: u32, blend: f32) -> u32 {
     channel(16) | channel(8) | channel(0)
 }
 
-/// A card mid-transition: every number already resolved, so the view paints
+/// a card mid-transition: every number already resolved, so the view paints
 /// what it is given rather than deciding anything.
 pub struct CardLook {
     pub border: u32,
@@ -94,7 +94,7 @@ pub struct CardLook {
 }
 
 impl CardLook {
-    /// Takes a resolved card out of play: everything dimmer than any state can
+    /// takes a resolved card out of play: everything dimmer than any state can
     /// be, no colour left anywhere, and the art barely there. Nothing about a
     /// card in this condition should look like it is waiting to be pressed.
     /// Drops everything the palette made up.
@@ -127,7 +127,7 @@ impl CardLook {
         self.return_key = 0.0;
     }
 
-    /// Resolves the card between the state it was in and the state it is going
+    /// resolves the card between the state it was in and the state it is going
     /// to. At the start it is exactly the old state and at the end exactly the
     /// new one, which is what keeps a transition from inventing a look of its
     /// own.

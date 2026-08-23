@@ -13,7 +13,13 @@
 use std::{
     io::Write as _,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Output, Stdio},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver},
+    },
+    thread,
+    time::Duration,
 };
 
 const HELPER: &str = if cfg!(windows) {
@@ -22,11 +28,13 @@ const HELPER: &str = if cfg!(windows) {
     "stimpak-auth-window"
 };
 
-#[derive(Clone, Debug, Default)]
 pub struct AuthWindow {
     /// resolved once at construction: this is a filesystem probe, and a host
     /// asking repeatedly whether sign-in is available should not pay for it.
     helper: Option<PathBuf>,
+    /// the child stays reachable while its watcher waits, so disconnect, sign
+    /// out, and disposal can stop it instead of leaving a login window behind.
+    child: Arc<Mutex<Option<Child>>>,
 }
 
 impl AuthWindow {
@@ -35,6 +43,7 @@ impl AuthWindow {
             helper: Self::candidates(explicit)
                 .into_iter()
                 .find(|path| path.is_file()),
+            child: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -60,39 +69,136 @@ impl AuthWindow {
         candidates
     }
 
-    /// runs the window and waits for it. `Ok(None)` means the person closed it
-    /// without finishing.
+    /// starts the window and returns its eventual result without parking the
+    /// client's polling thread. `Ok(None)` means the person closed it without
+    /// finishing.
     /// the url goes over stdin, not argv: argv is readable by any local user
     /// through `ps`, and a battle.net sign-in url is not something to publish
     /// to everyone on the machine.
-    pub fn present(helper: &Path, url: &str) -> Result<Option<String>, String> {
+    pub fn present(
+        &self,
+        helper: &Path,
+        url: &str,
+    ) -> Result<Receiver<Result<Option<String>, String>>, String> {
+        self.cancel();
         let mut child = Command::new(helper)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", helper.display()))?;
-        child
+        let handoff = child
             .stdin
             .take()
-            .ok_or_else(|| "sign-in window has no stdin".to_owned())?
-            .write_all(url.as_bytes())
-            .map_err(|error| format!("could not hand over the sign-in url: {error}"))?;
-        let output = child
-            .wait_with_output()
-            .map_err(|error| format!("sign-in window failed: {error}"))?;
-        if !output.status.success() {
-            let detail = String::from_utf8_lossy(&output.stderr);
-            let detail = detail.trim();
-            return if detail.is_empty() {
-                Ok(None)
-            } else {
-                Err(detail.to_owned())
-            };
+            .ok_or_else(|| "sign-in window has no stdin".to_owned())
+            .and_then(|mut stdin| {
+                stdin
+                    .write_all(url.as_bytes())
+                    .map_err(|error| format!("could not hand over the sign-in url: {error}"))
+            });
+        if let Err(error) = handoff {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
         }
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        Ok((!token.is_empty()).then_some(token))
+        let Ok(mut active) = self.child.lock() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("sign-in window state is unavailable".to_owned());
+        };
+        *active = Some(child);
+        drop(active);
+
+        let (completion, result) = mpsc::channel();
+        let active = Arc::clone(&self.child);
+        let spawn = thread::Builder::new()
+            .name("stimpak-auth-window".into())
+            .spawn(move || watch(&active, &completion));
+        if let Err(error) = spawn {
+            self.cancel();
+            return Err(format!("could not watch the sign-in window: {error}"));
+        }
+        Ok(result)
     }
+
+    /// stops an authentication helper, if one is still running.
+    pub fn cancel(&self) {
+        let Ok(mut active) = self.child.lock() else {
+            return;
+        };
+        let Some(mut child) = active.take() else {
+            return;
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+impl Drop for AuthWindow {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+enum ChildState {
+    Running,
+    Finished(Child),
+    Failed(String),
+    Cancelled,
+}
+
+fn watch(
+    active: &Arc<Mutex<Option<Child>>>,
+    completion: &mpsc::Sender<Result<Option<String>, String>>,
+) {
+    loop {
+        let state = match active.lock() {
+            Ok(mut active) => match active.as_mut() {
+                None => ChildState::Cancelled,
+                Some(child) => match child.try_wait() {
+                    Ok(Some(_)) => active
+                        .take()
+                        .map_or(ChildState::Cancelled, ChildState::Finished),
+                    Ok(None) => ChildState::Running,
+                    Err(error) => {
+                        let _ = active.take();
+                        ChildState::Failed(format!("sign-in window failed: {error}"))
+                    }
+                },
+            },
+            Err(_) => ChildState::Failed("sign-in window state is unavailable".to_owned()),
+        };
+        match state {
+            ChildState::Running => thread::sleep(Duration::from_millis(25)),
+            ChildState::Cancelled => return,
+            ChildState::Failed(error) => {
+                let _ = completion.send(Err(error));
+                return;
+            }
+            ChildState::Finished(child) => {
+                let outcome = child
+                    .wait_with_output()
+                    .map_err(|error| format!("sign-in window failed: {error}"))
+                    .and_then(|output| parse_output(&output));
+                let _ = completion.send(outcome);
+                return;
+            }
+        }
+    }
+}
+
+fn parse_output(output: &Output) -> Result<Option<String>, String> {
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let detail = detail.trim();
+        return if detail.is_empty() {
+            Ok(None)
+        } else {
+            Err(detail.to_owned())
+        };
+    }
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    Ok((!token.is_empty()).then_some(token))
 }
 
 #[cfg(test)]

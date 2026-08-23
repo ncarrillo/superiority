@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-/// Spoken text is ivory so the dim-rust timestamps recede and the message
+/// spoken text is ivory so the dim-rust timestamps recede and the message
 /// leads; server notices sit a step darker on the same ramp.
 const BODY: u32 = 0x00f0_e6da;
 const NOTICE: u32 = 0x00b8_aca2;

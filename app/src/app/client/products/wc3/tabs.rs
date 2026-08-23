@@ -1,4 +1,4 @@
-//! The Reforged strip's behaviour: everything StarCraft II's tabs do, on
+//! the Reforged strip's behaviour: everything StarCraft II's tabs do, on
 //! Reforged's channels — a press that may become a drag, drag-to-reorder, the
 //! long-name marquee under the pointer, the selection effect, and the fold
 //! that closes a tab before the hall is left.
@@ -8,11 +8,11 @@
 
 use super::*;
 
-/// How long the selection effect plays on a newly chosen tab.
+/// how long the selection effect plays on a newly chosen tab.
 const SELECTION_EFFECT: Duration = Duration::from_millis(235);
 
 impl SuperiorityView {
-    /// The staged brightening of a just-chosen tab's chrome, effect by effect
+    /// the staged brightening of a just-chosen tab's chrome, effect by effect
     /// — the same curve StarCraft II's tabs play.
     pub(in crate::app::client) fn wc3_tab_effect_opacity(
         &self,
@@ -30,7 +30,7 @@ impl SuperiorityView {
         from + (1.0 - from) * progress
     }
 
-    /// A press on a tab: the start of a click or of a drag, decided by how
+    /// a press on a tab: the start of a click or of a drag, decided by how
     /// far the pointer goes before it lets go.
     pub(in crate::app::client) fn begin_wc3_tab_pointer(
         &mut self,
@@ -78,7 +78,7 @@ impl SuperiorityView {
         }
     }
 
-    /// A click that did not become a drag chooses the tab.
+    /// a click that did not become a drag chooses the tab.
     pub(in crate::app::client) fn click_wc3_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(wc3) = self.session.wc3_mut() {
             wc3.navigation.tabs.cancel_pointer();
@@ -86,7 +86,7 @@ impl SuperiorityView {
         self.choose_wc3_tab(index, cx);
     }
 
-    /// Chooses a tab and starts its selection effect.
+    /// chooses a tab and starts its selection effect.
     fn choose_wc3_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         let before = self.session.wc3().map(|wc3| wc3.active_channel);
         self.select_wc3_channel(index, cx);
@@ -99,7 +99,7 @@ impl SuperiorityView {
         }
     }
 
-    /// The pointer let go: either a reorder lands, or it was a click after
+    /// the pointer let go: either a reorder lands, or it was a click after
     /// all.
     pub(in crate::app::client) fn finish_wc3_tab_drag(
         &mut self,
@@ -130,7 +130,7 @@ impl SuperiorityView {
         cx.notify();
     }
 
-    /// The × on a tab: the strip folds it over `TAB_CLOSE_DURATION`, and only
+    /// the × on a tab: the strip folds it over `TAB_CLOSE_DURATION`, and only
     /// then is the hall left.
     pub(in crate::app::client) fn begin_wc3_tab_close(
         &mut self,
@@ -174,7 +174,7 @@ impl SuperiorityView {
         cx.notify();
     }
 
-    /// Moves the strip's clocks on each frame: a finished fold leaves its
+    /// moves the strip's clocks on each frame: a finished fold leaves its
     /// hall, marquee and reorder animations are retained while they run, the
     /// selection effect ends. Returns whether anything is still moving.
     pub(in crate::app::client) fn advance_wc3_tab_animations(
@@ -201,6 +201,7 @@ impl SuperiorityView {
             return false;
         };
         wc3.navigation.tabs.retain_name_animations(now);
+        wc3.roster.finish_transition(now);
         if wc3
             .tab_selection_started
             .is_some_and(|started| now.saturating_duration_since(started) >= SELECTION_EFFECT)
@@ -208,13 +209,14 @@ impl SuperiorityView {
             wc3.tab_selection_started = None;
         }
         wc3.tab_close.is_some()
+            || wc3.roster.animation.is_some()
             || wc3.navigation.tabs.shift_is_running(now)
             || wc3.navigation.tabs.name_animation_is_running(now)
             || wc3.tab_selection_started.is_some()
     }
 }
 
-/// Where the active tab ends up once the tab at `from` has moved to `to`.
+/// where the active tab ends up once the tab at `from` has moved to `to`.
 pub(in crate::app::client) const fn reordered_active(
     active: usize,
     from: usize,

@@ -20,7 +20,7 @@ use crate::{
     product::Product,
 };
 
-/// Both proof lengths the live edge returns.
+/// both proof lengths the live edge returns.
 const PROOF_LENGTHS: [usize; 2] = [48, 64];
 
 /// `enUS`, packed the way this message wants it.

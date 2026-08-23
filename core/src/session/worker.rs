@@ -44,16 +44,16 @@ const TRANSPORT_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
 pub enum ClientCommand {
     Connect {
         force_interactive: bool,
-        /// Stable numeric id of the authoritative Battle.net account. Every
+        /// stable numeric id of the authoritative Battle.net account. Every
         /// product protocol returns this id, so it is the identity boundary;
         /// the display BattleTag is retained only for useful diagnostics.
         expected_account_id: Option<u64>,
-        /// The BattleTag established by the app's authoritative account
+        /// the BattleTag established by the app's authoritative account
         /// session, used to name that account in errors.
         expected_battle_tag: Option<String>,
         channels: Vec<ChatChannel>,
     },
-    /// Installs a product-scoped credential minted by the authoritative
+    /// installs a product-scoped credential minted by the authoritative
     /// Battle.net session before this worker begins its queued connection.
     InstallCredential(SecretBytes),
     Disconnect,
@@ -65,9 +65,9 @@ pub enum ClientCommand {
     /// type, with none of which Remastered has an equivalent. The classic
     /// channel is named or numbered, and the worker resolves which.
     JoinClassic(String),
-    /// A slash command entered in Remastered's classic chat composer.
+    /// a slash command entered in Remastered's classic chat composer.
     SendClassicCommand(String),
-    /// Selects one of the public channels advertised by WC3's AuroraChat.
+    /// selects one of the public channels advertised by WC3's AuroraChat.
     JoinWarcraft(String),
     LeaveChannel {
         channel_index: u8,
@@ -111,16 +111,16 @@ pub enum ClientEvent {
     Authentication {
         url: Url,
         reply: Sender<Result<SecretBytes>>,
-        /// Which product is minting a credential. The browser session itself
+        /// which product is minting a credential. The browser session itself
         /// is shared so all products authorize the same Battle.net account.
         product: Product,
-        /// Clears the shared Battle.net browser session before opening. Used
+        /// clears the shared Battle.net browser session before opening. Used
         /// only for an explicit account-wide switch. A mismatched product
         /// credential is rotated through the existing authoritative SSO store.
         fresh_account: bool,
     },
     Chat(ChatEvent),
-    /// The classic channel this session is in, and who is in it. Re-sent
+    /// the classic channel this session is in, and who is in it. Re-sent
     /// whenever the roster moves.
     ClassicChannel(scr::chat::ChatChannel),
     /// Remastered's chat, which does not fit `ChatEvent`: that enum is
@@ -132,7 +132,7 @@ pub enum ClientEvent {
     /// The snapshot is retained across offline transitions so the Social panel
     /// does not make a friend disappear merely because they left the game.
     ClassicFriends(Vec<ClassicChatFriend>),
-    /// Confirmation that Remastered's LegacyChat edge accepted an outgoing
+    /// confirmation that Remastered's LegacyChat edge accepted an outgoing
     /// whisper command. Unlike SC2, that edge does not reliably echo the
     /// accepted message back to the sender, so the worker supplies the single
     /// authoritative UI event after the RPC succeeds.
@@ -140,7 +140,7 @@ pub enum ClientEvent {
         peer: String,
         body: String,
     },
-    /// One of WC3's joined AuroraChat rosters. It is product-owned for the same
+    /// one of WC3's joined AuroraChat rosters. It is product-owned for the same
     /// reason the SC:R roster is: neither has SC2 conferences or channel slots.
     WarcraftChannel(WarcraftChatChannel),
     /// WC3 AuroraChat transcript and membership activity.
@@ -151,31 +151,31 @@ pub enum ClientEvent {
     /// retail Clan service. `Pending` remains distinct from an authoritative
     /// empty `ReceivedMyClanOnLogin` callback.
     WarcraftClan(WarcraftClanSnapshot),
-    /// The public-channel catalogue returned during WC3 startup.
+    /// the public-channel catalogue returned during WC3 startup.
     WarcraftChannels(Vec<String>),
-    /// A product-scoped ticket minted by the authoritative account session.
+    /// a product-scoped ticket minted by the authoritative account session.
     /// The host routes it to that product's worker before queuing Connect.
     ProductCredential {
         product: Product,
         credential: SecretBytes,
     },
-    /// Who signed in and what they own. Sent once, on connect: none of it
+    /// who signed in and what they own. Sent once, on connect: none of it
     /// changes while you are signed in.
     Account(AccountSummary),
     CommandError(String),
     Error(String),
 }
 
-/// What the service says about the account behind this session.
+/// what the service says about the account behind this session.
 #[derive(Clone, Debug, Default)]
 pub struct AccountSummary {
-    /// Stable numeric Battle.net account identity shared by every product
+    /// stable numeric Battle.net account identity shared by every product
     /// protocol. This, not the renameable BattleTag, binds sessions together.
     pub account_id: Option<u64>,
     pub battle_tag: Option<String>,
-    /// The Battle.net region this session is connected through.
+    /// the Battle.net region this session is connected through.
     pub region: Option<u32>,
-    /// Retail products selected by Battle.net Desktop's signed catalog rules,
+    /// retail products selected by Battle.net Desktop's signed catalog rules,
     /// by FourCC. `None` means account state did not answer.
     pub games: Option<Vec<String>>,
 }
@@ -751,7 +751,7 @@ fn run_remastered(
     outcome
 }
 
-/// The classic channel, whole, to the UI and to the tap — it is re-sent rather
+/// the classic channel, whole, to the UI and to the tap — it is re-sent rather
 /// than diffed, because the classic edge describes membership, not changes.
 fn publish_classic_channel(
     events: &Sender<ClientEvent>,
@@ -1074,7 +1074,7 @@ fn publish_warcraft_channels(
     *previous = current;
 }
 
-/// Pumps the classic channel until told to stop. Deliberately narrower than
+/// pumps the classic channel until told to stop. Deliberately narrower than
 /// [`run_live`]: Remastered has no parties or groups, but it does keep the
 /// classic friend and whisper state consumed by the Social surface.
 fn run_live_classic(
@@ -1102,11 +1102,16 @@ fn run_live_classic(
             Ok(ClientCommand::InstallCredential(credential)) => {
                 credentials.store(&credential)?;
             }
-            Ok(ClientCommand::SendMessage { body, .. }) => {
-                if let Err(error) = classic.send_message(&body) {
+            Ok(ClientCommand::SendMessage { body, .. }) => match classic.send_message(&body) {
+                // LegacyChat acknowledges the send and never echoes it: the
+                // line the reader sees is written here, and the loop below
+                // publishes it with the rest of the channel's events
+                Ok(()) => classic.record_local_talk(&body),
+                Err(error) => {
                     trace_connection(format_args!("[S1] classic send failed: {error}"));
+                    emit(events, ClientEvent::CommandError(error.to_string()));
                 }
-            }
+            },
             Ok(ClientCommand::SendClassicCommand(command)) => {
                 if let Err(error) = classic.execute_command(&command) {
                     trace_connection(format_args!("[S1] classic command failed: {error}"));
@@ -1155,9 +1160,10 @@ fn run_live_classic(
                 if let Err(error) = joined {
                     trace_connection(format_args!("[S1] join failed: {error}"));
                     emit(events, ClientEvent::CommandError(error.to_string()));
-                } else {
-                    publish_classic_channel(events, tap, &classic);
                 }
+                // the room after the attempt, landed or rejoined: the roster
+                // it came back with is newer than the one on screen
+                publish_classic_channel(events, tap, &classic);
             }
             // every other command is StarCraft II's, and nothing here can serve
             // it; a quiet queue is the same non-event
@@ -1419,7 +1425,7 @@ fn application_closed() -> Error {
     Error::Transport("application closed".into())
 }
 
-/// Gives a sign-in a deadline it cannot ignore. The clock is held while a
+/// gives a sign-in a deadline it cannot ignore. The clock is held while a
 /// person is at the login page — that wait is theirs, not the service's — and
 /// when it runs out the connection is cut, which is what turns a read that
 /// would never return into an error the application can show.

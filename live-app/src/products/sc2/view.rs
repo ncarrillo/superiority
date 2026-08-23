@@ -84,7 +84,7 @@ impl LiveView {
         view
     }
 
-    /// The shell parks every view but the focused one; a parked view keeps its
+    /// the shell parks every view but the focused one; a parked view keeps its
     /// state and stops polling streams.
     pub(crate) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if self.active != active {

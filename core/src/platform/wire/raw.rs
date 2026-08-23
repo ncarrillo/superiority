@@ -1,4 +1,4 @@
-//! Protobuf with no descriptor: a field walker and a field builder.
+//! protobuf with no descriptor: a field walker and a field builder.
 //!
 //! `protobuf.rs` beside this reads BGS's frames through prost, which needs
 //! generated types. Remastered's classic header has no descriptor to generate

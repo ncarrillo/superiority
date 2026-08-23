@@ -99,7 +99,7 @@ pub const FRIENDS_LIST_COMMAND: u8 = 30;
 pub const FRIENDS_TOONS_COMMAND: u8 = 6;
 pub const FRIENDS_ACCOUNT_BLOCK_COMMAND: u8 = 31;
 pub const FRIENDS_TOON_BLOCK_COMMAND: u8 = 33;
-/// Every route the retail client registers an inbound handler for, read
+/// every route the retail client registers an inbound handler for, read
 /// out of the `bsn_service_catalog` a running SC2 publishes (see
 /// `research/captures/sc2-bsn-*.jsonl`). `connection_index` in that dump is
 /// the service slot, and it matches the slot constants above exactly.
@@ -163,7 +163,7 @@ pub const CLIENT_INBOUND_ROUTES: &[(u8, &[u8])] = &[
     ),
 ];
 
-/// Whether retail SC2 registers a handler for a route. A sweep halting on a
+/// whether retail SC2 registers a handler for a route. A sweep halting on a
 /// route the client does not handle is looking at something retail never
 /// receives; one it does handle is a message we simply cannot decode yet.
 #[must_use]
@@ -173,7 +173,7 @@ pub fn client_handles_route(service_slot: u8, command: u8) -> bool {
         .any(|(slot, commands)| *slot == service_slot && commands.contains(&command))
 }
 
-/// What a route is, for routes we can name but not yet decode. A sweep that
+/// what a route is, for routes we can name but not yet decode. A sweep that
 /// halts on one of these has found a real message rather than a desync, and
 /// naming it saves working the id back to a type by hand.
 #[must_use]
@@ -237,7 +237,7 @@ pub const S2_MASTER_CURRENT_SEASON_COMMAND: u8 = 27;
 pub const S2_MASTER_MMQ_GET_INFO_COMMAND: u8 = 17;
 pub const S2_MASTER_MMQ_GET_LIST_COMMAND: u8 = 28;
 pub const S2_MASTER_SITE_LATENCY_INFO_COMMAND: u8 = 35;
-/// Asks the master what is inside one lobby, keyed by its `AdvertHandle`. The
+/// asks the master what is inside one lobby, keyed by its `AdvertHandle`. The
 /// id from a `lobbyLink(...)` in chat is only a third of a handle, so this
 /// needs the server the advert is on as well — see
 /// `PresenceDirectory::resolve_advert_id`.

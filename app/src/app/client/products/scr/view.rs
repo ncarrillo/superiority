@@ -16,33 +16,33 @@ use gpui::{PathBuilder, canvas, point};
 
 use super::*;
 
-/// The Terran console's colours, which are nothing like `StarCraft II`'s.
+/// the Terran console's colours, which are nothing like `StarCraft II`'s.
 /// The terminal pass retired the phosphor green: red is the chrome, and
 /// everything else is a rust temperature ramp.
 mod colour {
-    /// The window itself — near-black with a red undertone.
+    /// the window itself — near-black with a red undertone.
     pub const SHELL: u32 = 0x0004_0302;
-    /// The titlebar's veil over the window art (rgba).
+    /// the titlebar's veil over the window art (rgba).
     pub const HEADER: u32 = 0x0402_02d9;
-    /// The hairline under the titlebar (rgba).
+    /// the hairline under the titlebar (rgba).
     pub const HEADER_EDGE: u32 = 0xc93a_2c59;
-    /// The gateway readout.
+    /// the gateway readout.
     pub const READOUT: u32 = 0x00d8_8070;
-    /// The muted rust for text that only reports.
+    /// the muted rust for text that only reports.
     pub const MUTED: u32 = 0x008a_5a50;
-    /// Body text at the top of the ramp.
+    /// body text at the top of the ramp.
     pub const TEXT: u32 = 0x00f0_e6da;
-    /// The accent — chrome red at full brightness.
+    /// the accent — chrome red at full brightness.
     pub const ACCENT: u32 = 0x00ff_8a78;
 }
 
 const COMPOSER_HEIGHT: f32 = 32.0;
-/// The frame StarCraft II's workspace keeps (its theme's `MARGIN`): panels
+/// the frame StarCraft II's workspace keeps (its theme's `MARGIN`): panels
 /// float inside it, and the composer row runs underneath them both.
 const MARGIN: f32 = 22.0;
 
 impl SuperiorityView {
-    /// The whole Remastered window.
+    /// the whole Remastered window.
     pub(in crate::app::client) fn scr_window(
         &mut self,
         window: &mut Window,
@@ -182,7 +182,7 @@ impl SuperiorityView {
             .into_any_element()
     }
 
-    /// Gateway, latency, and who you are. No channel plate: two other things on
+    /// gateway, latency, and who you are. No channel plate: two other things on
     /// screen already name the channel.
     fn scr_header(&self, _window: &mut Window, cx: &mut Context<Self>) -> Stateful<Div> {
         // the header is the title bar, so it is also where the window is
@@ -296,7 +296,7 @@ impl SuperiorityView {
         }
     }
 
-    /// What has been said, with SC2's scroll/selection/reveal behavior in the
+    /// what has been said, with SC2's scroll/selection/reveal behavior in the
     /// Remastered renderer. The shared transcript column pins a short history
     /// to the composer without making a long history unscrollable.
     fn scr_transcript(&self) -> ui_scr_chat::TranscriptViewport {
@@ -338,7 +338,7 @@ impl SuperiorityView {
         transcript
     }
 
-    /// Who is here, using SC:R's own presence and avatar presentation.
+    /// who is here, using SC:R's own presence and avatar presentation.
     fn scr_roster(
         &self,
         window: &mut Window,
@@ -615,7 +615,7 @@ impl SuperiorityView {
         )
     }
 
-    /// The composer row, spanning the window the way StarCraft II's does:
+    /// the composer row, spanning the window the way StarCraft II's does:
     /// the field, and Social seated to its right.
     fn scr_footer(&self, window: &Window, cx: &mut Context<Self>) -> Div {
         let social_open = self.overlays.active == Some(Overlay::Friends);
@@ -963,7 +963,7 @@ impl SuperiorityView {
     }
 }
 
-/// The lobby seat's mark: a bunker, drawn in two strokes — the block of the
+/// the lobby seat's mark: a bunker, drawn in two strokes — the block of the
 /// roof, and the sloped hull line under it.
 fn scr_bunker_glyph() -> impl IntoElement {
     canvas(

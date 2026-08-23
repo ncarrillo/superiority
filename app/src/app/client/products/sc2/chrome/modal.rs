@@ -1,7 +1,7 @@
 use super::super::*;
 
 impl ChromeComponent {
-    /// The nine-patch legacy chrome. Nothing renders through it any more —
+    /// the nine-patch legacy chrome. Nothing renders through it any more —
     /// every dialog wears the shared shell — but it stays until the modern
     /// one is validated, per the migration plan.
     #[expect(

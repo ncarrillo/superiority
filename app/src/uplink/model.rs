@@ -14,19 +14,19 @@ use serde::Serialize;
 use crate::chat::{ChatChannel, ChatEvent, ChatUser, channel_title, strip_character_code};
 use superiority_core::native::presence::PresenceState;
 
-/// Events per POST; matches the ingest Worker's cap.
+/// events per POST; matches the ingest Worker's cap.
 pub const MAX_BATCH_EVENTS: usize = 64;
-/// A partial batch flushes quickly enough for presence to feel live.
+/// a partial batch flushes quickly enough for presence to feel live.
 pub const FLUSH_AFTER: Duration = Duration::from_millis(500);
-/// Worker-side buffer bound; beyond it the oldest event drops.
+/// worker-side buffer bound; beyond it the oldest event drops.
 pub const MAX_PENDING_EVENTS: usize = 4096;
-/// Message bodies truncate to the server's validation cap.
+/// message bodies truncate to the server's validation cap.
 pub const MAX_BODY_CHARS: usize = 4000;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionMeta {
     pub id: String,
-    /// Stable product slug understood by the Live feed contract.
+    /// stable product slug understood by the Live feed contract.
     pub product: &'static str,
     pub client_version: &'static str,
     pub started_at: u64,
@@ -54,7 +54,7 @@ pub struct ChannelRef {
     pub name: Option<String>,
 }
 
-/// A portrait's cell in the app's own atlas sheets: `atlas-{t:02}.png`,
+/// a portrait's cell in the app's own atlas sheets: `atlas-{t:02}.png`,
 /// cell `o` (portraits.rs: 6 cells per row, 152pt each). Meaningless without
 /// the atlases, which the viewer serves from the same shipped files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -78,19 +78,19 @@ pub struct UserRef {
     pub is_local: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joined_order: Option<u64>,
-    /// A product-owned avatar id the viewer resolves to its own asset — an SC:R
+    /// a product-owned avatar id the viewer resolves to its own asset — an SC:R
     /// profile id (`avatar_terran_marine`) or a WC3 portrait id (`p126`).
     /// `StarCraft II` carries its atlas cell in `portrait` instead, so this is
     /// absent for it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
-    /// Whether this member runs the channel. SC:R marks operators; the others
+    /// whether this member runs the channel. SC:R marks operators; the others
     /// do not, so it is absent for them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_operator: Option<bool>,
 }
 
-/// Which kind of message line, matching the server's `messages.kind`.
+/// which kind of message line, matching the server's `messages.kind`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageSubkind {
@@ -98,7 +98,7 @@ pub enum MessageSubkind {
     Emote,
 }
 
-/// Which kind of server notice.
+/// which kind of server notice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeSubkind {
@@ -115,7 +115,7 @@ pub enum EventKind {
     Joined {
         channel: ChannelRef,
     },
-    /// The local user left the channel; the viewer stops listing it.
+    /// the local user left the channel; the viewer stops listing it.
     Left {
         channel: ChannelRef,
     },
@@ -146,13 +146,13 @@ pub enum EventKind {
         /// neither, so it omits this and the server reads talk.
         #[serde(skip_serializing_if = "Option::is_none")]
         subkind: Option<MessageSubkind>,
-        /// Absent for a message the protocol gave no sender for — Reforged's
+        /// absent for a message the protocol gave no sender for — Reforged's
         /// recovered callback does not yet name one.
         #[serde(skip_serializing_if = "Option::is_none")]
         sender: Option<UserRef>,
         body: String,
     },
-    /// A line the server spoke rather than a member: SC:R's broadcasts and
+    /// a line the server spoke rather than a member: SC:R's broadcasts and
     /// information notices. `StarCraft II` folds these into its own message
     /// stream, so it never sends this.
     Notice {
@@ -163,14 +163,14 @@ pub enum EventKind {
     Dropped {
         count: u64,
     },
-    /// Sent on the connection keepalive tick so the feed reads live while the
+    /// sent on the connection keepalive tick so the feed reads live while the
     /// app is connected, even through long silences. Carries nothing and
     /// writes nothing — it only refreshes the session's last-seen time.
     Heartbeat,
     SessionEnded,
 }
 
-/// The identity string shared with `save_open_channels` persistence and the
+/// the identity string shared with `save_open_channels` persistence and the
 /// backend's channel keys. UI and uplink must never disagree on this format.
 #[must_use]
 pub fn channel_identity(channel: &ChatChannel) -> String {
@@ -252,19 +252,19 @@ fn truncated(body: &str) -> String {
     }
 }
 
-/// What the user's settings permit the projection to emit. Mirrors
+/// what the user's settings permit the projection to emit. Mirrors
 /// [`super::config::UplinkConfig`] as a per-event snapshot.
 #[derive(Clone, Copy)]
 pub struct ProjectionGates<'a> {
-    /// The master switch; off projects nothing.
+    /// the master switch; off projects nothing.
     pub enabled: bool,
-    /// Optional channel allow-list; `None` shares every channel (the current
+    /// optional channel allow-list; `None` shares every channel (the current
     /// global-switch behaviour — per-channel selection is plumbed but has no
     /// UI yet).
     pub shared_channels: Option<&'a BTreeSet<String>>,
 }
 
-/// Turns [`ChatEvent`]s into wire events, holding the per-session state that
+/// turns [`ChatEvent`]s into wire events, holding the per-session state that
 /// requires seeing events in order: the channel-index map (fed by `Joined`,
 /// overwritten on index reuse), the per-channel roster mirror that turns the
 /// session's repeated snapshots into deltas, the learned group names, and the
@@ -274,13 +274,13 @@ pub struct Projector {
     channels: BTreeMap<u8, ChatChannel>,
     local_handles: BTreeMap<u8, u32>,
     roster_sent: BTreeSet<u8>,
-    /// What the viewer knows of each channel's members, keyed by handle —
+    /// what the viewer knows of each channel's members, keyed by handle —
     /// diffing successive snapshots against this is what carries presence,
     /// name, and portrait resolution to the wire.
     roster_state: BTreeMap<u8, BTreeMap<u32, UserRef>>,
     roster_order: BTreeMap<u8, BTreeMap<u32, u64>>,
     next_roster_order: BTreeMap<u8, u64>,
-    /// Group names learned from `GroupSummary`, as the app's tabs learn them.
+    /// group names learned from `GroupSummary`, as the app's tabs learn them.
     club_names: BTreeMap<u32, String>,
     public_names: BTreeMap<u16, String>,
 }
@@ -294,7 +294,7 @@ impl Projector {
         }
     }
 
-    /// Projects one event, or `None` when it must not be sent. Structural
+    /// projects one event, or `None` when it must not be sent. Structural
     /// bookkeeping (the index map) always runs, even while disabled, so a
     /// mid-session toggle starts from a correct map.
     #[expect(
@@ -478,7 +478,7 @@ impl Projector {
         }
     }
 
-    /// The local user left a channel (a command, not a chat event — the
+    /// the local user left a channel (a command, not a chat event — the
     /// caller hooks it in the command loop). Always forgets the index, which
     /// the service recycles; returns the channel to announce when sharing.
     pub fn leave(
@@ -567,7 +567,7 @@ impl Projector {
     }
 }
 
-/// The uplink worker's outbound buffer: flush at [`MAX_BATCH_EVENTS`] or
+/// the uplink worker's outbound buffer: flush at [`MAX_BATCH_EVENTS`] or
 /// [`FLUSH_AFTER`], drop the oldest past [`MAX_PENDING_EVENTS`].
 #[derive(Default)]
 pub struct Batcher {
@@ -576,7 +576,7 @@ pub struct Batcher {
 }
 
 impl Batcher {
-    /// Buffers an event; returns how many old events were dropped to make room.
+    /// buffers an event; returns how many old events were dropped to make room.
     pub fn push(&mut self, event: EventDto, now: Instant) -> u64 {
         let mut dropped = 0;
         while self.pending.len() >= MAX_PENDING_EVENTS {
@@ -595,13 +595,13 @@ impl Batcher {
         self.pending.is_empty()
     }
 
-    /// When the next time-based flush is due, if anything is buffered.
+    /// when the next time-based flush is due, if anything is buffered.
     #[must_use]
     pub fn flush_deadline(&self) -> Option<Instant> {
         self.first_buffered.map(|start| start + FLUSH_AFTER)
     }
 
-    /// Takes a batch if one is due, either by size or by age.
+    /// takes a batch if one is due, either by size or by age.
     pub fn take_batch(&mut self, now: Instant) -> Option<Vec<EventDto>> {
         let due_by_size = self.pending.len() >= MAX_BATCH_EVENTS;
         let due_by_age = self
@@ -618,7 +618,7 @@ impl Batcher {
         Some(self.take_count(count))
     }
 
-    /// Takes whatever is buffered immediately (shutdown flush).
+    /// takes whatever is buffered immediately (shutdown flush).
     pub fn take_now(&mut self) -> Vec<EventDto> {
         let count = self.ready_count().unwrap_or(0);
         self.take_count(count)
@@ -662,7 +662,7 @@ impl Batcher {
         batch
     }
 
-    /// Puts a failed batch back at the front, oldest first.
+    /// puts a failed batch back at the front, oldest first.
     pub fn restore(&mut self, batch: Vec<EventDto>) {
         for event in batch.into_iter().rev() {
             self.pending.push_front(event);
@@ -673,7 +673,7 @@ impl Batcher {
     }
 }
 
-/// Exponential backoff for retryable POST failures: 1s base, doubling to a
+/// exponential backoff for retryable POST failures: 1s base, doubling to a
 /// 60s cap. Jitter is sampled by the caller so this stays deterministic.
 #[derive(Default)]
 pub struct Backoff {
@@ -694,7 +694,7 @@ impl Backoff {
         self.failures > 0
     }
 
-    /// The full (un-jittered) delay for the current failure count.
+    /// the full (un-jittered) delay for the current failure count.
     #[must_use]
     pub fn delay(&self) -> Duration {
         if self.failures == 0 {

@@ -52,7 +52,7 @@ const IDS: &[&str] = &[
     "avatar_zerg_zergling",
 ];
 
-/// Produces a GPUI image source from either the profile service's URL or its
+/// produces a GPUI image source from either the profile service's URL or its
 /// stable avatar id.
 pub(super) fn source(value: &str) -> Option<String> {
     let value = value.trim();

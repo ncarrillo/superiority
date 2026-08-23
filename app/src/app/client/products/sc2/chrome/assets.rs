@@ -29,7 +29,7 @@ impl PortraitRegistry {
     const CELLS_PER_ROW: u16 = 6;
     const CELL_SIZE: u32 = 152;
 
-    /// No SC2 portrait-table entries. A product whose own avatar adapter is not
+    /// no SC2 portrait-table entries. A product whose own avatar adapter is not
     /// hydrated gets this rather than borrowing `StarCraft II`'s: the cells are
     /// keyed by `ImageTableEntry`, a `StarCraft II` wire type, so another
     /// product's users could never index them anyway.

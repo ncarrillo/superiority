@@ -1,13 +1,13 @@
 use super::*;
 use gpui::Rgba;
 
-/// What the connection is doing, said once. The picker's `StarCraft II` card and
+/// what the connection is doing, said once. The picker's `StarCraft II` card and
 /// the legacy dialog both report the handshake, and they used to word it
 /// differently — same stage, two answers. This is the answer.
 pub(in crate::app::client) struct ConnectionProgress {
     pub(in crate::app::client) title: &'static str,
     pub(in crate::app::client) detail: String,
-    /// The same fact in a card's width: the dialog has a paragraph, the
+    /// the same fact in a card's width: the dialog has a paragraph, the
     /// picker card has one line it shares with the step counter.
     pub(in crate::app::client) brief: String,
     pub(in crate::app::client) step: String,
@@ -17,7 +17,7 @@ pub(in crate::app::client) struct ConnectionProgress {
 }
 
 impl ConnectionComponent {
-    /// Starts one real connection attempt and clears any terminal state left
+    /// starts one real connection attempt and clears any terminal state left
     /// by the previous one. Queued product sessions must do this before their
     /// worker can emit events, because `sign_out_requested` is also the guard
     /// that rejects late events from the session being signed out.
@@ -32,7 +32,7 @@ impl ConnectionComponent {
         self.progress_updated = Instant::now();
     }
 
-    /// What the dialog and the card say about this connection.
+    /// what the dialog and the card say about this connection.
     ///
     /// `product` is the game being connected to. Two of these lines name it,
     /// and they used to name `StarCraft II` outright — so Remastered's card

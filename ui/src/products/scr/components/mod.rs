@@ -1,4 +1,4 @@
-//! Reusable StarCraft: Remastered UI components.
+//! reusable StarCraft: Remastered UI components.
 
 pub mod account;
 pub mod chat;

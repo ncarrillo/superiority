@@ -1,4 +1,4 @@
-//! The shared modal demo — `SUPERIORITY_PREVIEW_MODAL=1`.
+//! the shared modal demo — `SUPERIORITY_PREVIEW_MODAL=1`.
 //!
 //! One realm's shell at a time, centred on a dark stage: switch dressings,
 //! replay the open and close, and flip reduced motion, all without a
@@ -14,19 +14,19 @@ pub(in crate::app::client) const ERROR_WIDTH: f32 = 560.0;
 pub(in crate::app::client) const ERROR_HEIGHT: f32 = 300.0;
 
 pub(in crate::app::client) struct ModalPreviewComponent {
-    /// Whether the demo owns the window. Only its own flag sets this.
+    /// whether the demo owns the window. Only its own flag sets this.
     pub(in crate::app::client) showing: bool,
-    /// Which realm the shell is dressed as, as an index into
+    /// which realm the shell is dressed as, as an index into
     /// [`ui_shared_modal::ModalVariant::ALL`].
     pub(in crate::app::client) variant: usize,
-    /// Whether the last replay was a close. Fill-mode both: a closed modal
+    /// whether the last replay was a close. Fill-mode both: a closed modal
     /// stays dark until it is opened again.
     pub(in crate::app::client) closing: bool,
-    /// Bumped per replay. The animation ids inside the panel are stable, so
+    /// bumped per replay. The animation ids inside the panel are stable, so
     /// the container's id carries this and every press starts the beats over.
     pub(in crate::app::client) generation: u64,
     pub(in crate::app::client) reduced: bool,
-    /// Whether the shell is shown gone wrong: the error dressing, with the
+    /// whether the shell is shown gone wrong: the error dressing, with the
     /// connection-lost fixture inside it.
     pub(in crate::app::client) alarm: bool,
     pub(in crate::app::client) textures: ui_shared_modal::ModalTextures,
@@ -45,7 +45,7 @@ impl ModalPreviewComponent {
         }
     }
 
-    /// Chooses a realm and replays its entrance, so switching dressings also
+    /// chooses a realm and replays its entrance, so switching dressings also
     /// demonstrates the dressing's own arrival.
     pub(in crate::app::client) fn select(&mut self, variant: usize) {
         if variant >= ui_shared_modal::ModalVariant::ALL.len() {
@@ -80,7 +80,7 @@ impl ModalPreviewComponent {
     }
 }
 
-/// What one realm's mock roster is dressed in. Fixture tokens from the doc,
+/// what one realm's mock roster is dressed in. Fixture tokens from the doc,
 /// not a live session's.
 struct MockVoice {
     font: &'static str,
@@ -98,7 +98,7 @@ struct MockVoice {
     hover: u32,
 }
 
-/// The rule that carries the section header to the frame's edge.
+/// the rule that carries the section header to the frame's edge.
 fn header_rule(variant: ui_shared_modal::ModalVariant) -> Div {
     let rule = div().flex_1().h(px(1.0));
     match variant {
@@ -163,7 +163,7 @@ fn voice(variant: ui_shared_modal::ModalVariant) -> MockVoice {
     }
 }
 
-/// Who the mock knows. Remastered's doc draws every seat with the marine.
+/// who the mock knows. Remastered's doc draws every seat with the marine.
 fn friends(variant: ui_shared_modal::ModalVariant) -> [(&'static str, &'static str, bool); 4] {
     let portraits = if variant == ui_shared_modal::ModalVariant::Remastered {
         ["images/portraits/marine.png"; 4]
@@ -262,7 +262,7 @@ fn friend_row(
         .child(dot)
 }
 
-/// The connection-lost fixture inside the alarm dressing — the legacy
+/// the connection-lost fixture inside the alarm dressing — the legacy
 /// orange hex dialog's modern descendants, one per realm, with the modern
 /// buttons in their error channels. The copy is the doc's; the buttons
 /// replay the demo's own open and close.
@@ -379,7 +379,7 @@ fn alarm_panel(
 }
 
 impl SuperiorityView {
-    /// The demo page: realm switches, open/close replays, reduced motion —
+    /// the demo page: realm switches, open/close replays, reduced motion —
     /// and the shell itself, centred where a dialog would sit.
     pub(in crate::app::client) fn modal_preview_view(
         &mut self,

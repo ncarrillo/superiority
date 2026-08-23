@@ -1,6 +1,33 @@
 use super::super::*;
 
 impl SuperiorityView {
+    /// the update dialog's keys, wherever it is open — over the client window
+    /// or over the picker: ⌘C copies the selected notes, Escape closes, and
+    /// everything else stops here so nothing underneath answers. `true` when
+    /// the dialog took the key.
+    pub(in crate::app::client) fn update_dialog_key(
+        &mut self,
+        event: &KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.updates.update_dialog_visible {
+            return false;
+        }
+        if event.keystroke.modifiers.platform
+            && event.keystroke.key.eq_ignore_ascii_case("c")
+            && let Some(text) = self
+                .updates
+                .update_notes_selection
+                .selected_text(&self.updates.update_model.notes)
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        } else if event.keystroke.key == "escape" {
+            self.close_update_dialog(cx);
+        }
+        cx.stop_propagation();
+        true
+    }
+
     pub(in crate::app::client) fn on_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -27,19 +54,7 @@ impl SuperiorityView {
             ));
         }
         self.sync_text_inputs(cx);
-        if self.updates.update_dialog_visible {
-            if event.keystroke.modifiers.platform
-                && event.keystroke.key.eq_ignore_ascii_case("c")
-                && let Some(text) = self
-                    .updates
-                    .update_notes_selection
-                    .selected_text(&self.updates.update_model.notes)
-            {
-                cx.write_to_clipboard(ClipboardItem::new_string(text));
-            } else if event.keystroke.key == "escape" {
-                self.close_update_dialog(cx);
-            }
-            cx.stop_propagation();
+        if self.update_dialog_key(event, cx) {
             return;
         }
         if self.warnings.warning_dialog.is_some() {

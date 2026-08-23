@@ -1,4 +1,4 @@
-//! The game-picker card system, shared by the desktop shell and the browser
+//! the game-picker card system, shared by the desktop shell and the browser
 //! viewer. A [`GamePalette`] dresses one card definition as three games; a
 //! [`CardLook`] is that card resolved mid-transition; the [`view`] renderers
 //! paint it. Everything here is host-neutral: a host adapts its session into

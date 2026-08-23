@@ -68,10 +68,10 @@ pub struct ChatUser {
     pub name: String,
     pub flags: Option<u64>,
     pub is_operator: bool,
-    /// The selected SC:R profile avatar, hydrated through ToonProfile after
+    /// the selected SC:R profile avatar, hydrated through ToonProfile after
     /// LegacyChat supplies the roster identity.
     pub avatar: Option<Avatar>,
-    /// Product-owned identity and presence data attached by LegacyChat.
+    /// product-owned identity and presence data attached by LegacyChat.
     ///
     /// These are structured name/value pairs, not opaque padding. Avatar
     /// lookup is a separate ToonProfile/Url service, but the profile and
@@ -88,7 +88,7 @@ impl ChatUser {
             .map(|attribute| attribute.value.as_str())
     }
 
-    /// The account this toon belongs to, when LegacyChat attached it. It is the
+    /// the account this toon belongs to, when LegacyChat attached it. It is the
     /// only thing that ties a roster entry to the signed-in account — the toon
     /// name and the BattleTag need not resemble each other.
     #[must_use]
@@ -96,7 +96,7 @@ impl ChatUser {
         self.attribute("battle_tag")
     }
 
-    /// What this member is doing, read from the presence attributes LegacyChat
+    /// what this member is doing, read from the presence attributes LegacyChat
     /// carries. The attribute names are the edge's own; this is the one place
     /// they are spelled, so every surface that shows presence agrees.
     #[must_use]
@@ -131,7 +131,7 @@ impl ChatUser {
     }
 }
 
-/// A channel member's presence, as the classic edge describes it. Remastered
+/// a channel member's presence, as the classic edge describes it. Remastered
 /// has no "offline" here: a member who is not online is not in the roster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemberPresence {
@@ -143,7 +143,7 @@ pub enum MemberPresence {
 }
 
 impl MemberPresence {
-    /// The word Live's wire uses for it.
+    /// the word Live's wire uses for it.
     #[must_use]
     pub const fn slug(self) -> &'static str {
         match self {
@@ -178,7 +178,7 @@ pub struct ChatEvent {
     pub channel_id: Option<u32>,
     pub sender: Option<String>,
     pub text: Option<String>,
-    /// Account identity attached by SC:R's AuroraChat whisper callbacks.
+    /// account identity attached by SC:R's AuroraChat whisper callbacks.
     /// LegacyChat events leave this absent because they address toon names.
     pub aurora_whisper: Option<AuroraWhisper>,
 }
@@ -205,7 +205,7 @@ pub struct ChatFriend {
     pub account_id: Option<u32>,
 }
 
-/// The server-owned classic command catalogue fetched after chat connects.
+/// the server-owned classic command catalogue fetched after chat connects.
 ///
 /// Retail requests both lists before rendering `/help`. Keep their ordering:
 /// the whitelist response is already arranged the way the client presents it,
@@ -333,6 +333,39 @@ impl ChatState {
         std::mem::take(&mut self.events)
     }
 
+    /// takes in a room the gateway named in a join answer, ahead of the
+    /// `ChannelsUpdated` that normally carries it — the roster is the answer's
+    /// and the revision moves so the surfaces redraw.
+    pub(crate) fn adopt_channel(&mut self, channel: ChatChannel) {
+        self.channels.insert(channel.channel_id, channel);
+        self.roster_revision += 1;
+    }
+
+    /// the session's own talk, as the transcript should show it: LegacyChat
+    /// acknowledges a send but never echoes the sender's line.
+    pub(crate) fn push_talk(&mut self, channel_id: u32, sender: String, text: &str) {
+        self.events.push(ChatEvent {
+            kind: EventKind::Talk,
+            channel_id: Some(channel_id),
+            sender: Some(sender),
+            text: Some(text.to_owned()),
+            aurora_whisper: None,
+        });
+    }
+
+    /// drops the newest event if `predicate` says so — for an echo of a line
+    /// the transcript already has.
+    pub(crate) fn retract_last_event_if(
+        &mut self,
+        predicate: impl FnOnce(&ChatEvent) -> bool,
+    ) -> bool {
+        if self.events.last().is_some_and(predicate) {
+            self.events.pop();
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn push_information(&mut self, text: impl Into<String>) {
         self.events.push(ChatEvent {
             kind: EventKind::Information,
@@ -343,7 +376,7 @@ impl ChatState {
         });
     }
 
-    /// Merges ToonProfile data into the LegacyChat roster without pretending
+    /// merges ToonProfile data into the LegacyChat roster without pretending
     /// the profile value was a chat attribute on the wire.
     pub(crate) fn set_avatar(
         &mut self,
@@ -428,7 +461,7 @@ impl ChatState {
         }
     }
 
-    /// Applies the account-level friend roster delivered before LegacyChat
+    /// applies the account-level friend roster delivered before LegacyChat
     /// starts producing activity notices.
     ///
     /// The retail client names FriendInfo fields 3-5 `fullName`,
@@ -469,7 +502,7 @@ impl ChatState {
         true
     }
 
-    /// Applies SC:R's account-level whisper callback. The installed SC:R SDK's
+    /// applies SC:R's account-level whisper callback. The installed SC:R SDK's
     /// protobuf-lite parser requires field 1 as fixed32 and field 2 as a
     /// length-delimited string for both receive and echo callbacks.
     fn apply_aurora_whisper(&mut self, method_id: u32, body: &[u8]) -> bool {
@@ -562,7 +595,7 @@ pub fn send_message_request(channel_id: u32, text: &str) -> Result<Vec<u8>> {
         .into_vec())
 }
 
-/// Builds the shared `SendMessageRequest` for `SendMessageToAllFriends`.
+/// builds the shared `SendMessageRequest` for `SendMessageToAllFriends`.
 ///
 /// The generated SDK uses the same request type as channel talk. Its
 /// one-argument friends method sets message field 2 and leaves channel field 1
@@ -572,7 +605,7 @@ pub fn send_message_to_all_friends_request(text: &str) -> Result<Vec<u8>> {
     Ok(Message::new().bytes(2, message.as_bytes()).into_vec())
 }
 
-/// Builds SC:R's `aurora_chat.SendWhisperRequest`. The retail SDK's concrete
+/// builds SC:R's `aurora_chat.SendWhisperRequest`. The retail SDK's concrete
 /// method takes `(unsigned int, char const*)`; its generated serializer writes
 /// that account id as fixed32 field 1 and the message as string field 2.
 pub fn send_account_whisper_request(account_id: u32, text: &str) -> Result<Vec<u8>> {
@@ -596,7 +629,7 @@ pub(crate) fn validated_message(text: &str) -> Result<&str> {
     Ok(message)
 }
 
-/// Builds `legacy_chat.SendCommandRequest`.
+/// builds `legacy_chat.SendCommandRequest`.
 ///
 /// The generated SDK serializer establishes the complete layout: channel id
 /// in field 1, command name in field 2, and one string per command argument in
@@ -630,7 +663,7 @@ pub fn send_command_request(channel_id: u32, command: &str, arguments: &[&str]) 
     Ok(request.into_vec())
 }
 
-/// Decodes `legacy_chat.CommandList`: repeated command names in field 1.
+/// decodes `legacy_chat.CommandList`: repeated command names in field 1.
 /// Unknown fields and malformed entries are ignored so a newer gateway can
 /// extend the response without making chat startup fail.
 fn parse_command_list(body: &[u8]) -> Vec<String> {
@@ -661,7 +694,7 @@ pub fn channel_request(channel_id: u32) -> Result<Vec<u8>> {
     Ok(Message::new().varint(1, u64::from(channel_id)).into_vec())
 }
 
-/// Builds the shared request used by `JoinCustomChannel`,
+/// builds the shared request used by `JoinCustomChannel`,
 /// `JoinCustomChannelByName`, and `CreateAndJoinCustomChannel`.
 ///
 /// The first two RPCs use `JoinCustomChannelRequest`; create uses its own
@@ -679,14 +712,20 @@ pub fn named_channel_request(name: &str) -> Result<Vec<u8>> {
     Ok(Message::new().bytes(1, name.as_bytes()).into_vec())
 }
 
-/// Decodes the `ChatChannelInfo` carried in field 1 of
+/// decodes the `ChatChannelInfo` carried in field 1 of
 /// `JoinedChannelResponse`.
+///
+/// The nested layout is the SDK's; an answer that is the `ChatChannelInfo`
+/// itself is accepted too, since no capture of a custom-channel join exists
+/// to rule it out.
 #[must_use]
 pub fn parse_joined_channel_response(body: &[u8]) -> Option<ChatChannel> {
-    protobuf::first_bytes(body, 1).and_then(parse_channel)
+    protobuf::first_bytes(body, 1)
+        .and_then(parse_channel)
+        .or_else(|| parse_channel(body))
 }
 
-/// Decodes `ForceJoinChannelRequest`.
+/// decodes `ForceJoinChannelRequest`.
 ///
 /// The SDK parser accepts exactly tag `0x12`: a `ChatChannelInfo` nested in
 /// field 2. There is no field-1 channel id or name in this callback.
@@ -1305,6 +1344,11 @@ mod tests {
         let joined = parse_joined_channel_response(&response).expect("joined channel");
         assert_eq!(joined.channel_id, 77);
         assert_eq!(joined.name, "Op Superiority");
+        // an answer that is the channel info itself is taken the same way
+        let bare =
+            parse_joined_channel_response(&channel(78, "Op Bare", &[])).expect("bare channel");
+        assert_eq!(bare.channel_id, 78);
+        assert!(parse_joined_channel_response(&[]).is_none());
     }
 
     #[test]

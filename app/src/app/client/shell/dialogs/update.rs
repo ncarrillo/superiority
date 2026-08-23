@@ -8,6 +8,7 @@ impl UpdateComponent {
         window: &mut Window,
         cx: &mut Context<SuperiorityView>,
     ) -> Stateful<Div> {
+        let skin = DialogSkin::for_variant(variant);
         let (status, progress, primary_title, secondary_title, primary_enabled) =
             self.update_model.status();
         let status = match self.update_model.stage {
@@ -20,9 +21,9 @@ impl UpdateComponent {
             _ => status.to_owned(),
         };
         let status_color = match self.update_model.stage {
-            UpdateStage::Ready | UpdateStage::Installing | UpdateStage::Current => rgb(0x0047_d185),
-            UpdateStage::Error => rgb(0x00f2_705c),
-            _ => rgb(0x0033_a8f0),
+            UpdateStage::Ready | UpdateStage::Installing | UpdateStage::Current => rgb(skin.ok),
+            UpdateStage::Error => rgb(skin.error),
+            _ => rgb(skin.busy),
         };
         let mut primary = ui_buttons::button(
             "update-primary",
@@ -51,8 +52,8 @@ impl UpdateComponent {
             .relative()
             .w(px(780.0))
             .h(px(590.0))
-            .font_family(FONT_INTERFACE)
-            .text_color(rgb(0x00d6_e0f0))
+            .font_family(skin.interface_font)
+            .text_color(rgb(skin.text))
             .on_click(|_, _, cx| cx.stop_propagation())
             // the shared modal shell, dressed as whichever realm it is opened
             // over
@@ -80,6 +81,7 @@ impl UpdateComponent {
                     .flex()
                     .items_center()
                     .justify_center()
+                    .font_family(skin.heading_font)
                     .font_weight(FontWeight::BOLD)
                     .text_size(px(19.0))
                     .child(self.update_model.headline.clone()),
@@ -95,7 +97,7 @@ impl UpdateComponent {
                     .items_center()
                     .justify_center()
                     .text_size(px(12.0))
-                    .text_color(rgb(0x007d_8fa8))
+                    .text_color(rgb(skin.muted))
                     .child(self.update_model.summary.clone()),
             )
             .child(
@@ -105,9 +107,9 @@ impl UpdateComponent {
                     .top(px(166.0))
                     .w(px(704.0))
                     .h(px(258.0))
-                    .bg(rgb(0x0006_0a0f))
+                    .bg(rgb(skin.panel_fill))
                     .border_1()
-                    .border_color(rgba(BORDER_STRUCTURAL))
+                    .border_color(rgba(skin.panel_edge))
                     .rounded(px(1.0)),
             )
             .child(
@@ -131,6 +133,7 @@ impl UpdateComponent {
                             .child(ui_release_notes::view(
                                 &self.update_model.notes,
                                 &self.update_notes_selection,
+                                &skin.notes,
                             )),
                     )
                     .vertical_scrollbar_in(
@@ -161,7 +164,7 @@ impl UpdateComponent {
                     .top(px(472.0))
                     .w(px(704.0))
                     .h(px(4.0))
-                    .bg(rgb(0x0009_1016)),
+                    .bg(rgb(skin.track)),
             )
             .child(
                 div()
@@ -182,7 +185,7 @@ impl UpdateComponent {
                     .flex()
                     .items_center()
                     .text_size(px(10.5))
-                    .text_color(rgb(0x007d_8fa8))
+                    .text_color(rgb(skin.muted))
                     .child("The signed update is verified before installation."),
             )
             .child(

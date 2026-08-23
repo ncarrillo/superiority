@@ -1,4 +1,4 @@
-//! Desktop-only application shell: product picker, dialogs, overlays, and settings.
+//! desktop-only application shell: product picker, dialogs, overlays, and settings.
 
 use super::*;
 

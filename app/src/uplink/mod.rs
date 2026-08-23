@@ -44,7 +44,7 @@ const IDLE_POLL: Duration = Duration::from_millis(500);
 const SHUTDOWN_FLUSH_DEADLINE: Duration = Duration::from_secs(5);
 const CLIENT_VERSION: &str = env!("SUPERIORITY_EFFECTIVE_VERSION");
 
-/// Shared handles between the UI (config writer, stats reader) and the
+/// shared handles between the UI (config writer, stats reader) and the
 /// uplink machinery. Cheap to clone.
 #[derive(Clone, Default)]
 pub struct UplinkControl {
@@ -58,7 +58,7 @@ impl UplinkControl {
         Self::default()
     }
 
-    /// Main-thread convenience: mutate the config under the lock.
+    /// main-thread convenience: mutate the config under the lock.
     pub fn update_config(&self, apply: impl FnOnce(&mut UplinkConfig)) {
         if let Ok(mut config) = self.config.write() {
             apply(&mut config);
@@ -75,15 +75,15 @@ impl UplinkControl {
 }
 
 enum TapMessage {
-    /// A new Battle.net connection began; subsequent events belong to it.
+    /// a new Battle.net connection began; subsequent events belong to it.
     Session(SessionMeta),
-    /// One event, tagged with the session it belongs to. Several products'
+    /// one event, tagged with the session it belongs to. Several products'
     /// sessions share this channel now, so an untagged event could not be put
     /// in the right envelope.
     Event { session: String, dto: EventDto },
 }
 
-/// The network thread's handle: mint one [`SessionTap`] per connection.
+/// the network thread's handle: mint one [`SessionTap`] per connection.
 #[derive(Clone)]
 pub struct Publisher {
     sender: SyncSender<TapMessage>,
@@ -136,7 +136,7 @@ impl Publisher {
     }
 }
 
-/// Lives on the network thread for the duration of one connection.
+/// lives on the network thread for the duration of one connection.
 pub struct SessionTap {
     sender: SyncSender<TapMessage>,
     control: UplinkControl,
@@ -154,7 +154,7 @@ pub struct SessionTap {
 }
 
 impl SessionTap {
-    /// Observes one chat event. Non-blocking and infallible by design.
+    /// observes one chat event. Non-blocking and infallible by design.
     pub fn observe(&mut self, event: &ChatEvent) {
         if let ChatEvent::GroupSummary {
             club_id,
@@ -198,7 +198,7 @@ impl SessionTap {
         }
     }
 
-    /// Called on the connection keepalive tick so the feed stays live through
+    /// called on the connection keepalive tick so the feed stays live through
     /// idle stretches. No-op while sharing is off or the session hasn't begun
     /// (nothing to keep alive yet).
     pub fn heartbeat(&mut self) {
@@ -214,7 +214,7 @@ impl SessionTap {
         }
     }
 
-    /// The local user left a channel. Leaving is a command rather than a chat
+    /// the local user left a channel. Leaving is a command rather than a chat
     /// event, so the command loop reports it here directly.
     pub fn observe_left(&mut self, channel_index: u8) {
         let enabled = match self.control.config.read() {
@@ -295,7 +295,7 @@ impl SessionTap {
     }
 }
 
-/// Sends the one-time session announcement, returning whether the tap may go on
+/// sends the one-time session announcement, returning whether the tap may go on
 /// to emit. Shared by the `StarCraft II` tap and the classic one so the
 /// announce-once rule has a single home.
 fn announce_session(
@@ -325,7 +325,7 @@ fn announce_session(
     true
 }
 
-/// Emits one event onto the channel, tagged with its session, assigning the
+/// emits one event onto the channel, tagged with its session, assigning the
 /// sequence number and preceding it with a `Dropped` marker if the last send
 /// could not fit. Shared by every tap so sequence gaps and drop accounting stay
 /// identical across products.
@@ -447,7 +447,7 @@ impl superiority_core::observer::SessionObserver for SessionTap {
     }
 }
 
-/// Starts the `sc2-uplink` worker thread and returns the publisher the
+/// starts the `sc2-uplink` worker thread and returns the publisher the
 /// network thread will feed. Call once, at app startup.
 #[must_use]
 pub fn spawn(control: UplinkControl, club_names: BTreeMap<u32, String>) -> Publisher {
@@ -471,7 +471,7 @@ enum FlushOutcome {
     Dropped,
 }
 
-/// One product's session buffered on the uplink thread. A feed can carry
+/// one product's session buffered on the uplink thread. A feed can carry
 /// several at once — one per game — so each keeps its own envelope and its own
 /// batch; they never share a POST. `ended` marks a session that sent
 /// `SessionEnded`, so it can be pruned once its last batch is away.
@@ -557,7 +557,7 @@ fn wait_duration(sessions: &BTreeMap<String, SessionSink>, next_attempt: Instant
         .clamp(Duration::from_millis(50), Duration::from_secs(1))
 }
 
-/// Flushes every session whose batch is due, each as its own envelope. The
+/// flushes every session whose batch is due, each as its own envelope. The
 /// backoff and next-attempt clock are shared because they describe the one
 /// endpoint, not any one session.
 fn flush_all(
@@ -705,7 +705,7 @@ struct RegisteredFeed {
     url: String,
 }
 
-/// One registration attempt against the backend. Pure network; persistence
+/// one registration attempt against the backend. Pure network; persistence
 /// happens in the caller.
 fn register_once(http: &LiveHttp, base: &str) -> Result<RegisteredFeed, String> {
     validate_endpoint(base)?;

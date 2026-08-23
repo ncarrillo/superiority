@@ -1,6 +1,6 @@
 use super::*;
 
-/// Everything that belongs to one product's session.
+/// everything that belongs to one product's session.
 ///
 /// Every entered game stays connected and one is focused at a time, so the
 /// focused product's state lives here in [`SuperiorityView::session`] and the
@@ -16,7 +16,7 @@ use super::*;
 /// session you are looking at, and you can go back to the games list and choose
 /// another whenever you like.
 pub(in crate::app::client) struct ProductSession {
-    /// This product's worker. A worker is spawned for one product and stays
+    /// this product's worker. A worker is spawned for one product and stays
     /// that product's for its life — `ClientCommand::Connect` carries no
     /// product — so the handles belong to the session, not to the shared
     /// runtime. They were on `ClientRuntime` while `StarCraft II` was the only
@@ -24,14 +24,14 @@ pub(in crate::app::client) struct ProductSession {
     /// `StarCraft II`'s worker.
     pub(in crate::app::client) commands: Option<Sender<ClientCommand>>,
     pub(in crate::app::client) events: Option<Receiver<ClientEvent>>,
-    /// Keeps this session's text inputs talking to the view.
+    /// keeps this session's text inputs talking to the view.
     ///
     /// Without these the inputs still take focus and still take keystrokes —
     /// they update their own state and nothing repaints, so the field looks
     /// dead: no text, no caret. Every session needs its own, because every
     /// session builds its own inputs.
     pub(in crate::app::client) _input_subscriptions: Vec<Subscription>,
-    /// Who this product's session signed in as, and through which region. The
+    /// who this product's session signed in as, and through which region. The
     /// numeric id is the identity boundary; the BattleTag is display text.
     pub(in crate::app::client) account_id: Option<u64>,
     pub(in crate::app::client) account_battle_tag: Option<String>,
@@ -98,7 +98,7 @@ impl ProductSession {
     }
 }
 
-/// Migration bridge for SC2 feature modules. Those modules are only dispatched
+/// migration bridge for SC2 feature modules. Those modules are only dispatched
 /// from the SC2 surface; new product-neutral code must use `is_sc2`, `scr`, or
 /// an explicit `ProductUiState` match instead of relying on this dereference.
 impl std::ops::Deref for ProductSession {
@@ -131,7 +131,7 @@ impl std::ops::DerefMut for ProductSession {
     }
 }
 
-/// Brings `product` to the front, parking whatever was focused. Returns `false`
+/// brings `product` to the front, parking whatever was focused. Returns `false`
 /// when there is no session to bring — nothing is torn down and the focus does
 /// not move, because a half-applied switch is worse than none.
 ///
@@ -168,7 +168,7 @@ impl SuperiorityView {
         )
     }
 
-    /// Reads a product session without changing which realm is in front.
+    /// reads a product session without changing which realm is in front.
     #[must_use]
     pub(in crate::app::client) fn product_session(
         &self,
@@ -181,7 +181,7 @@ impl SuperiorityView {
         }
     }
 
-    /// Mutates a product session without using focus as a temporary pointer.
+    /// mutates a product session without using focus as a temporary pointer.
     /// The game picker needs this when refreshing every connection together.
     pub(in crate::app::client) fn product_session_mut(
         &mut self,
@@ -194,7 +194,7 @@ impl SuperiorityView {
         }
     }
 
-    /// Whether this product has a session at all, focused or parked.
+    /// whether this product has a session at all, focused or parked.
     #[expect(
         dead_code,
         reason = "for the games list's per-card state once a second product can connect"
@@ -205,7 +205,7 @@ impl SuperiorityView {
 }
 
 impl ProductSession {
-    /// A session for a product other than the one the app opened on: empty,
+    /// a session for a product other than the one the app opened on: empty,
     /// disconnected, and holding its own worker handles.
     ///
     /// `StarCraft II`'s session is built in [`super::controller`] with restored

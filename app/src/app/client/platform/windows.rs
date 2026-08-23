@@ -113,7 +113,7 @@ pub(in crate::app) fn application() -> gpui::Application {
     gpui::Application::with_platform(Rc::new(platform))
 }
 
-/// Whether the reader has asked the system for less movement. Only the
+/// whether the reader has asked the system for less movement. Only the
 /// override is read here; the system setting needs a platform call this build
 /// does not make yet.
 pub(in crate::app) fn reduce_motion() -> bool {

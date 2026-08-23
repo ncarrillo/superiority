@@ -1,4 +1,4 @@
-//! Bringing a Remastered session up on the classic channel.
+//! bringing a Remastered session up on the classic channel.
 //!
 //! The order is the retail client's, recovered from a paired capture: the
 //! websocket carries `AuthSession` first, then a toon session, then the legacy
@@ -7,7 +7,7 @@
 //! not answer the next one until the previous has landed.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -23,8 +23,8 @@ use crate::{
         aurora::{AuroraSession, ChallengeHandler},
         auth,
         catalog::{method, service},
-        chat::{self, ChatState, CommandCatalog},
-        client::{ClassicClient, Ignore, Request, request_trace},
+        chat::{self, ChatState, CommandCatalog, EventKind},
+        client::{ClassicClient, Ignore, Request, is_quiet_read, request_trace},
         gateway,
         handoff::ClassicHandoff,
         profile::{self, Avatar},
@@ -37,40 +37,141 @@ use crate::{
 pub const DEFAULT_GATEWAY_CATALOG_ID: u64 = 11;
 pub const DEFAULT_GATEWAY_NAME: &str = "U.S. East";
 
-/// Where the retail client puts you on U.S. East: Public Chat 1.
+/// where the retail client puts you on U.S. East: Public Chat 1.
 ///
 /// A fixed id, not a search of the advertised list. The gateway does not have
 /// to have advertised anything by the time the session is up, so looking for
 /// "the first public channel" can find nothing and silently join nowhere.
 pub const DEFAULT_CHANNEL: u32 = 9;
 
-/// A signed-in Remastered session: the socket, and the chat state its frames
+/// a signed-in Remastered session: the socket, and the chat state its frames
 /// are folded into.
 pub struct ClassicSession {
     client: ClassicClient,
     state: ChatState,
     channel: u32,
     timeout: Duration,
-    /// Numeric Battle.net account identity from the Aurora logon. Unlike a
+    /// numeric Battle.net account identity from the Aurora logon. Unlike a
     /// BattleTag, this cannot be renamed and is therefore the cross-product
     /// account binding.
     account_id: u64,
-    /// The region Aurora signed this session in through. Kept because the card
+    /// the region Aurora signed this session in through. Kept because the card
     /// says it, and nothing below the account layer knows it.
     connected_region: u64,
-    /// The BattleTag the logon named, when it named one. Kept for the same
+    /// the BattleTag the logon named, when it named one. Kept for the same
     /// reason as the region: the account surface says who you are, and only
     /// the logon knows it before a roster answers.
     battle_tag: Option<String>,
-    /// A successful empty lookup is cached too: it means this toon has no
+    /// the toon the gateway signed in as — the name the session's own talk is
+    /// written under until the roster has a member carrying our BattleTag.
+    toon_name: String,
+    /// a successful empty lookup is cached too: it means this toon has no
     /// selected avatar and must not be queried on every 200 ms poll.
     avatar_cache: BTreeMap<String, Option<Avatar>>,
     commands: CommandCatalog,
     player_status: Option<PlayerStatus>,
+    watch: Watch,
+}
+
+/// how long a line of our own talk is remembered, so that a gateway echo of
+/// it — should LegacyChat ever send one — is absorbed rather than shown twice.
+const ECHO_WINDOW: Duration = Duration::from_secs(10);
+
+/// how long a named join that answered without naming the room is given for
+/// the roster to arrive before the next request is tried. The startup roster
+/// lands well inside this; a join that has not by then is not coming.
+const JOIN_GRACE: Duration = Duration::from_millis(1500);
+
+/// how long one wait-for-the-roster poll blocks before its deadline is
+/// checked again.
+const POLL_STEP: Duration = Duration::from_millis(250);
+
+/// what one way of joining a named room did: the room it landed in, or a
+/// note for the error that says every way was tried.
+struct JoinAttempt {
+    moved: Option<u32>,
+    note: String,
+}
+
+/// how many inbound frames are kept for a join's post-mortem.
+const FRAME_LOG: usize = 32;
+
+/// what the session keeps an eye on beside the state proper: the lines of our
+/// own talk written locally — LegacyChat acknowledges `SendMessage` and never
+/// echoes the sender's line back, so the transcript and the Live tap hear it
+/// from here — and a short log of every inbound frame, so a join that does
+/// not land can say exactly what the gateway sent back.
+#[derive(Default)]
+struct Watch {
+    pending: VecDeque<(String, std::time::Instant)>,
+    frames: VecDeque<String>,
+    /// frames seen since the session began; the log above keeps the tail.
+    seen: usize,
+}
+
+impl Watch {
+    /// notes one inbound frame: its name (or hashes), and its size.
+    fn saw(&mut self, frame: &crate::games::scr::rpc::Frame) {
+        let header = &frame.header;
+        let name = crate::games::scr::catalog::rpc_name(header.service_id, header.method_id)
+            .unwrap_or_else(|| format!("{:08x}.{:08x}", header.service_id, header.method_id));
+        let kind = if header.is_response() {
+            "answer"
+        } else {
+            "callback"
+        };
+        self.frames
+            .push_back(format!("{name} {kind} {}b", frame.body.len()));
+        while self.frames.len() > FRAME_LOG {
+            self.frames.pop_front();
+        }
+        self.seen += 1;
+    }
+
+    /// the frames logged since `mark` (a value of `seen` taken earlier).
+    fn frames_since(&self, mark: usize) -> Vec<String> {
+        let kept = self.frames.len();
+        let skip = self.seen.saturating_sub(mark);
+        self.frames
+            .iter()
+            .skip(kept.saturating_sub(skip))
+            .cloned()
+            .collect()
+    }
+
+    fn remember(&mut self, text: &str) {
+        self.prune();
+        self.pending
+            .push_back((text.to_owned(), std::time::Instant::now()));
+    }
+
+    /// whether `text`, arriving under our own name, is a line we wrote
+    /// ourselves a moment ago. each remembered line absorbs one echo.
+    fn absorb(&mut self, text: &str) -> bool {
+        self.prune();
+        match self.pending.iter().position(|(pending, _)| pending == text) {
+            Some(index) => {
+                self.pending.remove(index);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn prune(&mut self) {
+        let now = std::time::Instant::now();
+        while self
+            .pending
+            .front()
+            .is_some_and(|(_, written)| now.saturating_duration_since(*written) > ECHO_WINDOW)
+        {
+            self.pending.pop_front();
+        }
+    }
 }
 
 impl ClassicSession {
-    /// Opens the classic channel the handoff names and signs in on it.
+    /// opens the classic channel the handoff names and signs in on it.
     ///
     /// `session` is the shared Battle.net logon — the same one `StarCraft II`
     /// uses. Nothing here re-authenticates; the ticket and the session key are
@@ -118,9 +219,11 @@ impl ClassicSession {
                 account_id: session.account_low,
                 connected_region: session.connected_region,
                 battle_tag: session.battle_tag.clone(),
+                toon_name: String::new(),
                 avatar_cache: BTreeMap::new(),
                 commands: CommandCatalog::default(),
                 player_status: None,
+                watch: Watch::default(),
             };
             session.start_toon_session()?;
             session.start_chat()?;
@@ -136,11 +239,12 @@ impl ClassicSession {
         outcome
     }
 
-    /// Names the account's toons and pins the build. The legacy gateway will
+    /// names the account's toons and pins the build. The legacy gateway will
     /// not talk until both have happened.
     fn start_toon_session(&mut self) -> Result<()> {
         let response = self.call_body(service::GAME_ACCOUNT, method::GET_TOONS, &[])?;
         let toon = toon_for_gateway(&response, DEFAULT_GATEWAY_CATALOG_ID)?;
+        self.toon_name.clone_from(&toon.name);
         let version = Message::new().bytes(1, GAME_VERSION.as_bytes()).into_vec();
         self.call(service::GAME_VERSION, method::SET_GAME_VERSION, &version)?;
         let connect = legacy_connect_request(toon.id)?;
@@ -148,7 +252,7 @@ impl ClassicSession {
         Ok(())
     }
 
-    /// Switches the legacy chat gateway on and waits for its channel catalog.
+    /// switches the legacy chat gateway on and waits for its channel catalog.
     ///
     /// `LegacyChat.Connect` answers before its `ChannelsUpdated` callback, so
     /// the callback—not the empty RPC response—is the readiness signal used by
@@ -182,72 +286,36 @@ impl ClassicSession {
         if channel_id == self.channel {
             return Ok(());
         }
-        self.leave_current_channel()?;
+        let previous = self.channel;
         let join = chat::channel_request(channel_id)?;
-        // the roster is what says the join actually happened; returning before
-        // it lands leaves a channel that looks joined and has nobody in it
+        // the SDK leaves the room it is in before it joins another, and the
+        // gateway was seen to acknowledge joins sent from inside a room and
+        // do nothing. the transport that once made leaving fatal is fixed,
+        // and a join that still does not land puts the session back where it
+        // was. the roster is what says the join actually happened; returning
+        // before it lands leaves a channel that looks joined and has nobody
+        // in it
+        self.leave_current_channel()?;
         let revision = self.state.roster_revision();
         self.call(service::LEGACY_CHAT, method::JOIN_CHANNEL, &join)?;
-        self.await_roster_change(revision)?;
-        self.channel = channel_id;
-        Ok(())
-    }
-
-    /// Joins an existing custom channel by its user-visible name.
-    ///
-    /// This is the SDK's `JoinCustomChannelAsync` path and therefore uses
-    /// `JoinCustomChannelByName`, not the numeric public-channel RPC.
-    pub fn join_named(&mut self, name: &str) -> Result<()> {
-        self.join_named_with(name, method::JOIN_CUSTOM_CHANNEL_BY_NAME)
-    }
-
-    /// Joins the gateway-selected default custom channel.
-    ///
-    /// This mirrors the SDK's `JoinDefaultChannelAsync` route. Despite that
-    /// name, its wire request still carries the channel name in field 1.
-    pub fn join_default_named(&mut self, name: &str) -> Result<()> {
-        self.join_named_with(name, method::JOIN_CUSTOM_CHANNEL)
-    }
-
-    /// Creates a custom channel and enters it.
-    pub fn create_and_join_named(&mut self, name: &str) -> Result<()> {
-        self.join_named_with(name, method::CREATE_AND_JOIN_CUSTOM_CHANNEL)
-    }
-
-    fn join_named_with(&mut self, name: &str, method_id: u32) -> Result<()> {
-        let name = name.trim();
-        if self.state.channel(self.channel).is_some_and(|channel| {
-            channel.name.eq_ignore_ascii_case(name)
-                || channel
-                    .display_name
-                    .as_deref()
-                    .is_some_and(|display| display.eq_ignore_ascii_case(name))
-        }) {
-            return Ok(());
+        let patience = if previous == 0 {
+            self.timeout
+        } else {
+            JOIN_GRACE
+        };
+        match self.await_channel(channel_id, revision, patience) {
+            Ok(()) => {
+                self.channel = channel_id;
+                Ok(())
+            }
+            Err(error) => {
+                let note = self.rejoin(previous);
+                Err(Error::ClassicWire(format!(
+                    "{error}{}",
+                    note.map(|note| format!(" ({note})")).unwrap_or_default()
+                )))
+            }
         }
-
-        let request = chat::named_channel_request(name)?;
-        self.leave_current_channel()?;
-        let revision = self.state.roster_revision();
-        let response = self.call_body(service::LEGACY_CHAT, method_id, &request)?;
-        let response_channel = chat::parse_joined_channel_response(&response);
-        self.await_roster_change(revision)?;
-
-        let channel_id = response_channel
-            .as_ref()
-            .map(|channel| channel.channel_id)
-            .or_else(|| {
-                self.state
-                    .find_channel(name)
-                    .map(|channel| channel.channel_id)
-            })
-            .ok_or_else(|| {
-                Error::ClassicWire(format!(
-                    "LegacyChat joined {name:?} but did not identify the channel"
-                ))
-            })?;
-        self.channel = channel_id;
-        Ok(())
     }
 
     fn leave_current_channel(&mut self) -> Result<()> {
@@ -260,7 +328,179 @@ impl ClassicSession {
         Ok(())
     }
 
-    /// The channel this session is in, or `0` for none.
+    /// puts the session back in the room it left for a join that did not
+    /// land; the note is for the error that reports the join.
+    fn rejoin(&mut self, previous: u32) -> Option<String> {
+        if previous == 0 || self.channel == previous {
+            return None;
+        }
+        let join = chat::channel_request(previous).ok()?;
+        let revision = self.state.roster_revision();
+        let outcome = self
+            .call(service::LEGACY_CHAT, method::JOIN_CHANNEL, &join)
+            .and_then(|()| self.await_channel(previous, revision, Duration::from_secs(5)));
+        match outcome {
+            Ok(()) => {
+                self.channel = previous;
+                Some(format!("back in channel {previous}"))
+            }
+            Err(error) => Some(format!("could not rejoin channel {previous}: {error}")),
+        }
+    }
+
+    /// joins a channel the reader named.
+    ///
+    /// a room the gateway has already listed — a public channel — is joined
+    /// by its id, the request that lands the startup channel every time;
+    /// "public chat N" is read as that id. Anything else is a custom channel:
+    /// the SDK's `JoinCustomChannelByName` first and, when that does not move
+    /// us, `CreateAndJoinCustomChannel` — classic Battle.net makes the room
+    /// when it is not there, and the SDK splits that into its own request.
+    pub fn join_named(&mut self, name: &str) -> Result<()> {
+        let name = name.trim();
+        if let Some(channel_id) = self
+            .state
+            .find_channel(name)
+            .map(|channel| channel.channel_id)
+        {
+            return self.join(channel_id);
+        }
+        let mark = self.watch.seen;
+        let mut notes = Vec::new();
+        // classic Battle.net's /join is a server command, and the gateway
+        // whitelists the classic commands it forwards; when join is among
+        // them, that is the retail route and the server does the moving
+        if let Some(verb) = ["join", "j", "channel"]
+            .into_iter()
+            .find(|verb| self.commands.allows(verb))
+        {
+            match self.join_by_command(verb, name)? {
+                Some(channel_id) => {
+                    self.channel = channel_id;
+                    return Ok(());
+                }
+                None => notes.push(format!("/{verb} command sent, no move")),
+            }
+        } else {
+            notes.push("no join command in the whitelist".to_owned());
+        }
+        // the SDK's own requests, sent the way the SDK sends them: from
+        // outside any room. a session left outside every room by a join that
+        // does not land goes back to the one it came from
+        let previous = self.channel;
+        self.leave_current_channel()?;
+        notes.push(format!("left channel {previous}"));
+        for method_id in [
+            method::JOIN_CUSTOM_CHANNEL_BY_NAME,
+            method::CREATE_AND_JOIN_CUSTOM_CHANNEL,
+            method::JOIN_CUSTOM_CHANNEL,
+        ] {
+            let attempt = self.join_named_with(name, method_id)?;
+            match attempt.moved {
+                Some(channel_id) => {
+                    self.channel = channel_id;
+                    return Ok(());
+                }
+                None => notes.push(attempt.note),
+            }
+        }
+        if let Some(note) = self.rejoin(previous) {
+            notes.push(note);
+        }
+        let frames = self.watch.frames_since(mark);
+        let frames = if frames.is_empty() {
+            "none".to_owned()
+        } else {
+            frames.join(", ")
+        };
+        Err(Error::ClassicWire(format!(
+            "Battle.net did not move you to {name:?} ({}; frames since the join: {frames})",
+            notes.join("; ")
+        )))
+    }
+
+    /// the server-side `/join`: the command the gateway whitelists, forwarded
+    /// as `SendCommand`. the move comes back as ForceJoinChannel or a new
+    /// roster, so the channel is watched rather than the answer.
+    fn join_by_command(&mut self, verb: &str, name: &str) -> Result<Option<u32>> {
+        let previous = self.channel;
+        let revision = self.state.roster_revision();
+        let body = chat::send_command_request(self.channel, verb, &[name])?;
+        self.call(service::LEGACY_CHAT, method::SEND_COMMAND, &body)?;
+        let deadline = std::time::Instant::now() + JOIN_GRACE;
+        loop {
+            if self.channel != previous && self.channel != 0 {
+                return Ok(Some(self.channel));
+            }
+            if self.state.roster_revision() != revision
+                && let Some(channel_id) = self
+                    .state
+                    .find_channel(name)
+                    .map(|channel| channel.channel_id)
+            {
+                return Ok(Some(channel_id));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            self.poll_quietly()?;
+        }
+    }
+
+    fn join_named_with(&mut self, name: &str, method_id: u32) -> Result<JoinAttempt> {
+        let name = name.trim();
+        if self.state.channel(self.channel).is_some_and(|channel| {
+            channel.name.eq_ignore_ascii_case(name)
+                || channel
+                    .display_name
+                    .as_deref()
+                    .is_some_and(|display| display.eq_ignore_ascii_case(name))
+        }) {
+            return Ok(JoinAttempt {
+                moved: Some(self.channel),
+                note: String::new(),
+            });
+        }
+
+        let request = chat::named_channel_request(name)?;
+        let revision = self.state.roster_revision();
+        let response = self.call_body(service::LEGACY_CHAT, method_id, &request)?;
+        let named = chat::parse_joined_channel_response(&response);
+        if crate::trace_enabled() {
+            eprintln!(
+                "superiority: [S1] join {name:?} via {:#010x}: {} byte answer, room named: {}",
+                method_id,
+                response.len(),
+                named.is_some()
+            );
+        }
+        // the answer names the room: that is the join, roster and all. the
+        // ChannelsUpdated that normally carries it is welcome when it comes
+        if let Some(channel) = named {
+            let channel_id = channel.channel_id;
+            self.state.adopt_channel(channel);
+            return Ok(JoinAttempt {
+                moved: Some(channel_id),
+                note: String::new(),
+            });
+        }
+        // an answer that does not name the room may still be moving us: give
+        // the roster a moment, then report — a session that waited the whole
+        // startup patience here looked hung, and a failure looked like a
+        // missing channel list
+        let moved = self.await_named_channel(name, revision)?;
+        Ok(JoinAttempt {
+            moved,
+            note: format!(
+                "{} answered {} bytes, no move",
+                crate::games::scr::catalog::method_name(service::LEGACY_CHAT, method_id)
+                    .unwrap_or("join request"),
+                response.len()
+            ),
+        })
+    }
+
+    /// the channel this session is in, or `0` for none.
     #[must_use]
     pub fn channel(&self) -> u32 {
         self.channel
@@ -281,13 +521,13 @@ impl ClassicSession {
         self.connected_region
     }
 
-    /// The latest account-wide status delivered by `PlayerStatusUpdated`.
+    /// the latest account-wide status delivered by `PlayerStatusUpdated`.
     #[must_use]
     pub fn player_status(&self) -> Option<PlayerStatus> {
         self.player_status
     }
 
-    /// Enables the account-status callback. The generated service declares an
+    /// enables the account-status callback. The generated service declares an
     /// empty request and response for this subscription.
     pub fn subscribe_player_status(&mut self) -> Result<()> {
         self.call(
@@ -297,7 +537,7 @@ impl ClassicSession {
         )
     }
 
-    /// Updates SC:R's account-wide Online/Away/Busy value.
+    /// updates SC:R's account-wide Online/Away/Busy value.
     pub fn set_player_status(&mut self, status: PlayerStatus) -> Result<()> {
         let request = user::update_player_status_request(status);
         self.call(service::AURORA_USER, method::UPDATE_PLAYER_STATUS, &request)?;
@@ -316,7 +556,40 @@ impl ClassicSession {
         Ok(())
     }
 
-    /// Broadcasts one message to every classic-chat friend.
+    /// writes the session's own talk into the transcript. LegacyChat
+    /// acknowledges the send and never echoes it, so this is the only copy the
+    /// reader — and the Live tap — will see; a gateway echo, should one ever
+    /// arrive, is absorbed against it.
+    pub fn record_local_talk(&mut self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() || self.channel == 0 {
+            return;
+        }
+        let sender = self.local_toon().to_owned();
+        self.state.push_talk(self.channel, sender, text);
+        self.watch.remember(text);
+    }
+
+    /// the name this account talks under: the roster member carrying our
+    /// BattleTag, or the toon the gateway signed in as before the roster says.
+    fn local_toon(&self) -> &str {
+        self.battle_tag
+            .as_deref()
+            .and_then(|battle_tag| {
+                self.state
+                    .channel(self.channel)?
+                    .users
+                    .iter()
+                    .find_map(|user| {
+                        user.battle_tag()
+                            .is_some_and(|tag| tag.eq_ignore_ascii_case(battle_tag))
+                            .then_some(user.name.as_str())
+                    })
+            })
+            .unwrap_or(&self.toon_name)
+    }
+
+    /// broadcasts one message to every classic-chat friend.
     pub fn send_message_to_all_friends(&mut self, text: &str) -> Result<()> {
         let body = chat::send_message_to_all_friends_request(text)?;
         self.call(
@@ -326,7 +599,7 @@ impl ClassicSession {
         )
     }
 
-    /// Sends one private message through the server-advertised classic
+    /// sends one private message through the server-advertised classic
     /// whisper command. The recipient and message remain separate protobuf
     /// arguments, matching the retail SDK's `SendCommandRequest` serializer.
     pub fn send_whisper(&mut self, recipient: &str, text: &str) -> Result<()> {
@@ -352,7 +625,7 @@ impl ClassicSession {
         self.call(service::LEGACY_CHAT, method::SEND_COMMAND, &body)
     }
 
-    /// Sends an account-level whisper through the AuroraChat service registered
+    /// sends an account-level whisper through the AuroraChat service registered
     /// by SC:R. Its echo callback is the authoritative outgoing transcript
     /// event, just as its receive callback is the inbound event.
     pub fn send_account_whisper(&mut self, account_id: u32, text: &str) -> Result<()> {
@@ -360,7 +633,7 @@ impl ClassicSession {
         self.call(service::AURORA_CHAT, method::SEND_WHISPER, &body)
     }
 
-    /// Executes a command typed into Remastered's chat composer.
+    /// executes a command typed into Remastered's chat composer.
     ///
     /// `/help` is client-owned in retail and is rendered from the two command
     /// lists fetched at connect time. Other advertised commands use
@@ -414,7 +687,7 @@ impl ClassicSession {
         }
     }
 
-    /// Resolves one not-yet-cached roster avatar. Calling this once per worker
+    /// resolves one not-yet-cached roster avatar. Calling this once per worker
     /// turn progressively fills a large roster without delaying chat traffic
     /// behind a synchronous batch of profile requests.
     pub fn resolve_next_avatar(&mut self) -> Result<bool> {
@@ -434,15 +707,25 @@ impl ClassicSession {
             DEFAULT_GATEWAY_CATALOG_ID,
             &toon,
         )?;
+        let local_toon = self.local_toon().to_owned();
         let state = &mut self.state;
         let channel = &mut self.channel;
         let commands = &mut self.commands;
         let player_status = &mut self.player_status;
+        let watch = &mut self.watch;
         let response = match self.client.call(
             &Request::new(service::TOON_PROFILE, method::GET_AVATAR, &body),
             self.timeout,
             &mut |frame: &crate::games::scr::rpc::Frame| {
-                apply_classic_frame(state, channel, commands, player_status, frame);
+                apply_classic_frame(
+                    state,
+                    channel,
+                    commands,
+                    player_status,
+                    watch,
+                    &local_toon,
+                    frame,
+                );
             },
         ) {
             Ok(response) => response,
@@ -475,15 +758,18 @@ impl ClassicSession {
         Ok(self.state.set_avatar(self.channel, &toon, avatar))
     }
 
-    /// Reads one frame and folds it into the chat state. Returns whether the
+    /// reads one frame and folds it into the chat state. Returns whether the
     /// frame changed anything worth redrawing.
     pub fn poll(&mut self, timeout: Duration) -> Result<bool> {
         let frame = self.client.pump(timeout, &mut Ignore)?;
+        let local_toon = self.local_toon().to_owned();
         let changed = apply_classic_frame(
             &mut self.state,
             &mut self.channel,
             &mut self.commands,
             &mut self.player_status,
+            &mut self.watch,
+            &local_toon,
             &frame,
         );
         self.apply_cached_avatars();
@@ -503,7 +789,7 @@ impl ClassicSession {
         self.client.set_timeout(timeout)
     }
 
-    /// Keeps the authenticated classic session alive while its channel is
+    /// keeps the authenticated classic session alive while its channel is
     /// otherwise quiet. Retail declares this RPC as Empty -> Empty.
     pub fn keep_alive(&mut self) -> Result<()> {
         self.call(service::AUTHENTICATION, method::PING, &[])
@@ -535,22 +821,40 @@ impl ClassicSession {
         // with Ignore makes join-time information notices and concurrent talk
         // disappear permanently.
         let timeout = self.timeout;
+        let local_toon = self.local_toon().to_owned();
         let Self {
             client,
             state,
             channel,
             commands,
             player_status,
+            watch,
             ..
         } = self;
         let frame = client.call(
             &Request::new(service_id, method_id, body),
             timeout,
             &mut |frame: &crate::games::scr::rpc::Frame| {
-                apply_classic_frame(state, channel, commands, player_status, frame);
+                apply_classic_frame(
+                    state,
+                    channel,
+                    commands,
+                    player_status,
+                    watch,
+                    &local_toon,
+                    frame,
+                );
             },
         )?;
-        apply_classic_frame(state, channel, commands, player_status, &frame);
+        apply_classic_frame(
+            state,
+            channel,
+            commands,
+            player_status,
+            watch,
+            &local_toon,
+            &frame,
+        );
         Ok(frame.body)
     }
 
@@ -577,19 +881,29 @@ impl ClassicSession {
     fn gateway_stats(&mut self) -> Result<gateway::GatewayStats> {
         let body = gateway::request(DEFAULT_GATEWAY_CATALOG_ID)?;
         let timeout = self.timeout;
+        let local_toon = self.local_toon().to_owned();
         let Self {
             client,
             state,
             channel,
             commands,
             player_status,
+            watch,
             ..
         } = self;
         let response = client.call(
             &Request::new(service::GATEWAY, method::GET_GATEWAY_STATS, &body),
             timeout,
             &mut |frame: &crate::games::scr::rpc::Frame| {
-                apply_classic_frame(state, channel, commands, player_status, frame);
+                apply_classic_frame(
+                    state,
+                    channel,
+                    commands,
+                    player_status,
+                    watch,
+                    &local_toon,
+                    frame,
+                );
             },
         )?;
         gateway::parse_response(&response.body)
@@ -613,7 +927,7 @@ impl ClassicSession {
         }
     }
 
-    /// Blocks until the roster revision moves past `from`, which is how the
+    /// blocks until the roster revision moves past `from`, which is how the
     /// gateway signals it has finished pushing the channel list.
     fn await_roster_change(&mut self, from: u64) -> Result<()> {
         let deadline = std::time::Instant::now() + self.timeout;
@@ -623,13 +937,59 @@ impl ClassicSession {
                     "LegacyChat came online but never sent a channel list".into(),
                 ));
             }
-            self.poll(self.timeout)?;
+            self.poll_quietly()?;
         }
         Ok(())
     }
+
+    /// blocks until `channel_id`'s roster has landed since `from`. the
+    /// LeftChannel for the room being left can arrive first, and a roster
+    /// revision alone would mistake it for the join.
+    fn await_channel(&mut self, channel_id: u32, from: u64, patience: Duration) -> Result<()> {
+        let deadline = std::time::Instant::now() + patience;
+        while self.state.roster_revision() == from || self.state.channel(channel_id).is_none() {
+            if std::time::Instant::now() >= deadline {
+                return Err(Error::ClassicWire(format!(
+                    "Battle.net did not move you to channel {channel_id}"
+                )));
+            }
+            self.poll_quietly()?;
+        }
+        Ok(())
+    }
+
+    /// waits [`JOIN_GRACE`] for a room called `name` to appear in a roster
+    /// newer than `from`; `None` when it does not.
+    fn await_named_channel(&mut self, name: &str, from: u64) -> Result<Option<u32>> {
+        let deadline = std::time::Instant::now() + JOIN_GRACE;
+        loop {
+            if self.state.roster_revision() != from
+                && let Some(channel_id) = self
+                    .state
+                    .find_channel(name)
+                    .map(|channel| channel.channel_id)
+            {
+                return Ok(Some(channel_id));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            self.poll_quietly()?;
+        }
+    }
+
+    /// one short poll where silence is not an error — the caller keeps its
+    /// own deadline.
+    fn poll_quietly(&mut self) -> Result<()> {
+        match self.poll(POLL_STEP.min(self.timeout)) {
+            Ok(_) => Ok(()),
+            Err(error) if is_quiet_read(&error) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
 }
 
-/// Reproduces the argument grouping used by the retail command composer.
+/// reproduces the argument grouping used by the retail command composer.
 /// Whisper aliases carry a recipient plus the untouched message, user lookup
 /// commands carry the whole lookup string, and any newer server-advertised
 /// command falls back to one argument per word.
@@ -649,7 +1009,9 @@ fn command_arguments<'a>(command: &str, remainder: &'a str) -> Vec<&'a str> {
                 }
             },
         ),
-        "squelch" | "ignore" | "unsquelch" | "unignore" | "whois" => vec![remainder],
+        "squelch" | "ignore" | "unsquelch" | "unignore" | "whois" | "join" | "j" | "channel" => {
+            vec![remainder]
+        }
         _ => remainder.split_whitespace().collect(),
     }
 }
@@ -659,8 +1021,11 @@ fn apply_classic_frame(
     channel: &mut u32,
     commands: &mut CommandCatalog,
     player_status: &mut Option<PlayerStatus>,
+    watch: &mut Watch,
+    local_toon: &str,
     frame: &crate::games::scr::rpc::Frame,
 ) -> bool {
+    watch.saw(frame);
     if !frame.header.is_response() && frame.header.service_id == service::LEGACY_CHAT {
         match frame.header.method_id {
             method::COMMAND_WHITELIST_UPDATE => {
@@ -690,6 +1055,18 @@ fn apply_classic_frame(
         .flatten()
         .map(|forced| forced.channel_id);
     let changed = state.apply(frame);
+    // our own talk comes back only if the gateway echoes it, and the local
+    // copy is already in the transcript
+    if changed {
+        state.retract_last_event_if(|event| {
+            event.kind == EventKind::Talk
+                && event
+                    .sender
+                    .as_deref()
+                    .is_some_and(|sender| sender.eq_ignore_ascii_case(local_toon))
+                && event.text.as_deref().is_some_and(|text| watch.absorb(text))
+        });
+    }
     if let Some(forced_channel) = forced_channel {
         let channel_changed = *channel != forced_channel;
         *channel = forced_channel;
@@ -705,7 +1082,7 @@ struct Toon {
     gateway_id: u64,
 }
 
-/// Selects the toon Battle.net actually returned for the configured gateway.
+/// selects the toon Battle.net actually returned for the configured gateway.
 ///
 /// `Legacy.Connect` field 1 is the toon record's field 1, not the gateway id.
 /// Treating it as a realm enum happens to work when a toon has id 1 and then
@@ -828,23 +1205,23 @@ impl Drop for ClassicConnectWatchdog {
     }
 }
 
-/// How far a Remastered sign-in has got.
+/// how far a Remastered sign-in has got.
 ///
 /// Typed rather than a log line, because the caller drives a progress bar off
 /// it and matching on prose would be a way to break that silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
-    /// Signing in to Battle.net through Aurora.
+    /// signing in to Battle.net through Aurora.
     SigningIn,
-    /// Asking the game service where the classic server is.
+    /// asking the game service where the classic server is.
     AskingForServer,
-    /// Authenticating to the classic server with the ticket.
+    /// authenticating to the classic server with the ticket.
     Authenticating,
-    /// Bringing chat online.
+    /// bringing chat online.
     StartingChat,
 }
 
-/// Signs in to Remastered and brings its chat up, end to end.
+/// signs in to Remastered and brings its chat up, end to end.
 ///
 /// Both halves are Remastered's own: [`aurora`] for the account layer and the
 /// classic channel for everything after it.
@@ -950,6 +1327,7 @@ mod tests {
             ["a name with spaces"]
         );
         assert_eq!(command_arguments("future", "one two"), ["one", "two"]);
+        assert_eq!(command_arguments("join", "Op BnetCC"), ["Op BnetCC"]);
     }
 
     #[test]
@@ -978,6 +1356,8 @@ mod tests {
             &mut channel,
             &mut commands,
             &mut status,
+            &mut Watch::default(),
+            "",
             &frame,
         ));
         assert_eq!(channel, 77);
@@ -985,5 +1365,72 @@ mod tests {
             state.channel(77).map(|channel| channel.name.as_str()),
             Some("Op Superiority")
         );
+    }
+
+    fn talk_frame(channel: u64, sender: &str, text: &str) -> Frame {
+        Frame {
+            header: Header {
+                service_id: service::LEGACY_CHAT,
+                method_id: method::CHAT_TALK_MESSAGE,
+                token: 2,
+                is_response: Some(false),
+                ..Header::default()
+            },
+            body: Message::new()
+                .varint(1, channel)
+                .bytes(2, sender.as_bytes())
+                .bytes(3, text.as_bytes())
+                .into_vec(),
+        }
+    }
+
+    #[test]
+    fn our_own_talk_is_written_once_even_if_the_gateway_echoes_it() {
+        // LegacyChat never echoes the sender's line, so the session writes it;
+        // should an echo ever come, it is the same line and must not show twice
+        let mut state = ChatState::new();
+        let mut watch = Watch::default();
+        state.push_talk(9, "Me".to_owned(), "hello there");
+        watch.remember("hello there");
+        let mut channel = 9;
+        let mut commands = CommandCatalog::default();
+        let mut status = None;
+
+        apply_classic_frame(
+            &mut state,
+            &mut channel,
+            &mut commands,
+            &mut status,
+            &mut watch,
+            "me",
+            &talk_frame(9, "Me", "hello there"),
+        );
+        let events = state.take_events();
+        assert_eq!(events.len(), 1, "the echo was absorbed: {events:?}");
+        assert_eq!(events[0].kind, EventKind::Talk);
+        assert_eq!(events[0].sender.as_deref(), Some("Me"));
+        assert_eq!(events[0].text.as_deref(), Some("hello there"));
+
+        // a second, different line from us, and someone else saying the same
+        // words, are both real
+        apply_classic_frame(
+            &mut state,
+            &mut channel,
+            &mut commands,
+            &mut status,
+            &mut watch,
+            "me",
+            &talk_frame(9, "Me", "hello there"),
+        );
+        apply_classic_frame(
+            &mut state,
+            &mut channel,
+            &mut commands,
+            &mut status,
+            &mut watch,
+            "me",
+            &talk_frame(9, "Somebody", "hello there"),
+        );
+        assert_eq!(state.take_events().len(), 2);
     }
 }

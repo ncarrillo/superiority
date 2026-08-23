@@ -1,4 +1,4 @@
-//! The picker's selection-and-choreography state, shared by the desktop shell
+//! the picker's selection-and-choreography state, shared by the desktop shell
 //! and the browser viewer so one state machine drives both. The host owns three
 //! things this deliberately does not: which cards are *actionable* (a licence
 //! and a recovered protocol on the desktop; a live feed in the viewer), each
@@ -13,27 +13,27 @@ use super::look::{ROOM, eased};
 use super::model::GAMES;
 use super::motion::{CardMotion, Motion};
 
-/// What one turn of the choreography did, for the host to react to.
+/// what one turn of the choreography did, for the host to react to.
 pub struct Advance {
-    /// The realm a just-settled enter-game glide committed to — the host hands
+    /// the realm a just-settled enter-game glide committed to — the host hands
     /// over to it. `None` on an ordinary frame.
     pub entered: Option<usize>,
-    /// Whether the choreography still wants another frame.
+    /// whether the choreography still wants another frame.
     pub animating: bool,
 }
 
-/// The selection and choreography a picker carries. `C` is the host's animation
+/// the selection and choreography a picker carries. `C` is the host's animation
 /// clock — `Instant` on the desktop, `f64` milliseconds in the browser.
 pub struct PickerState<C> {
     pub motion: Motion<C>,
-    /// Which realm is chosen. Sticky, and starts on the first game: a picker
+    /// which realm is chosen. Sticky, and starts on the first game: a picker
     /// with nothing selected is one you have to start over with.
     pub selected: usize,
-    /// What it was, so the room crossfades between them instead of cutting.
+    /// what it was, so the room crossfades between them instead of cutting.
     pub previously_selected: usize,
-    /// When the selection last changed, for the room crossfade.
+    /// when the selection last changed, for the room crossfade.
     pub chosen: C,
-    /// Which card the pointer is over. Transient: it lifts the card under the
+    /// which card the pointer is over. Transient: it lifts the card under the
     /// pointer and nobody else, and is nobody once the pointer leaves.
     pub hovered: Option<usize>,
 }
@@ -54,7 +54,7 @@ impl<C: AnimationClock> PickerState<C> {
         actionable.get(card).copied().unwrap_or(false)
     }
 
-    /// Reaches for a card: hovering one also selects it, so the room follows the
+    /// reaches for a card: hovering one also selects it, so the room follows the
     /// pointer; leaving leaves the selection where it was, so the room does not
     /// go dark behind you. A card you cannot act on takes no attention with it.
     pub fn reach(&mut self, card: Option<usize>, now: C, actionable: &[bool]) -> bool {
@@ -67,7 +67,7 @@ impl<C: AnimationClock> PickerState<C> {
         moved
     }
 
-    /// Chooses a realm, keeping the one it replaced so the room can cross
+    /// chooses a realm, keeping the one it replaced so the room can cross
     /// between them.
     pub fn choose(&mut self, card: usize, now: C, actionable: &[bool]) -> bool {
         if self.selected == card || card >= GAMES.len() || !Self::playable(actionable, card) {
@@ -79,7 +79,7 @@ impl<C: AnimationClock> PickerState<C> {
         true
     }
 
-    /// Steps the selection to the next actionable realm in a direction, skipping
+    /// steps the selection to the next actionable realm in a direction, skipping
     /// any that answer to nothing.
     pub fn move_choice(&mut self, delta: isize, now: C, actionable: &[bool]) {
         let last = isize::try_from(GAMES.len().saturating_sub(1)).unwrap_or(0);
@@ -99,7 +99,7 @@ impl<C: AnimationClock> PickerState<C> {
         }
     }
 
-    /// The rooms to paint behind the cards, bottom first — a crossfade between
+    /// the rooms to paint behind the cards, bottom first — a crossfade between
     /// the realm left and the one arriving.
     #[must_use]
     pub fn rooms(&self, now: C, actionable: &[bool]) -> Vec<(usize, f32)> {
@@ -115,7 +115,7 @@ impl<C: AnimationClock> PickerState<C> {
         rooms
     }
 
-    /// How this card is placed right now: the entrance puts it on screen, and
+    /// how this card is placed right now: the entrance puts it on screen, and
     /// after that only entering a realm moves it. The host supplies the card's
     /// resting `slot` offset, which is its own layout concern.
     #[must_use]
@@ -125,7 +125,7 @@ impl<C: AnimationClock> PickerState<C> {
             .unwrap_or_else(|| self.motion.card(index, self.selected, slot, now, reduced))
     }
 
-    /// Winds the choreography on: the entrance settles into ready, a snap-back
+    /// winds the choreography on: the entrance settles into ready, a snap-back
     /// settles back into it, and an enter-game glide hands over once it has
     /// dissolved. The rehearsal auto-trigger and the meaning of the handoff stay
     /// with the host.
@@ -151,7 +151,7 @@ impl<C: AnimationClock> PickerState<C> {
         }
     }
 
-    /// Commits to a realm. Nothing else answers while the glide runs. The host
+    /// commits to a realm. Nothing else answers while the glide runs. The host
     /// gates on actionability before calling.
     pub fn begin_entering(&mut self, card: usize, now: C) {
         if matches!(self.motion, Motion::Entering { .. }) {
@@ -160,7 +160,7 @@ impl<C: AnimationClock> PickerState<C> {
         self.motion = Motion::Entering { card, started: now };
     }
 
-    /// Backs out of an entrance still in flight, from wherever it had got to.
+    /// backs out of an entrance still in flight, from wherever it had got to.
     pub fn snap_back(&mut self, now: C) -> bool {
         let Motion::Entering { .. } = self.motion else {
             return false;
@@ -172,7 +172,7 @@ impl<C: AnimationClock> PickerState<C> {
         true
     }
 
-    /// Comes back out to the list from inside a realm, replaying the entrance
+    /// comes back out to the list from inside a realm, replaying the entrance
     /// rather than appearing all at once.
     pub fn return_to_list(&mut self, now: C) {
         self.motion = Motion::Entrance { started: now };

@@ -16,13 +16,13 @@ pub(super) use superiority_ui::products::games::{CardSize, masthead, picker_size
 #[cfg(test)]
 use superiority_ui::products::games::{PICKER_MEDIUM, PICKER_NARROW, PICKER_WIDE};
 
-/// This game's art as the desktop bundle serves it — the native side of the
+/// this game's art as the desktop bundle serves it — the native side of the
 /// shared `AssetPaths`, resolved to an image the shared renderers can draw.
 fn art_of(palette: &GamePalette) -> gpui::ImageSource {
     NativeAssetResolver.image(palette.art)
 }
 
-/// The neutral card inputs the shared renderers take, built from this shell's
+/// the neutral card inputs the shared renderers take, built from this shell's
 /// own live-session state for one game.
 fn card_data(games: &GamesComponent, index: usize, state: CardState) -> CardData {
     CardData {
@@ -42,7 +42,7 @@ fn card_data(games: &GamesComponent, index: usize, state: CardState) -> CardData
     }
 }
 
-/// The launcher's top bar is Superiority chrome, not a realm's: always the
+/// the launcher's top bar is Superiority chrome, not a realm's: always the
 /// system cyan, 34px tall, and it sits on the shell. From the `Titlebar`
 /// design: window controls · realm refresh · session identity + sign out.
 const PICKER_TITLEBAR_HEIGHT: f32 = 34.0;
@@ -57,10 +57,10 @@ const IDENTITY_RULE: u32 = 0x33a8_f040;
 const CHIP_LABEL_SIZE: f32 = 8.5;
 const CHIP_TRACKING: f32 = 1.5;
 const GLYPH_SIZE: f32 = 11.0;
-/// One turn of the REFRESH arrow while the realms are being polled.
+/// one turn of the REFRESH arrow while the realms are being polled.
 const SWEEP_PERIOD: Duration = Duration::from_millis(900);
 
-/// How a chip is inked in one state: border and fill are `0xRRGGBBAA`, the
+/// how a chip is inked in one state: border and fill are `0xRRGGBBAA`, the
 /// text is `0xRRGGBB`.
 #[derive(Clone, Copy)]
 struct ChipInk {
@@ -69,7 +69,7 @@ struct ChipInk {
     text: u32,
 }
 
-/// The ghost chip at rest, and lit under the pointer.
+/// the ghost chip at rest, and lit under the pointer.
 const CHIP_REST: ChipInk = ChipInk {
     border: 0x33a8_f059,
     fill: 0x0000_0000,
@@ -113,14 +113,14 @@ const CHIP_SEVERING: ChipInk = ChipInk {
 };
 const ARMED_GLOW: u32 = 0xf0a0_304d;
 
-/// The human half of a BattleTag. Battle.net owns the full value; the picker
+/// the human half of a BattleTag. Battle.net owns the full value; the picker
 /// omits only its numeric discriminator because this strip is identity, not an
 /// address field.
 pub(super) fn picker_account_name(battle_tag: Option<&str>) -> Option<String> {
     battle_tag.map(|battle_tag| strip_character_code(battle_tag).to_owned())
 }
 
-/// A chip: hairline border, 4×9 padding, a glyph and a tracked label in the
+/// a chip: hairline border, 4×9 padding, a glyph and a tracked label in the
 /// one colour. `lit` is the ink under the pointer; a chip with none is inert
 /// and does not answer the pointer at all.
 fn chip(
@@ -186,7 +186,7 @@ fn chip(
     ))
 }
 
-/// The REFRESH arrow: an open circle with a head, turned by `phase` (0–1)
+/// the REFRESH arrow: an open circle with a head, turned by `phase` (0–1)
 /// while the realms are being polled.
 fn sweep_glyph(colour: u32, phase: f32) -> AnyElement {
     let scale = GLYPH_SIZE / 12.0;
@@ -229,7 +229,7 @@ fn sweep_glyph(colour: u32, phase: f32) -> AnyElement {
     .into_any_element()
 }
 
-/// The tick that says the poll landed.
+/// the tick that says the poll landed.
 fn check_glyph(colour: u32) -> AnyElement {
     let scale = GLYPH_SIZE / 12.0;
     canvas(
@@ -274,7 +274,7 @@ fn identity_plaque(name: &str, region: Option<&'static str>, dimmed: bool) -> Di
         }))
 }
 
-/// The REFRESH chip in whichever state the poll is in.
+/// the REFRESH chip in whichever state the poll is in.
 fn refresh_chip(
     state: RefreshChip,
     started: Option<Instant>,
@@ -334,7 +334,7 @@ fn refresh_chip(
     }
 }
 
-/// The SIGN OUT chip. No modal: the chip arms, and a second click inside the
+/// the SIGN OUT chip. No modal: the chip arms, and a second click inside the
 /// window signs out.
 fn sign_out_chip(state: SignOutChip, cx: &mut Context<SuperiorityView>) -> Stateful<Div> {
     let press = cx.listener(|this, _, window, cx| {
@@ -383,7 +383,7 @@ fn sign_out_chip(state: SignOutChip, cx: &mut Context<SuperiorityView>) -> State
     }
 }
 
-/// The top bar. `connected_region` is the numeric region Battle.net returned
+/// the top bar. `connected_region` is the numeric region Battle.net returned
 /// with the authoritative SC2 logon; the label is omitted if the service did
 /// not return one rather than filling it from a locale or fixture.
 pub(super) fn picker_titlebar(
@@ -476,7 +476,7 @@ pub(super) fn picker_titlebar(
     header
 }
 
-/// One card, one state, big enough to read what changed. Clicking anywhere in
+/// one card, one state, big enough to read what changed. Clicking anywhere in
 /// the section steps the walk on.
 pub(super) fn hero_section(
     hero: &'static GamePalette,
@@ -577,7 +577,7 @@ pub(super) fn hero_readout(hero: &'static GamePalette, state: CardState, positio
         )
 }
 
-/// The picker those cards make. Each realm rests in the state it is actually
+/// the picker those cards make. Each realm rests in the state it is actually
 /// in, and the room takes the colour of whichever one you reach for — the
 /// layers crossfade over each other rather than both going transparent at once.
 pub(super) fn picker_section(
@@ -699,7 +699,7 @@ pub(super) fn picker_section(
         .children((stage.entering > 0.001).then(|| entering_overlay(games, &stage)))
 }
 
-/// The cards themselves. The row wraps, so a window too narrow for three
+/// the cards themselves. The row wraps, so a window too narrow for three
 /// abreast stacks them instead of pushing them off the edge.
 pub(super) fn card_row(
     games: &GamesComponent,
@@ -773,7 +773,7 @@ pub(super) fn card_row(
         )
 }
 
-/// The winner, lifted out of the row. It starts exactly where its slot is, so
+/// the winner, lifted out of the row. It starts exactly where its slot is, so
 /// the moment it appears nothing has visibly changed, and from there it glides
 /// to the middle and grows into the flood.
 pub(super) fn leaving_card(
@@ -812,13 +812,13 @@ pub(super) fn leaving_card(
         ))
 }
 
-/// Where a card's slot starts, measured from the left of the row.
+/// where a card's slot starts, measured from the left of the row.
 pub(super) fn index_offset(index: usize, size: CardSize, games: &GamesComponent) -> f32 {
     let index = u16::try_from(games.visible_position(index)).unwrap_or(u16::MAX);
     f32::from(index) * (size.width + size.gap_between)
 }
 
-/// How far this card sits from the middle of the row, in pixels — which is how
+/// how far this card sits from the middle of the row, in pixels — which is how
 /// far it travels when it is the one being entered.
 /// Where a card sits in the row.
 ///
@@ -831,7 +831,50 @@ pub(super) fn slot_offset(index: usize, size: CardSize, games: &GamesComponent) 
     (middle - position as f32) * (size.width + size.gap_between)
 }
 
-/// What is left once the card has dissolved into the flood: where you are
+/// the picker exactly as the handoff left it: the flood at full, ENTERING with
+/// its rail run out, and the top bar still in place. The realm fades in over
+/// this rather than over the window's bare ground.
+pub(super) fn afterglow_plate(
+    games: &GamesComponent,
+    card: usize,
+    palette: &'static GamePalette,
+    titlebar: impl IntoElement,
+) -> Div {
+    let stage = StageMotion {
+        title: 0.0,
+        title_rise: 0.0,
+        glow: 1.0,
+        flood: 1.0,
+        flooding: Some(card),
+        entering: 1.0,
+        progress: 1.0,
+    };
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .flex_col()
+        .bg(rgb(SHEET))
+        .child(titlebar)
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                // the same room the section lights, so the plate and the frame
+                // before it are one image
+                .bg(gpui::linear_gradient(
+                    180.0,
+                    gpui::linear_color_stop(rgba(0x1014_1cff), 0.0),
+                    gpui::linear_color_stop(rgba(0x0507_0aff), 0.65),
+                ))
+                .child(realm_flood(palette, 1.0, art_of(palette)))
+                .child(entering_overlay(games, &stage)),
+        )
+}
+
+/// what is left once the card has dissolved into the flood: where you are
 /// going, and how far along it is.
 pub(super) fn entering_overlay(games: &GamesComponent, stage: &StageMotion) -> Div {
     let palette = stage
@@ -879,7 +922,7 @@ pub(super) fn entering_overlay(games: &GamesComponent, stage: &StageMotion) -> D
         )
 }
 
-/// The same state on all three palettes at once, which is where the claim that
+/// the same state on all three palettes at once, which is where the claim that
 /// only the palette changes is either true or visibly not.
 pub(super) fn together_section(walk: Walk, cx: &mut Context<SuperiorityView>) -> Stateful<Div> {
     div()
@@ -919,7 +962,7 @@ pub(super) fn together_section(walk: Walk, cx: &mut Context<SuperiorityView>) ->
         )
 }
 
-/// Every value the card reads, per game.
+/// every value the card reads, per game.
 pub(super) fn palette_section() -> Div {
     div()
         .flex_shrink_0()
@@ -974,7 +1017,7 @@ pub(super) fn palette_panel(palette: &'static GamePalette) -> Div {
         }))
 }
 
-/// The picker's card. It carries the three lines that say who you are here and
+/// the picker's card. It carries the three lines that say who you are here and
 /// when you last were, where the walked card carries one line about the state
 /// it is demonstrating.
 pub(super) fn picker_card(
@@ -1077,7 +1120,7 @@ pub(super) fn picker_card(
         )
 }
 
-/// What the button says on a card that cannot be pressed. The design's empty
+/// what the button says on a card that cannot be pressed. The design's empty
 /// state offers SIGN IN, which is right for a game you own and have no profile
 /// on — and wrong for both of the reasons a card is dark here.
 pub(super) fn out_of_play_verb(games: &GamesComponent, index: usize) -> Option<&'static str> {
@@ -1351,6 +1394,34 @@ mod tests {
         games.begin_entering(0, Instant::now());
         assert_eq!(games.entering(), Some(0));
         assert!(!games.answering(), "and nothing else answers while it runs");
+    }
+
+    #[test]
+    fn the_handoff_keeps_the_last_frame_under_the_realm_and_then_lets_go() {
+        // the realm fades in over the flood it dissolved into; without this the
+        // picker drew one settled frame of the list, then the bare window, and
+        // only then the realm
+        let mut games = GamesComponent::new(Some(GamesScreen::Picker), None, false);
+        games.picker.motion = super::Motion::Ready;
+        let start = Instant::now();
+        games.begin_entering(0, start);
+        assert!(!games.has_entered());
+        assert_eq!(games.afterglow(start), None);
+
+        let handoff = start + superiority_ui::products::games::motion::entering_length();
+        assert!(games.advance_motion(handoff));
+        assert!(games.has_entered());
+        assert_eq!(
+            games.afterglow(handoff),
+            Some(0),
+            "the flood stays while the realm reveals"
+        );
+        let later = handoff + std::time::Duration::from_secs(2);
+        assert_eq!(games.afterglow(later), None, "and is gone once it has");
+
+        games.return_to_list(later);
+        assert!(!games.has_entered());
+        assert_eq!(games.afterglow(later), None);
     }
 
     #[test]

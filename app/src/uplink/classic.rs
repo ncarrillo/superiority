@@ -1,4 +1,4 @@
-//! The tap for a classic-channel product — Remastered or Reforged — and the
+//! the tap for a classic-channel product — Remastered or Reforged — and the
 //! roster-diff shared by their projectors.
 //!
 //! A classic session speaks its own chat vocabulary (see [`super::scr`] and
@@ -37,7 +37,7 @@ pub(super) fn fnv1a32(bytes: &[u8]) -> u32 {
     hash
 }
 
-/// Truncates a body to the server's cap by characters, not bytes.
+/// truncates a body to the server's cap by characters, not bytes.
 #[must_use]
 pub(super) fn truncate(body: String) -> String {
     if body.chars().count() <= super::model::MAX_BODY_CHARS {
@@ -47,7 +47,7 @@ pub(super) fn truncate(body: String) -> String {
     }
 }
 
-/// Diffs a whole-channel snapshot against what the viewer was last told: a
+/// diffs a whole-channel snapshot against what the viewer was last told: a
 /// complete [`EventKind::Roster`] the first time and whenever the member set
 /// changes (so a departure is applied — a delta only upserts), a
 /// [`EventKind::RosterDelta`] when only existing members' attributes moved, and
@@ -109,7 +109,7 @@ impl ClassicProjector {
     }
 }
 
-/// The Live tap on a classic product's session. Shares the SC2 tap's send
+/// the Live tap on a classic product's session. Shares the SC2 tap's send
 /// plumbing through the free functions in [`super`]; owns only the classic
 /// projector and the announce state.
 pub struct ClassicSessionTap {

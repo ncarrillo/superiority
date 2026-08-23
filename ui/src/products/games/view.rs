@@ -1,4 +1,4 @@
-//! The host-neutral card renderers. Every function here is pure: it takes a
+//! the host-neutral card renderers. Every function here is pure: it takes a
 //! palette, a resolved [`CardLook`], a [`CardSize`], and — where a card reads a
 //! session — a [`CardData`], and returns a gpui element. Nothing reaches into a
 //! host: art arrives already resolved to an [`ImageSource`], so the same card
@@ -49,7 +49,7 @@ pub fn masthead() -> Div {
         )
 }
 
-/// One card. The structure is the same in all six states and for all three
+/// one card. The structure is the same in all six states and for all three
 /// games; everything that differs comes off the palette, and everything that
 /// moves comes off the look, which is already mid-transition when it arrives.
 /// The demo card carries the state's own status line; a host that draws the
@@ -73,7 +73,7 @@ pub fn game_card(palette: &GamePalette, look: &CardLook, size: CardSize, art: Im
         )
 }
 
-/// The card's own frame. `glow` is passed in rather than read off the look
+/// the card's own frame. `glow` is passed in rather than read off the look
 /// because the two screens mean different things by it: on the walked cards it
 /// is the state's own bloom, and in the picker it belongs to the pointer.
 #[must_use]
@@ -91,7 +91,7 @@ pub fn card_shell(palette: &GamePalette, look: &CardLook, size: CardSize, glow: 
         })
 }
 
-/// The card's first line, split for colour: the accent half names where
+/// the card's first line, split for colour: the accent half names where
 /// Enter takes you, the muted half carries the count or the working text.
 /// No destination means no accent — the muted half says what is true alone.
 #[must_use]
@@ -147,7 +147,7 @@ pub fn destination_parts(
     }
 }
 
-/// Who this game knows you as, with the clan tag in the clan's own colour. The
+/// who this game knows you as, with the clan tag in the clan's own colour. The
 /// session's answer wins over the fixture's wherever there is one. A roster
 /// name carries its tag inline, so the tag comes off the name rather than being
 /// said twice.
@@ -204,7 +204,7 @@ pub fn destination_line(
         .child(div().min_w_0().truncate().child(detail))
 }
 
-/// The second line: who this realm knows you as, and where it is. A live
+/// the second line: who this realm knows you as, and where it is. A live
 /// session knows its region; it does not measure a latency, so none is
 /// claimed.
 #[must_use]
@@ -236,7 +236,7 @@ pub fn identity_region_line(palette: &GamePalette, data: &CardData, size: CardSi
         }))
 }
 
-/// The line under the title: the identity where the state names you, and the
+/// the line under the title: the identity where the state names you, and the
 /// state's own words everywhere else.
 #[must_use]
 pub fn status_line(palette: &GamePalette, look: &CardLook, size: CardSize) -> Div {
@@ -401,7 +401,7 @@ pub fn card_art(palette: &GamePalette, look: &CardLook, size: CardSize, art: Ima
         })
 }
 
-/// A band of the game's own light travelling across the art — the only thing on
+/// a band of the game's own light travelling across the art — the only thing on
 /// the card that says work is happening rather than waiting.
 #[must_use]
 pub fn scan_beam(palette: &GamePalette, light: f32) -> AnyElement {
@@ -444,7 +444,7 @@ pub fn ember_beacon(palette: &GamePalette) -> AnyElement {
         .into_any_element()
 }
 
-/// The handshake's own progress. The rail fades with the state while the fill
+/// the handshake's own progress. The rail fades with the state while the fill
 /// crawls on its own two-second clock, which is what makes a handshake feel
 /// like one.
 #[must_use]
@@ -462,7 +462,7 @@ pub fn progress_rail(palette: &GamePalette, look: &CardLook) -> Div {
         )
 }
 
-/// Which shared personality dresses this palette's buttons.
+/// which shared personality dresses this palette's buttons.
 #[must_use]
 pub fn personality(palette: &GamePalette) -> ui_buttons::ModalVariant {
     match palette.program {
@@ -493,10 +493,12 @@ pub fn card_button(
     } else {
         ui_buttons::ButtonTone::Chrome
     };
+    // outline, not ghost: three realms sit in a row here, and Remastered's
+    // bare ghost read as the one tile that had lost its button
     let weight = if seated {
         ui_buttons::ButtonWeight::Primary
     } else {
-        ui_buttons::ButtonWeight::Ghost
+        ui_buttons::ButtonWeight::Outline
     };
     let verb = out_of_play.unwrap_or(look.verb);
     let label = ui_buttons::worded(
@@ -538,7 +540,7 @@ pub fn card_button(
         })
 }
 
-/// The lockup's letter-spacing, which gpui does not have: every letter is
+/// the lockup's letter-spacing, which gpui does not have: every letter is
 /// its own element and the tracking is the gap between them. Sound for the
 /// caps-only strings the lockup sets; a shaped script would need the real
 /// thing. A space cannot carry the word gap itself — shaping collapses a
@@ -572,7 +574,7 @@ pub fn titlecase(word: &str) -> String {
         .join(" ")
 }
 
-/// Puts an alpha on a `0xRRGGBBAA` colour, which is how a value that is
+/// puts an alpha on a `0xRRGGBBAA` colour, which is how a value that is
 /// crossing over is dimmed without touching its hue.
 #[must_use]
 pub fn fade(colour: u32, light: f32) -> u32 {
@@ -586,7 +588,7 @@ pub fn fade(colour: u32, light: f32) -> u32 {
     (colour & 0xffff_ff00) | alpha
 }
 
-/// The realm taking the whole stage. It is the same art the room was showing,
+/// the realm taking the whole stage. It is the same art the room was showing,
 /// brought up to full and lit from below in the game's own colour.
 #[must_use]
 pub fn realm_flood(palette: &GamePalette, flood: f32, art: ImageSource) -> Div {
@@ -610,7 +612,7 @@ pub fn realm_flood(palette: &GamePalette, flood: f32, art: ImageSource) -> Div {
         )))
 }
 
-/// One game's light in the room behind the cards: its art, and its own colour
+/// one game's light in the room behind the cards: its art, and its own colour
 /// thrown up off the floor.
 #[must_use]
 pub fn room_layer(palette: &GamePalette, light: f32, art: ImageSource) -> Div {

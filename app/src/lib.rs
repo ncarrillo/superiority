@@ -1,4 +1,4 @@
-//! What the app is allowed to see of core.
+//! what the app is allowed to see of core.
 //!
 //! Deliberately narrow. This used to re-export all eleven of core's modules
 //! flat, which is why `crate::native::` — `StarCraft II`'s wire protocol — used

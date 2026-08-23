@@ -1,4 +1,4 @@
-//! Product-owned presentation values for a Remastered channel member.
+//! product-owned presentation values for a Remastered channel member.
 
 use gpui::ImageSource;
 

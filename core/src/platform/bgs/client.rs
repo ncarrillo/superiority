@@ -247,7 +247,7 @@ impl Client {
         self.generate_web_credentials_for(self.product)
     }
 
-    /// Mints a credential for an explicitly named product from this already
+    /// mints a credential for an explicitly named product from this already
     /// authenticated Battle.net session. The account session is authoritative;
     /// `program` only scopes the ticket to the protocol that will consume it.
     pub fn generate_web_credentials_for(&mut self, product: Product) -> Result<SecretBytes> {
@@ -287,7 +287,7 @@ impl Client {
         Ok(frame.body)
     }
 
-    /// The complete account inputs consumed by Battle.net Desktop's signed
+    /// the complete account inputs consumed by Battle.net Desktop's signed
     /// product rules: account-level license ids and game-account handles from
     /// one `GetAccountState` response.
     ///
@@ -316,7 +316,7 @@ impl Client {
         Ok(AccountCatalog::from_account_state(Some(state)))
     }
 
-    /// What one game account is, asked for by the id the logon handed back.
+    /// what one game account is, asked for by the id the logon handed back.
     /// `GetAccountState` answers with handles and no names; this is the call
     /// that carries a name, if any call does.
     pub fn game_account(&mut self, game_account: EntityId) -> Result<Option<GameProgram>> {
@@ -354,7 +354,7 @@ impl Client {
         self.socket.close()
     }
 
-    /// Sends a request and returns its token.
+    /// sends a request and returns its token.
     ///
     /// `body` is the message itself, **not** its encoded bytes: this encodes it.
     /// Passing `&something.encode_to_vec()` still compiles — prost counts

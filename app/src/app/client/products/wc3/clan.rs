@@ -1,4 +1,4 @@
-//! The Clan Hall: the account's Warcraft III clan, as Battle.net reports it.
+//! the Clan Hall: the account's Warcraft III clan, as Battle.net reports it.
 //!
 //! From the `Clan Hall` design — the carved-stone shell, one crest plaque
 //! (tag beside the name, description under it), a roster whose ranks are
@@ -18,7 +18,7 @@ use super::*;
 
 const WIDTH: f32 = 640.0;
 const HEIGHT: f32 = 520.0;
-/// The plaque, roster, and hall sit 18px inside the plate's 14px inset.
+/// the plaque, roster, and hall sit 18px inside the plate's 14px inset.
 const INSET: f32 = 32.0;
 const ROW_HEIGHT: f32 = 40.0;
 const CREST: f32 = 26.0;
@@ -34,7 +34,7 @@ const YOU_ROW: u32 = 0xe8c8_740a;
 const ROW_HOVER: u32 = 0xe8c8_7412;
 const LIST_EDGE: u32 = 0x5e4a_2680;
 
-/// The rank's title, where one is established. Only the founder's rank has
+/// the rank's title, where one is established. Only the founder's rank has
 /// been observed against a known meaning; the rest stay numeric rather than
 /// borrowing the classic ladder's names for values that may not be theirs.
 pub(in crate::app::client) const fn clan_rank_title(rank: u32) -> Option<&'static str> {
@@ -44,12 +44,12 @@ pub(in crate::app::client) const fn clan_rank_title(rank: u32) -> Option<&'stati
     }
 }
 
-/// How a rank is written on a row: its title, or the number it is.
+/// how a rank is written on a row: its title, or the number it is.
 pub(in crate::app::client) fn clan_rank_label(rank: u32) -> String {
     clan_rank_title(rank).map_or_else(|| format!("Rank {rank}"), str::to_owned)
 }
 
-/// Whether a clan member is the signed-in account: the member's name, less its
+/// whether a clan member is the signed-in account: the member's name, less its
 /// character code, against the battle tag's name half.
 pub(in crate::app::client) fn is_local_clan_member(
     member_name: &str,
@@ -60,7 +60,7 @@ pub(in crate::app::client) fn is_local_clan_member(
     })
 }
 
-/// The roster's order: highest rank first (1 leads), then whoever is in the
+/// the roster's order: highest rank first (1 leads), then whoever is in the
 /// hall's channel, then by name.
 pub(in crate::app::client) fn clan_roster_order(
     members: &[superiority_core::games::wc3::ClanMember],
@@ -82,7 +82,7 @@ pub(in crate::app::client) fn clan_roster_order(
 }
 
 impl SuperiorityView {
-    /// The account's authoritative Warcraft III clan state, read-only: no
+    /// the account's authoritative Warcraft III clan state, read-only: no
     /// clan-mutating controls exist on the protocol surface yet.
     pub(in crate::app::client) fn wc3_clan_overlay(
         &self,
@@ -288,7 +288,7 @@ impl SuperiorityView {
     }
 }
 
-/// The centred message the hall shows while it has no clan to show.
+/// the centred message the hall shows while it has no clan to show.
 fn hall_message() -> Div {
     div()
         .absolute()
@@ -304,7 +304,7 @@ fn hall_message() -> Div {
         .font_family(ui_wc3_theme::FONT_INTERFACE)
 }
 
-/// One home for the clan's identity: the name with its tag beside it, the
+/// one home for the clan's identity: the name with its tag beside it, the
 /// description under, and the member count at the right. No crest tile —
 /// text never gets two homes — and no founding date, because the service
 /// does not report one.
@@ -389,7 +389,7 @@ fn crest_plaque(info: &superiority_core::games::wc3::ClanInfo, count: usize) -> 
         )
 }
 
-/// A small-caps section word with a gold rule running off it.
+/// a small-caps section word with a gold rule running off it.
 fn section_rule(word: &'static str) -> Div {
     div()
         .flex_shrink_0()
@@ -412,7 +412,7 @@ fn section_rule(word: &'static str) -> Div {
         )))
 }
 
-/// One member: crest slot, name, rank, and a moss mark for anyone standing
+/// one member: crest slot, name, rank, and a moss mark for anyone standing
 /// in the hall's channel right now. The service does not report presence,
 /// so nobody is shown as offline.
 fn clan_row(
@@ -510,7 +510,7 @@ fn clan_row(
     row
 }
 
-/// The hall with nobody else in it: a beginning, not a void. The design puts
+/// the hall with nobody else in it: a beginning, not a void. The design puts
 /// an Invite here; it returns when the protocol has one.
 fn empty_hall() -> Div {
     div()

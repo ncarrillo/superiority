@@ -20,7 +20,7 @@ pub(in crate::app::client) struct ScrMember {
     pub(in crate::app::client) battle_tag: Option<String>,
     pub(in crate::app::client) is_operator: bool,
     pub(in crate::app::client) presence: ScrPresence,
-    /// A resolved ToonProfile/Url result. LegacyChat supplies the identity and
+    /// a resolved ToonProfile/Url result. LegacyChat supplies the identity and
     /// presence attributes; SC:R's profile adapter hydrates this separately.
     pub(in crate::app::client) avatar_url: Option<String>,
 }
@@ -35,7 +35,7 @@ pub(in crate::app::client) enum ScrPresence {
 }
 
 impl ScrPresence {
-    /// The protocol layer reads the presence attributes; this only names the
+    /// the protocol layer reads the presence attributes; this only names the
     /// result in the client's own enum, so the Live publisher and the window
     /// cannot read the same member two ways.
     pub(in crate::app::client) fn from_member(member: &ClassicChatUser) -> Self {

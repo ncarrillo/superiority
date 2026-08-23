@@ -9,15 +9,15 @@ use std::time::Duration;
 use ureq::Agent;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
-/// Response bodies larger than this are a config error, not data.
+/// response bodies larger than this are a config error, not data.
 const MAX_RESPONSE_BYTES: u64 = 65_536;
 
-/// How a POST failed, which decides what the worker does next.
+/// how a POST failed, which decides what the worker does next.
 #[derive(Debug)]
 pub enum PostError {
-    /// Transient: network trouble, 408/429, 5xx. Retry the same payload.
+    /// transient: network trouble, 408/429, 5xx. Retry the same payload.
     Retryable(String),
-    /// The server rejected this payload (other 4xx). Drop it and move on.
+    /// the server rejected this payload (other 4xx). Drop it and move on.
     Rejected(String),
     /// 401/403: the token is bad or revoked. Latch off until restart.
     Unauthorized,
@@ -25,14 +25,14 @@ pub enum PostError {
     Fatal(String),
 }
 
-/// A parsed response: the status code and the (bounded) body.
+/// a parsed response: the status code and the (bounded) body.
 #[derive(Debug)]
 pub struct HttpResponse {
     pub status: u16,
     pub body: Vec<u8>,
 }
 
-/// The endpoint origin must be `https://`, except loopback for `wrangler dev`.
+/// the endpoint origin must be `https://`, except loopback for `wrangler dev`.
 pub fn validate_endpoint(base: &str) -> Result<(), String> {
     let url = url::Url::parse(base).map_err(|error| format!("bad endpoint {base}: {error}"))?;
     match url.scheme() {
@@ -59,7 +59,7 @@ impl LiveHttp {
         Self::with_timeout(Duration::from_secs(15))
     }
 
-    /// Shrunken timeout for the shutdown flush, which runs on a deadline.
+    /// shrunken timeout for the shutdown flush, which runs on a deadline.
     #[must_use]
     pub fn brief() -> Self {
         Self::with_timeout(Duration::from_secs(4))

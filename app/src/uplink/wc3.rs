@@ -1,4 +1,4 @@
-//! Projecting a Reforged hall into Live wire events.
+//! projecting a Reforged hall into Live wire events.
 //!
 //! Like the Remastered projector, the hall's membership is described whole and
 //! re-sent, so it diffs snapshots into a [`Roster`] or [`RosterDelta`]. Chat is
@@ -78,7 +78,7 @@ impl Wc3Projector {
         events
     }
 
-    /// A hall event as wire events. Structural (leave) and transcript lines are
+    /// a hall event as wire events. Structural (leave) and transcript lines are
     /// both possible, so this returns a list; membership itself rides the
     /// channel snapshot, so joins and leaves are rendered as notices, exactly
     /// as the desktop hall renders them.

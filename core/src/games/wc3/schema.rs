@@ -1,4 +1,4 @@
-//! Descriptor-shaped JSON messages used by WC3's BGS v2 services.
+//! descriptor-shaped JSON messages used by WC3's BGS v2 services.
 
 use std::fmt;
 

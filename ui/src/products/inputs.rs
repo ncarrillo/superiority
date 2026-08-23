@@ -1,4 +1,4 @@
-//! The modern input field and checkbox — dressed per realm, like the
+//! the modern input field and checkbox — dressed per realm, like the
 //! buttons and the modal before them.
 //!
 //! From `Canvas.dc.html`'s INPUT FIELDS and CHECKBOXES sections: StarCraft
@@ -24,7 +24,7 @@ use crate::foundation::text_input::FieldInk;
 pub use crate::products::modal::ModalVariant;
 use crate::products::scr::theme::FONT_INTERFACE as SCR_FONT;
 
-/// Whether the field can answer. (Loading is a button's problem.)
+/// whether the field can answer. (Loading is a button's problem.)
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum FieldLife {
     #[default]
@@ -32,18 +32,18 @@ pub enum FieldLife {
     Disabled,
 }
 
-/// What the checkbox holds.
+/// what the checkbox holds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CheckMark {
     Empty,
-    /// How much of the check has arrived, so a toggle can grow its mark the
+    /// how much of the check has arrived, so a toggle can grow its mark the
     /// way the legacy checkbox did. A settled check passes 1.0.
     Check(f32),
     /// Some of a set, not all of it.
     Bar,
 }
 
-/// The engine ink each realm writes in.
+/// the engine ink each realm writes in.
 #[must_use]
 pub fn field_ink(variant: ModalVariant) -> FieldInk {
     match variant {
@@ -65,7 +65,7 @@ pub fn field_ink(variant: ModalVariant) -> FieldInk {
     }
 }
 
-/// Dresses any seat as the realm's field: border, fill, focus light, and
+/// dresses any seat as the realm's field: border, fill, focus light, and
 /// the error channel. Composite fields (the SC2 composer) chain this onto
 /// the seat they already have; plain wells use [`field_shell`].
 pub fn dressed<E: Styled>(seat: E, variant: ModalVariant, focused: bool, error: bool) -> E {
@@ -144,7 +144,7 @@ pub fn dressed<E: Styled>(seat: E, variant: ModalVariant, focused: bool, error: 
     }
 }
 
-/// A field that cannot answer, in the realm's own dimness.
+/// a field that cannot answer, in the realm's own dimness.
 pub fn dressed_disabled<E: Styled>(seat: E, variant: ModalVariant) -> E {
     match variant {
         ModalVariant::Sc2 => seat
@@ -159,7 +159,7 @@ pub fn dressed_disabled<E: Styled>(seat: E, variant: ModalVariant) -> E {
     }
 }
 
-/// The plain input well: a dressed, padded row the caller drops the
+/// the plain input well: a dressed, padded row the caller drops the
 /// engine's element into and sizes. Remastered's well carries its prompt.
 #[must_use]
 pub fn field_shell(variant: ModalVariant, focused: bool, life: FieldLife, error: bool) -> Div {
@@ -200,7 +200,7 @@ pub fn prompt_glyph(variant: ModalVariant, focused: bool, life: FieldLife, error
         .child(glyph)
 }
 
-/// The line under a field that has been refused, in the realm's own words'
+/// the line under a field that has been refused, in the realm's own words'
 /// dress. The words themselves are the caller's.
 #[must_use]
 pub fn error_caption(variant: ModalVariant, text: impl Into<SharedString>) -> Div {
@@ -223,7 +223,7 @@ pub fn error_caption(variant: ModalVariant, text: impl Into<SharedString>) -> Di
     }
 }
 
-/// The checkbox. Square and cyan for StarCraft II, a bracket toggle with no
+/// the checkbox. Square and cyan for StarCraft II, a bracket toggle with no
 /// box for Remastered, a recessed stone socket for Reforged. The caller
 /// wires the click on the returned element and says what it holds; `Check`
 /// carries an arrival amount so toggles can grow their mark.
@@ -338,7 +338,7 @@ fn bracket_checkbox(
         .child(glyph)
 }
 
-/// The angular check, drawn as a real vector so it can arrive: `amount`
+/// the angular check, drawn as a real vector so it can arrive: `amount`
 /// walks the stroke in, 0 to 1.
 fn angular_check(ink: u32, amount: f32) -> impl IntoElement {
     canvas(

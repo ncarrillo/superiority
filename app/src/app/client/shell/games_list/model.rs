@@ -1,4 +1,4 @@
-//! The card fixture, palette, and state enum now live in the shared crate so
+//! the card fixture, palette, and state enum now live in the shared crate so
 //! the desktop shell and the browser viewer draw one card system rather than
 //! two copies. See [`superiority_ui::products::games`].
 //!

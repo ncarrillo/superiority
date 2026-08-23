@@ -18,7 +18,7 @@ const MASKED: u8 = 0x80;
 const RESERVED: u8 = 0x70;
 const OPCODE: u8 = 0x0F;
 const LENGTH: u8 = 0x7F;
-/// Sentinel lengths selecting the 16- and 64-bit extended length fields.
+/// sentinel lengths selecting the 16- and 64-bit extended length fields.
 const LENGTH_16: u8 = 0x7E;
 const LENGTH_64: u8 = 0x7F;
 const MAX_CONTROL_PAYLOAD: usize = 125;
@@ -138,7 +138,7 @@ fn decode_frame(data: &[u8]) -> Result<Option<(Frame, usize)>> {
     )))
 }
 
-/// Frames read from and written to an already-upgraded stream.
+/// frames read from and written to an already-upgraded stream.
 pub struct Framing<S> {
     stream: S,
     buffer: Vec<u8>,
@@ -158,7 +158,7 @@ impl<S: Read + Write> Framing<S> {
         &self.stream
     }
 
-    /// The SDK masks data frames with a zero key — legal, since any key is, and
+    /// the SDK masks data frames with a zero key — legal, since any key is, and
     /// what the retail client does. Control frames get a random one.
     pub fn send_binary(&mut self, payload: &[u8]) -> Result<()> {
         self.send(payload, opcode::BINARY, [0; 4])

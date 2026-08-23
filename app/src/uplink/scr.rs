@@ -1,4 +1,4 @@
-//! Projecting a Remastered classic session into Live wire events.
+//! projecting a Remastered classic session into Live wire events.
 //!
 //! The classic channel is described whole and re-sent on every roster move, so
 //! this diffs successive snapshots the way the `StarCraft II` [`Projector`] does
@@ -21,10 +21,10 @@ use super::classic::{fnv1a32, roster_events, truncate};
 use super::model::{ChannelRef, EventKind, MessageSubkind, NoticeSubkind, UserRef};
 
 pub(super) struct ScrProjector {
-    /// The signed-in account's BattleTag, lowercased, so the local member can
+    /// the signed-in account's BattleTag, lowercased, so the local member can
     /// be marked. The classic roster never says which entry is you.
     local_identity: Option<String>,
-    /// The channel this session is in: its numeric id and the wire key.
+    /// the channel this session is in: its numeric id and the wire key.
     channel: Option<(u32, String)>,
     roster: BTreeMap<u32, UserRef>,
     roster_sent: bool,
@@ -40,7 +40,7 @@ impl ScrProjector {
         }
     }
 
-    /// Turns a whole-channel snapshot into the events that carry the change:
+    /// turns a whole-channel snapshot into the events that carry the change:
     /// a leave and a join when the channel itself changed, then the roster.
     pub(super) fn channel_events(&mut self, channel: &ChatChannel) -> Vec<EventKind> {
         let key = channel_key(channel);
@@ -87,7 +87,7 @@ impl ScrProjector {
         events
     }
 
-    /// One chat line, or `None` when it must not leave the machine.
+    /// one chat line, or `None` when it must not leave the machine.
     pub(super) fn message_event(&self, event: &ChatEvent) -> Option<EventKind> {
         let (_, key) = self.channel.as_ref()?;
         let channel = ChannelRef {
@@ -131,7 +131,7 @@ impl ScrProjector {
         }
     }
 
-    /// The current roster as a complete snapshot, for re-announcing after Live
+    /// the current roster as a complete snapshot, for re-announcing after Live
     /// was toggled back on.
     pub(super) fn resend(&self) -> Vec<EventKind> {
         let Some((_, key)) = self.channel.as_ref() else {
@@ -152,7 +152,7 @@ impl ScrProjector {
         }]
     }
 
-    /// The next snapshot resends the whole roster — used when the session was
+    /// the next snapshot resends the whole roster — used when the session was
     /// re-announced and the viewer needs a fresh, complete member list.
     pub(super) fn reset_roster(&mut self) {
         self.roster_sent = false;
@@ -177,7 +177,7 @@ impl ScrProjector {
     }
 }
 
-/// The wire key for a classic channel: public channels by their numeric id,
+/// the wire key for a classic channel: public channels by their numeric id,
 /// custom channels by name. The product dimension keeps this from colliding
 /// with `StarCraft II`'s `public:<id>`.
 fn channel_key(channel: &ChatChannel) -> String {
@@ -188,7 +188,7 @@ fn channel_key(channel: &ChatChannel) -> String {
     }
 }
 
-/// The member's avatar as a bare profile id the viewer resolves to its own
+/// the member's avatar as a bare profile id the viewer resolves to its own
 /// asset — `avatar_terran_marine`, or a full URL if the service gave one.
 fn avatar_id(user: &ChatUser) -> Option<String> {
     let raw = user

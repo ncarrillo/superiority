@@ -227,7 +227,7 @@ impl ChannelTabs {
         }
     }
 
-    /// The realm the strip is dressed as: StarCraft II's nav plate and cyan
+    /// the realm the strip is dressed as: StarCraft II's nav plate and cyan
     /// glow line, or Reforged's carved stone and gold underline. Remastered
     /// keeps StarCraft II's material for now.
     #[must_use]
@@ -627,7 +627,7 @@ fn tab_chrome(spec: TabChrome, assets: &Sc2Assets) -> Div {
     chrome
 }
 
-/// The stone strip's ink: one gold, three weights, and unread lifts an idle
+/// the stone strip's ink: one gold, three weights, and unread lifts an idle
 /// name to the hover weight so the stud beside it has company.
 fn stone_tab_tint(active: bool, hovered: bool, unread: bool) -> Hsla {
     if active {
@@ -688,7 +688,7 @@ fn stone_tab_chrome(spec: TabChrome) -> Div {
     chrome
 }
 
-/// The gold stud that marks an unread stone tab.
+/// the gold stud that marks an unread stone tab.
 fn stone_unread_stud() -> Div {
     div()
         .size(px(5.0))

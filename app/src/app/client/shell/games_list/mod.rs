@@ -12,46 +12,52 @@ pub(in crate::app::client) use motion::{CardMotion, Motion, StageMotion};
 use superiority_ui::products::games::PickerState;
 pub(in crate::app::client) use titlebar::{RefreshChip, RefreshRun, SeveredPlaque, SignOutChip};
 use view::{
-    CardSize, card_index, card_product, hero_section, masthead, palette_section, picker_section,
-    picker_size, picker_titlebar, slot_offset, together_section,
+    CardSize, afterglow_plate, card_index, card_product, hero_section, masthead, palette_section,
+    picker_section, picker_size, picker_titlebar, slot_offset, together_section,
 };
 
-/// The states walk themselves so the whole set can be seen without touching
+/// the states walk themselves so the whole set can be seen without touching
 /// anything; a click steps them by hand.
 pub(in crate::app::client) const STATE_DWELL: Duration = Duration::from_millis(2600);
-/// How long a connect takes before it lands. Long enough to watch the beam
+/// how long a connect takes before it lands. Long enough to watch the beam
 /// cross the art, which is the point of watching it at all.
 const CONNECT_TIME: Duration = Duration::from_millis(2200);
+/// how long the picker's last frame stays under a realm after the handoff.
+/// The realm's reveal is 340 ms and starts a frame later, and a heavy first
+/// frame of the realm can hold it up; once the realm is opaque the plate is
+/// hidden anyway, so it outlasts the reveal by a margin rather than cutting it
+/// short.
+const AFTERGLOW: Duration = Duration::from_millis(1200);
 const HERO_SECTION_HEIGHT: f32 = 540.0;
 const SHEET: u32 = 0x0004_060a;
 const RULE: u32 = 0x001a_2028;
 const PAPER: u32 = 0x00e6_edf7;
 const UNLIT: u32 = 0x001a_2430;
 
-/// What the session behind a game is doing right now. The card is a view of
+/// what the session behind a game is doing right now. The card is a view of
 /// this rather than of a fixture, so what it says is what is true.
 #[derive(Clone, Default)]
 pub(in crate::app::client) struct LiveGame {
     pub(in crate::app::client) state: CardState,
-    /// Who you are in there — the clan tag and name the roster knows, falling
+    /// who you are in there — the clan tag and name the roster knows, falling
     /// back to the account's battle tag before a channel has answered.
     pub(in crate::app::client) clan_tag: Option<String>,
     pub(in crate::app::client) handle: Option<String>,
-    /// Where you are, and how many are there with you.
+    /// where you are, and how many are there with you.
     pub(in crate::app::client) channel: Option<String>,
-    /// The Battle.net region *this* product's session came in through. Per
+    /// the Battle.net region *this* product's session came in through. Per
     /// product, like everything else here: the shared copy showed
     /// `StarCraft II`'s region and battletag on every card.
     pub(in crate::app::client) region: Option<u32>,
     pub(in crate::app::client) online: Option<usize>,
-    /// What the connection is doing, while it is doing it.
+    /// what the connection is doing, while it is doing it.
     pub(in crate::app::client) progress: Option<String>,
     /// "Step 2 of 4" while the handshake runs — the dialog's own counter, so
     /// the card says how far along it is rather than only what it is doing.
     pub(in crate::app::client) step: Option<String>,
 }
 
-/// A state change in flight: what the cards were, what they are becoming, and
+/// a state change in flight: what the cards were, what they are becoming, and
 /// how long ago that started. Every card on screen reads the same one, which is
 /// what keeps three palettes in step.
 #[derive(Clone, Copy)]
@@ -68,7 +74,7 @@ impl Walk {
     }
 }
 
-/// Which of the two screens the flags asked for: the sheet that walks the card
+/// which of the two screens the flags asked for: the sheet that walks the card
 /// through its states, or the picker those cards make.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(in crate::app::client) enum GamesScreen {
@@ -81,23 +87,23 @@ pub(in crate::app::client) enum GamesScreen {
     reason = "independent switches on the picker, not a state enum in disguise"
 )]
 pub(in crate::app::client) struct GamesComponent {
-    /// Which screen to show, if either. Without a flag the whole surface stays
+    /// which screen to show, if either. Without a flag the whole surface stays
     /// out of the way.
     pub(in crate::app::client) showing: Option<GamesScreen>,
     pub(in crate::app::client) state: CardState,
-    /// What the cards are crossing over from. A state change is a transition
+    /// what the cards are crossing over from. A state change is a transition
     /// rather than a cut, so the card it was is still on screen for a moment.
     pub(in crate::app::client) previous: CardState,
     pub(in crate::app::client) advanced: Instant,
-    /// The picker's selection and choreography: which realm is chosen, what it
+    /// the picker's selection and choreography: which realm is chosen, what it
     /// was (so the room crossfades), which card the pointer lifts, and where the
     /// entrance/enter-game animation has got to. Shared with the browser viewer.
     pub(in crate::app::client) picker: PickerState<Instant>,
-    /// Which games the authoritative account owns, by program code. `None`
+    /// which games the authoritative account owns, by program code. `None`
     /// until its license catalogue arrives. Live mode shows no cards while
     /// this is unknown; a preview with no catalogue still demonstrates all.
     pub(in crate::app::client) owned: Option<Vec<String>>,
-    /// Whether this is a real client rather than the design screens.
+    /// whether this is a real client rather than the design screens.
     ///
     /// The palettes carry fixture identities, regions, pings, and channels so
     /// the design screens have something to draw. On a live card those read as
@@ -105,36 +111,39 @@ pub(in crate::app::client) struct GamesComponent {
     /// `ncarrillo` in `The Void` at 54 ms — so live mode shows nothing where it
     /// knows nothing.
     pub(in crate::app::client) live_mode: bool,
-    /// Each realm's own state in the picker. The walk demonstrates the six on
+    /// each realm's own state in the picker. The walk demonstrates the six on
     /// the hero card; these are what the three games are actually in.
     pub(in crate::app::client) card: [CardState; GAMES.len()],
     pub(in crate::app::client) card_from: [CardState; GAMES.len()],
     pub(in crate::app::client) card_since: [Instant; GAMES.len()],
 
-    /// Which game the hero card is dressed as. The walk is about the states, so
+    /// which game the hero card is dressed as. The walk is about the states, so
     /// the game it demonstrates them on is a choice made once.
     pub(in crate::app::client) hero: usize,
     pub(in crate::app::client) scroll: ScrollHandle,
-    /// Fades without journeys, for a reader who has asked for that.
+    /// fades without journeys, for a reader who has asked for that.
     pub(in crate::app::client) reduced_motion: bool,
-    /// Plays the enter-game sequence on its own once the entrance has settled,
+    /// plays the enter-game sequence on its own once the entrance has settled,
     /// so the choreography can be watched without a keyboard.
     pub(in crate::app::client) rehearsing: bool,
-    /// Set once the picker has dissolved into a realm. From here the client
+    /// set once the picker has dissolved into a realm. From here the client
     /// takes over and the picker is done for this session.
     pub(in crate::app::client) entered: bool,
-    /// The live session behind each card, keyed by the product it belongs to.
+    /// the realm just entered, and when: for as long as the picker's last frame
+    /// is wanted under the realm's reveal.
+    afterglow: Option<(usize, Instant)>,
+    /// the live session behind each card, keyed by the product it belongs to.
     ///
     /// Per-product because more than one game can be signed in at once. While
     /// `StarCraft II` was the only playable one a single slot was accidentally
     /// right; with Remastered playable too, one slot showed `StarCraft II`'s
     /// channel, population, and errors on Remastered's card.
     pub(in crate::app::client) live: BTreeMap<Product, LiveGame>,
-    /// The top bar's REFRESH, from the click until UP TO DATE has faded.
+    /// the top bar's REFRESH, from the click until UP TO DATE has faded.
     pub(in crate::app::client) refresh: Option<RefreshRun>,
-    /// When SIGN OUT was armed, if it is waiting for its confirming click.
+    /// when SIGN OUT was armed, if it is waiting for its confirming click.
     pub(in crate::app::client) sign_out_armed: Option<Instant>,
-    /// The identity the bar keeps greyed while the account is signed out.
+    /// the identity the bar keeps greyed while the account is signed out.
     pub(in crate::app::client) severing: Option<SeveredPlaque>,
 }
 
@@ -159,6 +168,7 @@ impl GamesComponent {
             reduced_motion: reduced,
             rehearsing: false,
             entered: false,
+            afterglow: None,
             live: BTreeMap::new(),
             live_mode: false,
             refresh: None,
@@ -178,7 +188,7 @@ impl GamesComponent {
         games
     }
 
-    /// Walks to the next state once the current one has been up long enough.
+    /// walks to the next state once the current one has been up long enough.
     /// Returns whether anything moved, so the caller only repaints on a change.
     pub(in crate::app::client) fn advance_if_due(&mut self) -> bool {
         if Instant::now().saturating_duration_since(self.advanced) < STATE_DWELL {
@@ -198,7 +208,7 @@ impl GamesComponent {
         self.advanced = Instant::now();
     }
 
-    /// Notes which card the pointer is over. Reaching for a card also chooses
+    /// notes which card the pointer is over. Reaching for a card also chooses
     /// it, so the room follows the pointer; taking the pointer away leaves the
     /// choice where it was, so the room does not go dark behind you.
     pub(in crate::app::client) fn reach(&mut self, card: Option<usize>) -> bool {
@@ -206,25 +216,26 @@ impl GamesComponent {
         self.picker.reach(card, Instant::now(), &mask)
     }
 
-    /// Chooses a realm, keeping the one it replaced so the room can cross
+    /// chooses a realm, keeping the one it replaced so the room can cross
     /// between them.
     pub(in crate::app::client) fn choose(&mut self, card: usize) -> bool {
         let mask = self.actionable_mask();
         self.picker.choose(card, Instant::now(), &mask)
     }
 
-    /// The three cards' actionability, the mask the shared picker filters on.
+    /// the three cards' actionability, the mask the shared picker filters on.
     fn actionable_mask(&self) -> [bool; GAMES.len()] {
         std::array::from_fn(|index| self.actionable(index))
     }
 
-    /// Walks the choreography on. The enter-game handoff sets [`Self::entered`]
+    /// walks the choreography on. The enter-game handoff sets [`Self::entered`]
     /// for the host to read, and a rehearsal walks itself in once the picker is
     /// still — the one way to watch the sequence without a keyboard.
     pub(in crate::app::client) fn advance_motion(&mut self, now: Instant) -> bool {
         let advanced = self.picker.advance(now);
-        if advanced.entered.is_some() {
+        if let Some(card) = advanced.entered {
             self.entered = true;
+            self.afterglow = Some((card, now));
             return true;
         }
         if self.rehearsing && self.picker.ready() {
@@ -235,7 +246,7 @@ impl GamesComponent {
         advanced.animating
     }
 
-    /// Commits to a realm. Nothing else on the picker answers while this runs.
+    /// commits to a realm. Nothing else on the picker answers while this runs.
     pub(in crate::app::client) fn begin_entering(&mut self, card: usize, now: Instant) {
         if !self.actionable(card) {
             return;
@@ -243,22 +254,23 @@ impl GamesComponent {
         self.picker.begin_entering(card, now);
     }
 
-    /// Comes back out to the list from inside a realm.
+    /// comes back out to the list from inside a realm.
     ///
     /// Distinct from [`Self::snap_back`], which only reverses an entrance still
     /// in flight. Once a realm has been entered the picker is out of the way,
     /// and returning replays the entrance rather than appearing all at once.
     pub(in crate::app::client) fn return_to_list(&mut self, now: Instant) {
         self.entered = false;
+        self.afterglow = None;
         self.picker.return_to_list(now);
     }
 
-    /// Backs out of one, from wherever it had got to.
+    /// backs out of one, from wherever it had got to.
     pub(in crate::app::client) fn snap_back(&mut self, now: Instant) -> bool {
         self.picker.snap_back(now)
     }
 
-    /// How this card is placed right now: the entrance puts it on screen, and
+    /// how this card is placed right now: the entrance puts it on screen, and
     /// after that only entering a realm moves it. The resting slot offset is
     /// this shell's own layout concern.
     fn card_motion(&self, index: usize, size: CardSize, now: Instant) -> CardMotion {
@@ -270,7 +282,7 @@ impl GamesComponent {
         )
     }
 
-    /// The region this session came in through, in the words Battle.net uses
+    /// the region this session came in through, in the words Battle.net uses
     /// for them. The ids are the service's own; anything we have no name for is
     /// left unsaid rather than guessed at.
     pub(in crate::app::client) fn region_name(region: Option<u32>) -> Option<&'static str> {
@@ -289,29 +301,36 @@ impl GamesComponent {
         self.live.get(&Product::from_code(game.program)?)
     }
 
-    /// Whether the picker has handed over to the client.
+    /// whether the picker has handed over to the client.
     pub(in crate::app::client) fn has_entered(&self) -> bool {
         self.entered
     }
 
-    /// Which card is on its way into a realm, if any.
+    /// the realm the picker just dissolved into, for as long as its last frame
+    /// should stay under the realm's reveal.
+    pub(in crate::app::client) fn afterglow(&self, now: Instant) -> Option<usize> {
+        let (card, since) = self.afterglow?;
+        (now.saturating_duration_since(since) < AFTERGLOW).then_some(card)
+    }
+
+    /// which card is on its way into a realm, if any.
     pub(in crate::app::client) fn entering(&self) -> Option<usize> {
         self.picker.motion.entering_card()
     }
 
-    /// Whether the picker is answering the pointer and the keyboard at all.
+    /// whether the picker is answering the pointer and the keyboard at all.
     pub(in crate::app::client) fn answering(&self) -> bool {
         matches!(self.picker.motion, Motion::Ready)
     }
 
-    /// Whether the authoritative Battle.net account has this game.
+    /// whether the authoritative Battle.net account has this game.
     pub(in crate::app::client) fn owns(&self, index: usize) -> bool {
         // a game with no protocol behind it is never offered, however much of
         // it the account owns
         GAMES.get(index).is_some_and(|game| game.playable) && self.licensed(index)
     }
 
-    /// Whether the account has this game, ignoring whether this client can do
+    /// whether the account has this game, ignoring whether this client can do
     /// anything with it. The two are separate: one is about the account, the
     /// other about how much of this app is written yet.
     pub(in crate::app::client) fn licensed(&self, index: usize) -> bool {
@@ -326,12 +345,12 @@ impl GamesComponent {
             .any(|program| program.eq_ignore_ascii_case(palette.program))
     }
 
-    /// Whether this card can be used. Hidden, unprovisioned games never answer.
+    /// whether this card can be used. Hidden, unprovisioned games never answer.
     pub(in crate::app::client) fn actionable(&self, index: usize) -> bool {
         self.owns(index)
     }
 
-    /// Replaces the one authoritative license catalogue and moves selection to
+    /// replaces the one authoritative license catalogue and moves selection to
     /// the first visible product if the old selection disappeared.
     pub(in crate::app::client) fn set_owned(&mut self, owned: Vec<String>) {
         self.owned = Some(owned);
@@ -372,7 +391,7 @@ impl GamesComponent {
             .count()
     }
 
-    /// The state a card rests in: the one the game is actually in when the
+    /// the state a card rests in: the one the game is actually in when the
     /// account has it, and the design's empty state when it does not.
     pub(in crate::app::client) fn resting(&self, index: usize) -> CardState {
         if self.owns(index) {
@@ -384,7 +403,7 @@ impl GamesComponent {
         }
     }
 
-    /// Puts one realm into a state, keeping what it was so the card can cross
+    /// puts one realm into a state, keeping what it was so the card can cross
     /// over rather than cut.
     pub(in crate::app::client) fn set_card(&mut self, index: usize, state: CardState) {
         let Some(current) = self.card.get_mut(index) else {
@@ -398,7 +417,7 @@ impl GamesComponent {
         self.card_since[index] = Instant::now();
     }
 
-    /// Walks a card one step through the state machine, the way pressing it
+    /// walks a card one step through the state machine, the way pressing it
     /// used to.
     ///
     /// Test-only since every playable product connects at startup: there is no
@@ -421,7 +440,7 @@ impl GamesComponent {
         self.set_card(index, next);
     }
 
-    /// Lands any connection that has been running long enough. Returns whether
+    /// lands any connection that has been running long enough. Returns whether
     /// anything moved.
     pub(in crate::app::client) fn land_connections(&mut self, now: Instant) -> bool {
         let mut landed = false;
@@ -436,7 +455,7 @@ impl GamesComponent {
         landed
     }
 
-    /// Moves the choice from one card to the next, stopping at the ends rather
+    /// moves the choice from one card to the next, stopping at the ends rather
     /// than wrapping: a row of three is short enough to see whole, and wrapping
     /// past the edge of something you can see is disorienting.
     /// Steps over the games the account does not have: they are on screen to
@@ -446,13 +465,13 @@ impl GamesComponent {
         self.picker.move_choice(delta, Instant::now(), &mask);
     }
 
-    /// The three cards' visibility, the mask the room crossfade filters on — a
+    /// the three cards' visibility, the mask the room crossfade filters on — a
     /// game with nothing behind it draws no room, even where it would be offered.
     fn visible_mask(&self) -> [bool; GAMES.len()] {
         std::array::from_fn(|index| self.visible(index))
     }
 
-    /// The rooms to paint, bottom first. A crossfade is one image coming up
+    /// the rooms to paint, bottom first. A crossfade is one image coming up
     /// *over* another, not both going half-transparent at once: fading them
     /// against each other shows whatever is behind them both, which reads as a
     /// dip to flat colour on the way past.
@@ -465,7 +484,7 @@ impl GamesComponent {
 }
 
 impl SuperiorityView {
-    /// Taking a card, from the pointer or the keyboard — one path, so the two
+    /// taking a card, from the pointer or the keyboard — one path, so the two
     /// cannot drift into meaning different things.
     ///
     /// Takes you into a realm.
@@ -502,7 +521,7 @@ impl SuperiorityView {
         }
     }
 
-    /// Points every card at its own session.
+    /// points every card at its own session.
     ///
     /// Each card is a view of one product's session, so every session has to be
     /// visited — not just the focused one. While this only synced the focused
@@ -524,7 +543,7 @@ impl SuperiorityView {
         self.sync_live_game();
     }
 
-    /// Points the focused product's card at its session: how far the connection
+    /// points the focused product's card at its session: how far the connection
     /// has got, who it says you are, and where it has put you. Everything here
     /// is read from state the client already keeps — the card is a view of the
     /// session, not a second copy of it.
@@ -603,7 +622,7 @@ impl SuperiorityView {
         }
     }
 
-    /// The card system, laid out the way the design lays it out: the states
+    /// the card system, laid out the way the design lays it out: the states
     /// walked one at a time against a hero card, the picker those cards
     /// actually make, the three palettes side by side in the same state, and
     /// the tokens they each read.
@@ -647,7 +666,7 @@ impl SuperiorityView {
 }
 
 impl SuperiorityView {
-    /// The picker on its own — the screen the cards are actually for, without
+    /// the picker on its own — the screen the cards are actually for, without
     /// the sheet that explains them. It answers to the keyboard as well as the
     /// pointer, and lays itself out for the window it is given.
     pub(in crate::app::client) fn picker_screen(
@@ -676,6 +695,58 @@ impl SuperiorityView {
                 cx,
             ))
             .child(picker_section(&self.games, size, now, true, cx))
+            .into_any_element()
+    }
+
+    /// the picker's last frame, drawn under a realm that is still revealing
+    /// itself, and gone once the reveal is over. Without it the handoff went
+    /// flood, the window's bare ground, realm — and the realm's fade-in had
+    /// nothing to cross from.
+    pub(in crate::app::client) fn entered_afterglow(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let now = Instant::now();
+        let card = self.games.afterglow(now)?;
+        let palette = GAMES.get(card)?;
+        let titlebar = picker_titlebar(
+            self.runtime.authoritative_battle_tag.as_deref(),
+            self.runtime.authoritative_region,
+            &self.games,
+            self.realms_in_flight(),
+            now,
+            window,
+            cx,
+        );
+        Some(afterglow_plate(&self.games, card, palette, titlebar).into_any_element())
+    }
+
+    /// an update announced before any realm is chosen gets the whole window:
+    /// the dialog, in StarCraft II's dressing, over the picker's own dark and
+    /// nothing else. The picker is held back rather than dimmed under it, and
+    /// when the dialog goes it arrives the way it always does — blooming out
+    /// of this same black.
+    pub(in crate::app::client) fn update_stage(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let dialog =
+            self.updates
+                .overlay(ui_shared_modal::ModalVariant::Sc2, &self.chrome, window, cx);
+        div()
+            .id("superiority-update-stage")
+            .size_full()
+            .relative()
+            .bg(rgb(SHEET))
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if this.update_dialog_key(event, cx) {
+                    cx.notify();
+                }
+            }))
+            .child(dialog)
             .into_any_element()
     }
 }

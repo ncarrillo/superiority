@@ -1,4 +1,4 @@
-//! The shared modal frame — one shell, dressed per realm.
+//! the shared modal frame — one shell, dressed per realm.
 //!
 //! `Canvas.dc.html`'s crisp rebuild of the dialog chrome: a filled metal
 //! band with hard 1px rims and the bloom layered *under* the vector so the
@@ -53,7 +53,7 @@ impl ModalVariant {
         }
     }
 
-    /// The realm's scrollbar: StarCraft II's web-blue thumb, the console's
+    /// the realm's scrollbar: StarCraft II's web-blue thumb, the console's
     /// rust that lights to its accent, Reforged's bronze that lights to gold.
     /// Every scrolling surface inside a realm draws its bar from here.
     #[must_use]
@@ -80,7 +80,7 @@ impl ModalVariant {
 // the frame
 // ---------------------------------------------------------------------------
 
-/// The chrome, absolutely positioned to fill the panel: bloom under vector,
+/// the chrome, absolutely positioned to fill the panel: bloom under vector,
 /// band, plate, and the realm's own furniture. Content goes over it in a
 /// [`content`] container.
 #[must_use]
@@ -92,7 +92,7 @@ pub fn frame(variant: ModalVariant, width: f32, height: f32, textures: &ModalTex
     }
 }
 
-/// The same shell gone wrong, per realm: StarCraft II's chrome flips whole
+/// the same shell gone wrong, per realm: StarCraft II's chrome flips whole
 /// to the legacy alert orange with a recessed notch where the machined tab
 /// was; Remastered's plate is already red, so red cannot mean error there —
 /// the frame stays and the caution channel is amber, under a field of
@@ -112,7 +112,7 @@ pub fn error_frame(
     }
 }
 
-/// How the alarm names itself, in the realm's own voice.
+/// how the alarm names itself, in the realm's own voice.
 #[must_use]
 pub fn error_title(variant: ModalVariant, text: &str) -> Div {
     let titled = match variant {
@@ -135,7 +135,7 @@ pub fn error_title(variant: ModalVariant, text: &str) -> Div {
         .child(titled.font_weight(FontWeight::BOLD))
 }
 
-/// The line under the alarm's name: SC2's status code, Remastered's
+/// the line under the alarm's name: SC2's status code, Remastered's
 /// terminal chatter. Reforged draws [`error_divider`] instead.
 #[must_use]
 pub fn error_subtitle(variant: ModalVariant, text: &str) -> Div {
@@ -181,7 +181,7 @@ pub fn hazard_bar(textures: &ModalTextures, width: f32) -> Div {
     )
 }
 
-/// Where the realm keeps its content: the plate's inset, plus the doc's own
+/// where the realm keeps its content: the plate's inset, plus the doc's own
 /// inner padding. The caller fills it.
 #[must_use]
 pub fn content(variant: ModalVariant) -> Div {
@@ -202,7 +202,7 @@ pub fn content(variant: ModalVariant) -> Div {
         .px(px(8.0))
 }
 
-/// The title, set in the realm's own voice and centred the way the doc sets
+/// the title, set in the realm's own voice and centred the way the doc sets
 /// it. The doc also glows the glyphs; gpui has no text shadow, so the letters
 /// carry the colour and the frame carries the light.
 #[must_use]
@@ -229,7 +229,7 @@ pub fn title(variant: ModalVariant, text: &str) -> Div {
         .child(titled.font_weight(FontWeight::BOLD))
 }
 
-/// The ✕, styled but not wired: the caller gives it an id and a click.
+/// the ✕, styled but not wired: the caller gives it an id and a click.
 #[must_use]
 pub fn close_glyph(variant: ModalVariant) -> Div {
     let (rest, lit) = match variant {
@@ -252,7 +252,7 @@ pub fn close_glyph(variant: ModalVariant) -> Div {
         .child("✕")
 }
 
-/// The doc's letter-spacing, which gpui does not have: each letter is its own
+/// the doc's letter-spacing, which gpui does not have: each letter is its own
 /// element and the tracking is the gap between them. Sound for the caps and
 /// small words a modal title sets; a shaped script would need the real thing.
 fn tracked(text: &str, tracking: f32, space: f32) -> Div {
@@ -269,7 +269,7 @@ fn tracked(text: &str, tracking: f32, space: f32) -> Div {
         }))
 }
 
-/// The bloom behind the vector — a separate rounded shadow layer, so the
+/// the bloom behind the vector — a separate rounded shadow layer, so the
 /// edge itself never blurs.
 fn bloom(radius: f32, near: (f32, u32), far: (f32, u32)) -> Div {
     div().absolute().inset_0().rounded(px(radius)).shadow(vec![
@@ -278,7 +278,7 @@ fn bloom(radius: f32, near: (f32, u32), far: (f32, u32)) -> Div {
     ])
 }
 
-/// The metal band's vertical sheen: bright at both rims, dark through the
+/// the metal band's vertical sheen: bright at both rims, dark through the
 /// middle. gpui gradients carry two stops, so the doc's five become four
 /// stacked strips filling the band box — the plate covers the middle, and
 /// only the ring shows. The end strips wear the box's corner radius
@@ -390,7 +390,7 @@ fn sc2_frame(width: f32, height: f32, textures: &ModalTextures, alarm: bool) -> 
         .child(sc2_decorations(width, height, alarm))
 }
 
-/// The 1.5px outer rim and the machined tab inserts, drawn as real vectors:
+/// the 1.5px outer rim and the machined tab inserts, drawn as real vectors:
 /// lyon strokes the rim and fills the trapezoids, so they stay crisp at any
 /// scale and any size. The alarm draws neither — its mark is a recessed
 /// notch cut into the top band, carrying a bright alert line and two
@@ -485,7 +485,7 @@ fn tab_gradient(flipped: bool) -> Background {
     }
 }
 
-/// One machined insert: 136 wide at the rim, 112 where it meets the plate.
+/// one machined insert: 136 wide at the rim, 112 where it meets the plate.
 fn tab_points(origin: Point<Pixels>, centre: f32, rim_y: f32, plate_y: f32) -> [Point<Pixels>; 4] {
     [
         point(origin.x + px(centre - 68.0), origin.y + px(rim_y)),
@@ -522,7 +522,7 @@ fn tab_outline(
     builder.build().ok()
 }
 
-/// A rounded rectangle outline for the rims, stroked at the doc's weight.
+/// a rounded rectangle outline for the rims, stroked at the doc's weight.
 fn rounded_rect_stroke(
     origin: Point<Pixels>,
     inset: f32,
@@ -682,7 +682,7 @@ fn wc3_rims(width: f32, height: f32) -> impl IntoElement {
     .size_full()
 }
 
-/// The room going dark behind a dialog. The legacy module carried this; it
+/// the room going dark behind a dialog. The legacy module carried this; it
 /// belongs with the shell that replaced it.
 #[must_use]
 pub fn dimmer(closing: bool) -> gpui::AnyElement {
@@ -715,15 +715,15 @@ pub fn dimmer(closing: bool) -> gpui::AnyElement {
 // motion
 // ---------------------------------------------------------------------------
 
-/// How long the doc's closes and opens run.
+/// how long the doc's closes and opens run.
 const SCR_OPEN: Duration = Duration::from_millis(340);
 const SCR_CLOSE: Duration = Duration::from_millis(260);
 const WC3_OPEN: Duration = Duration::from_millis(420);
 const WC3_CLOSE: Duration = Duration::from_millis(240);
-/// Reduced motion swaps every entrance and exit for this one fade.
+/// reduced motion swaps every entrance and exit for this one fade.
 const REDUCED_FADE: Duration = Duration::from_millis(150);
 
-/// The CRT power-cycle, held step by step — `steps(1)`, no easing, no
+/// the CRT power-cycle, held step by step — `steps(1)`, no easing, no
 /// motion: pure phosphor. Each entry is (at, opacity) and holds until the
 /// next.
 const SCR_OPEN_STEPS: &[(f32, f32)] = &[
@@ -751,7 +751,7 @@ fn held(steps: &[(f32, f32)], delta: f32) -> f32 {
         .map_or(0.0, |(_, value)| *value)
 }
 
-/// The panel under its realm's own motion. StarCraft II opens on the legacy
+/// the panel under its realm's own motion. StarCraft II opens on the legacy
 /// scan-beam reveal — the shipped animation the doc's holo-projector open
 /// was describing, and better than a re-transcription of it. Remastered
 /// power-cycles, Reforged drops like stone with a 3px thud and sinks away.
@@ -903,7 +903,7 @@ fn stone(panel: Stateful<Div>, closing: bool, width: f32, height: f32) -> Div {
 // baked light
 // ---------------------------------------------------------------------------
 
-/// The energy fields and the torch wash are radial washes with masked
+/// the energy fields and the torch wash are radial washes with masked
 /// hairlines — light gpui has no gradient for, so they are baked per size
 /// and cached. Textures render at 2x so retina panes stay crisp. The cache
 /// is interior-mutable because the components that draw dialogs hand their
@@ -950,7 +950,7 @@ impl ModalTextures {
             .clone()
     }
 
-    /// The same interference at whisper strength, for laying over a whole
+    /// the same interference at whisper strength, for laying over a whole
     /// window rather than a dialog plate.
     pub fn scanline_veil(&self, height: f32) -> Arc<RenderImage> {
         let key = height.round().max(1.0) as u32;
@@ -962,7 +962,7 @@ impl ModalTextures {
             .clone()
     }
 
-    /// A corner-darkening vignette, baked once at a small fixed size and
+    /// a corner-darkening vignette, baked once at a small fixed size and
     /// stretched over whatever it dims — the falloff is soft enough that the
     /// scale-up never shows.
     pub fn vignette(&self) -> Arc<RenderImage> {
@@ -1007,7 +1007,7 @@ fn render_image(mut baked: RgbaImage) -> Arc<RenderImage> {
     Arc::new(RenderImage::new(vec![Frame::new(baked)]))
 }
 
-/// Where a point sits on a radial gradient's ray: 0 at the centre, 1 at the
+/// where a point sits on a radial gradient's ray: 0 at the centre, 1 at the
 /// ellipse the stops are measured against.
 fn ray(x: f32, y: f32, centre: (f32, f32), radii: (f32, f32)) -> f32 {
     let dx = (x - centre.0) / radii.0;
@@ -1019,7 +1019,7 @@ fn lerp(from: f32, to: f32, amount: f32) -> f32 {
     (to - from).mul_add(amount.clamp(0.0, 1.0), from)
 }
 
-/// One straight-alpha source-over, in place.
+/// one straight-alpha source-over, in place.
 fn compose(under: &mut [f32; 4], over: [f32; 4]) {
     let alpha = over[3] + under[3] * (1.0 - over[3]);
     if alpha <= f32::EPSILON {
@@ -1042,7 +1042,7 @@ fn to_pixel(value: [f32; 4]) -> Rgba<u8> {
     ])
 }
 
-/// The doc's energy field: a blue radial wash off the rim with fine 115°
+/// the doc's energy field: a blue radial wash off the rim with fine 115°
 /// scan hairlines masked by the same falloff, so the texture fades with the
 /// glow instead of ending in a hard grid edge. The bottom field is the same
 /// light at lower wattage.
@@ -1166,7 +1166,7 @@ fn bake_wc3_wash(width: f32, height: f32, alarm: bool) -> RgbaImage {
     baked
 }
 
-/// One texel wide: transparent for three logical pixels, 28% black for the
+/// one texel wide: transparent for three logical pixels, 28% black for the
 /// fourth. Stretched horizontally by the renderer.
 fn bake_scanlines(height: f32, strength: f32) -> RgbaImage {
     let device_height = (height * TEXTURE_SCALE).round().max(1.0) as u32;
@@ -1183,7 +1183,7 @@ fn bake_scanlines(height: f32, strength: f32) -> RgbaImage {
     baked
 }
 
-/// Clear through the middle, easing to a 30% black at the corners. The
+/// clear through the middle, easing to a 30% black at the corners. The
 /// ellipse the falloff is measured against overhangs the box the way the
 /// design's does, so the edges of the frame dim before the centre ever
 /// does.
@@ -1201,7 +1201,7 @@ fn bake_vignette() -> RgbaImage {
     baked
 }
 
-/// Caution stripes at 45°: ten logical pixels of amber, ten of near-black.
+/// caution stripes at 45°: ten logical pixels of amber, ten of near-black.
 fn bake_hazard(width: f32) -> RgbaImage {
     let device_width = (width * TEXTURE_SCALE).round().max(1.0) as u32;
     let device_height = (8.0 * TEXTURE_SCALE).round() as u32;

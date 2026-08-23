@@ -1,4 +1,4 @@
-//! Product-neutral JSON transport for the browser host.
+//! product-neutral JSON transport for the browser host.
 
 use gloo_net::http::Request;
 use serde::de::DeserializeOwned;

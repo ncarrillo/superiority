@@ -1,4 +1,4 @@
-//! The small gateway population snapshot shown when SC:R chat comes online.
+//! the small gateway population snapshot shown when SC:R chat comes online.
 //!
 //! Retail requests this separately from `LegacyChat.Connect`; the welcome and
 //! help prose around it is client-owned UI text. The request uses the retail

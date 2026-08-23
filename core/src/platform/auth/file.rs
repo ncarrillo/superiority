@@ -17,11 +17,11 @@ use crate::{Error, Result, bgs::SecretBytes, product::Product};
 use super::CredentialStore;
 
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
-/// What the cache was called when there was only ever one product to cache for.
+/// what the cache was called when there was only ever one product to cache for.
 /// Still read, once, so signing in does not start over — see `for_product`.
 const LEGACY_CREDENTIAL_FILENAME: &str = "web-credentials.bin";
 
-/// A web credential is issued per program: `GenerateWebCredentials` takes the
+/// a web credential is issued per program: `GenerateWebCredentials` takes the
 /// product it is for, and one signed in as `StarCraft II` is not one signed in
 /// as Remastered. Two sessions sharing a file would overwrite each other's.
 fn credential_filename(product: Product) -> String {
@@ -31,7 +31,7 @@ fn credential_filename(product: Product) -> String {
 #[derive(Clone, Debug)]
 pub struct FileCredentialStore {
     path: Option<PathBuf>,
-    /// Where a `StarCraft II` credential written before the cache was keyed by
+    /// where a `StarCraft II` credential written before the cache was keyed by
     /// product still sits. Read only if the product's own file is absent, and
     /// promoted to it on the next store.
     legacy: Option<PathBuf>,

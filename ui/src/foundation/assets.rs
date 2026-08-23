@@ -1,6 +1,6 @@
 use gpui::ImageSource;
 
-/// The two physical locations of one semantic UI asset.
+/// the two physical locations of one semantic UI asset.
 ///
 /// Native resources retain the directory layout used by the desktop bundle;
 /// the browser build serves its curated files below one public root. Product

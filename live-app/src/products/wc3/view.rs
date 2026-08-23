@@ -1,4 +1,4 @@
-//! The Reforged Live view: a read-only [`Hall`] host over the product's feed.
+//! the Reforged Live view: a read-only [`Hall`] host over the product's feed.
 //! It owns one hall's presenter, adapts the product routes' DTOs into the shared
 //! presentation models, and polls stream and roster while it is the focused
 //! product.
@@ -63,7 +63,7 @@ impl Wc3LiveView {
         view
     }
 
-    /// The shell parks every view but the focused one; a parked view keeps its
+    /// the shell parks every view but the focused one; a parked view keeps its
     /// hall and stops polling streams.
     pub(crate) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if self.active != active {
