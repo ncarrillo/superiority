@@ -3,13 +3,17 @@ using System.Text.Json.Serialization;
 namespace Stimpak;
 
 /// <summary>construction settings that do not change between connections.</summary>
-public sealed record StimpakClientOptions(string CredentialPath)
+/// <param name="ApplicationId">
+/// stable credential namespace, preferably reverse-DNS, such as
+/// <c>com.example.ExampleBot</c>. It is an identifier, not a secret.
+/// </param>
+public sealed record StimpakClientOptions(string ApplicationId)
 {
     /// <summary>
-    /// optional path to <c>stimpak-auth-window</c>. When omitted, Stimpak also
-    /// checks <c>STIMPAK_AUTH_WINDOW</c> and the application's directory.
+    /// advanced override for the derived per-user credential file. Most
+    /// applications should leave this null.
     /// </summary>
-    public string? AuthWindowPath { get; init; }
+    public string? CredentialPath { get; init; }
 
     /// <summary>
     /// maximum number of unread managed events. Superseded roster snapshots

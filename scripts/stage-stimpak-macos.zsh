@@ -16,19 +16,22 @@ case $(uname -m) in
     ;;
 esac
 
-cargo build --release --locked -p stimpak -p stimpak-auth-window
+cargo build --release --locked -p stimpak -p stimpak-auth
 
-destination="$root/stimpak/csharp/artifacts/runtimes/$rid/native"
-/usr/bin/install -d "$destination"
-/usr/bin/install -m 755 "$root/target/release/libstimpak.dylib" "$destination/libstimpak.dylib"
-/usr/bin/install -m 755 "$root/target/release/stimpak-auth-window" "$destination/stimpak-auth-window"
+core_destination="$root/stimpak/csharp/artifacts/runtimes/$rid/native"
+auth_destination="$root/stimpak/csharp/Stimpak.Auth/artifacts/runtimes/$rid/native"
+/usr/bin/install -d "$core_destination" "$auth_destination"
+/usr/bin/install -m 755 "$root/target/release/libstimpak.dylib" \
+  "$core_destination/libstimpak.dylib"
+/usr/bin/install -m 755 "$root/target/release/libstimpak_auth.dylib" \
+  "$auth_destination/libstimpak_auth.dylib"
 
 identity=${STIMPAK_MACOS_SIGN_IDENTITY:--}
 sign_arguments=(--force --options runtime --sign "$identity")
 if [[ "$identity" != - ]]; then
   sign_arguments+=(--timestamp)
 fi
-/usr/bin/codesign "${sign_arguments[@]}" "$destination/libstimpak.dylib"
-/usr/bin/codesign "${sign_arguments[@]}" "$destination/stimpak-auth-window"
+/usr/bin/codesign "${sign_arguments[@]}" "$core_destination/libstimpak.dylib"
+/usr/bin/codesign "${sign_arguments[@]}" "$auth_destination/libstimpak_auth.dylib"
 
-print "Staged $rid under $destination"
+print "Staged Stimpak and Stimpak.Auth $rid runtimes"

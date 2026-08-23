@@ -185,6 +185,7 @@ pub enum Event {
     AuthenticationRequired {
         auth_id: u64,
         url: String,
+        fresh_account: bool,
     },
     /// who the session authenticated as. arrives once per connection.
     Account {
@@ -367,9 +368,12 @@ pub fn translate(event: &ClientEvent, auth_id: u64, names: &Names) -> Event {
         ClientEvent::WarcraftClan(clan) => Event::Error {
             message: format!("unhandled Reforged clan snapshot: {:?}", clan.membership),
         },
-        ClientEvent::Authentication { url, .. } => Event::AuthenticationRequired {
+        ClientEvent::Authentication {
+            url, fresh_account, ..
+        } => Event::AuthenticationRequired {
             auth_id,
             url: url.to_string(),
+            fresh_account: *fresh_account,
         },
         ClientEvent::CommandError(message) => Event::CommandError {
             message: message.clone(),

@@ -37,7 +37,7 @@
   <Target Name="BuildStimpakNative"
           BeforeTargets="ResolveStimpakNative"
           Condition="'$(StimpakBuildNative)' == 'true'">
-    <Exec Command="cargo build --release -p stimpak -p stimpak-auth-window"
+    <Exec Command="cargo build --release -p stimpak"
           WorkingDirectory="$(MSBuildThisFileDirectory)../../../" />
   </Target>
 
@@ -47,9 +47,7 @@
            so a platform's missing variants never become items. -->
       <StimpakNativeLibrary Include="$(StimpakNativeDir)*libstimpak.dylib;
                                          $(StimpakNativeDir)*libstimpak.so;
-                                         $(StimpakNativeDir)*stimpak.dll;
-                                         $(StimpakNativeDir)*stimpak-auth-window;
-                                         $(StimpakNativeDir)*stimpak-auth-window.exe" />
+                                         $(StimpakNativeDir)*stimpak.dll" />
       <!-- None with CopyToOutputDirectory flows to referencing projects, so an
            app that only references this library still gets the native one. -->
       <None Include="@(StimpakNativeLibrary)">

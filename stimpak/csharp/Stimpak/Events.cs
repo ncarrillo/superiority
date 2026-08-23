@@ -97,12 +97,14 @@ public sealed record StageChanged(
     [property: JsonPropertyName("stage")] Stage Stage) : SC2Event;
 
 /// <summary>
-/// open <see cref="Url"/>, then pass the token to <see cref="StimpakClient.SubmitAuth"/>.
+/// Complete this request manually with <see cref="StimpakClient.SubmitAuth"/>,
+/// or pass it to an optional in-process authentication provider.
 /// a bot with a cached credential never sees this.
 /// </summary>
 public sealed record AuthenticationRequired(
     [property: JsonPropertyName("auth_id")] ulong AuthId,
-    [property: JsonPropertyName("url")] string Url) : SC2Event;
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("fresh_account")] bool FreshAccount) : SC2Event;
 
 public sealed record AccountSummary(
     [property: JsonPropertyName("account_id")] ulong? AccountId,

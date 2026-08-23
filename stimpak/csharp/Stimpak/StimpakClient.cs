@@ -15,7 +15,7 @@ public sealed class StimpakException(string message, Exception? innerException =
 /// </remarks>
 /// <example>
 /// <code>
-/// using var client = new StimpakClient("bot-credentials.bin");
+/// using var client = new StimpakClient("com.example.MyBot");
 /// client.Connect();
 /// await foreach (var e in client.ReadEventsAsync(cancellation))
 /// {
@@ -26,8 +26,8 @@ public sealed class StimpakException(string message, Exception? innerException =
 /// </example>
 public sealed class StimpakClient : IDisposable
 {
-    public const uint SupportedNativeAbi = 1;
-    public const uint SupportedEventSchema = 1;
+    public const uint SupportedNativeAbi = 3;
+    public const uint SupportedEventSchema = 2;
 
     /// <summary>
     /// how long the pump parks per wait. not a latency budget: an event
@@ -86,38 +86,33 @@ public sealed class StimpakClient : IDisposable
 
     public long DroppedEventCount => _events.DroppedCount;
 
-    /// <summary>
-    /// false means sign-in falls to you: handle <see cref="AuthenticationRequired"/>
-    /// and call <see cref="SubmitAuth"/>.
-    /// </summary>
-    public bool HasAuthWindow => Native.HasAuthWindow(Handle);
-
-    /// <param name="credentialPath">
-    /// where this client caches its signed-in session. required: the
-    /// superiority app owns its own cache, and two programs sharing one file
-    /// means either can sign the other out.
+    /// <param name="applicationId">
+    /// stable credential namespace, preferably reverse-DNS. Stimpak chooses
+    /// the platform's per-user application-data directory.
     /// </param>
-    /// <param name="authWindowPath">
-    /// the stimpak-auth-window executable. when this, STIMPAK_AUTH_WINDOW, or a sibling
-    /// of the running executable finds it, sign-in happens in a window the
-    /// library opens and <see cref="AuthenticationRequired"/> never arrives.
-    /// </param>
-    public StimpakClient(string credentialPath, string? authWindowPath = null)
-        : this(new StimpakClientOptions(credentialPath) { AuthWindowPath = authWindowPath })
+    public StimpakClient(string applicationId)
+        : this(new StimpakClientOptions(applicationId))
     {
     }
 
     public StimpakClient(StimpakClientOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.CredentialPath);
+        ValidateApplicationId(options.ApplicationId);
+        if (options.CredentialPath is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(options.CredentialPath);
+        }
         ArgumentOutOfRangeException.ThrowIfLessThan(options.EventCapacity, 1);
         EnsureCompatible();
         _events = new EventBuffer(options.EventCapacity);
-        _handle = Native.Open(options.CredentialPath, options.AuthWindowPath);
+        _handle = options.CredentialPath is { } path
+            ? Native.OpenAtPath(Path.GetFullPath(path))
+            : Native.Open(options.ApplicationId);
         if (_handle == IntPtr.Zero)
         {
-            throw new StimpakException($"could not open a client against {options.CredentialPath}");
+            throw new StimpakException(
+                $"could not open a client for application {options.ApplicationId}");
         }
         _pump = new Thread(Pump)
         {
@@ -126,6 +121,24 @@ public sealed class StimpakClient : IDisposable
         };
         _pump.Start();
     }
+
+    private static void ValidateApplicationId(string applicationId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        if (applicationId.Length > 128 ||
+            !IsAsciiLetterOrDigit(applicationId[0]) ||
+            applicationId.Any(character =>
+                !IsAsciiLetterOrDigit(character) && character is not ('.' or '-' or '_')))
+        {
+            throw new ArgumentException(
+                "ApplicationId must start with an ASCII letter or digit and contain only " +
+                "letters, digits, '.', '-' or '_'.",
+                nameof(applicationId));
+        }
+    }
+
+    private static bool IsAsciiLetterOrDigit(char value) =>
+        value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9';
 
     private static void EnsureCompatible()
     {
@@ -164,7 +177,6 @@ public sealed class StimpakClient : IDisposable
             Native.ErrInvalidArgument => "invalid argument",
             Native.ErrDisconnected => "the session has ended",
             Native.ErrNoSuchAuth => "no sign-in is waiting for that id",
-            Native.ErrAuthFailed => "the sign-in window did not return a token",
             Native.ErrPanic => "the native library faulted",
             _ => $"unexpected error {code}",
         });

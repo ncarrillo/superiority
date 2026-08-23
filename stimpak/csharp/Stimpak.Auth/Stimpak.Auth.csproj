@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Stimpak.Auth</RootNamespace>
+    <AssemblyName>Stimpak.Auth</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>Stimpak.Auth</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Nicholas Carrillo</Authors>
+    <Description>Optional in-process Battle.net authentication UI for Stimpak.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ncarrillo/superiority</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>starcraft;starcraft2;battlenet;authentication;webview</PackageTags>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <StimpakAuthNativeDir Condition="'$(StimpakAuthNativeDir)' == ''">$(MSBuildThisFileDirectory)../../../target/release/</StimpakAuthNativeDir>
+    <StimpakAuthBuildNative Condition="'$(StimpakAuthBuildNative)' == ''">true</StimpakAuthBuildNative>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Stimpak/Stimpak.csproj" />
+  </ItemGroup>
+
+  <Target Name="BuildStimpakAuthNative"
+          BeforeTargets="ResolveStimpakAuthNative"
+          Condition="'$(StimpakAuthBuildNative)' == 'true'">
+    <Exec Command="cargo build --release -p stimpak-auth"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../../../" />
+  </Target>
+
+  <Target Name="ResolveStimpakAuthNative" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <StimpakAuthNativeLibrary Include="$(StimpakAuthNativeDir)*libstimpak_auth.dylib;
+                                             $(StimpakAuthNativeDir)*libstimpak_auth.so;
+                                             $(StimpakAuthNativeDir)*stimpak_auth.dll" />
+      <None Include="@(StimpakAuthNativeLibrary)">
+        <Link>%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Visible>false</Visible>
+      </None>
+    </ItemGroup>
+    <Warning Condition="'@(StimpakAuthNativeLibrary)' == ''"
+             Code="SUP002"
+             Text="No embedded authentication library found in $(StimpakAuthNativeDir). Run 'cargo build --release -p stimpak-auth' or set StimpakAuthNativeDir." />
+  </Target>
+
+  <ItemGroup>
+    <None Include="../../AUTH.md" Pack="true" PackagePath="/README.md" />
+    <None Include="../../auth/include/stimpak_auth.h"
+          Pack="true"
+          PackagePath="build/native/include/stimpak_auth.h" />
+    <None Include="buildTransitive/Stimpak.Auth.targets"
+          Pack="true"
+          PackagePath="buildTransitive/Stimpak.Auth.targets" />
+    <StimpakAuthPackageNative Include="$(MSBuildThisFileDirectory)artifacts/runtimes/**/*" />
+    <None Include="@(StimpakAuthPackageNative)" Pack="true" PackagePath="runtimes/" />
+  </ItemGroup>
+
+  <Target Name="ValidateStimpakAuthPackage" BeforeTargets="Pack">
+    <Error Condition="'@(StimpakAuthPackageNative)' == ''"
+           Text="No staged authentication runtimes found under Stimpak.Auth/artifacts/runtimes." />
+  </Target>
+
+  <Import Project="buildTransitive/Stimpak.Auth.targets" />
+</Project>

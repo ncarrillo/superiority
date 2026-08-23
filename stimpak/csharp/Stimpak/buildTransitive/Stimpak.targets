@@ -5,8 +5,7 @@
     <_StimpakRuntimeIdentifier Condition="'$(_StimpakRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</_StimpakRuntimeIdentifier>
   </PropertyGroup>
 
-  <!-- NuGet ZIP entries do not retain Unix executable bits. The helper is
-       copied explicitly because a framework-dependent build may otherwise
+  <!-- Copy explicitly because a framework-dependent build may otherwise
        leave RID-native assets in the global package cache. -->
   <Target Name="StimpakCopyNativeRuntime"
           AfterTargets="CopyFilesToOutputDirectory">
@@ -19,7 +18,5 @@
           SourceFiles="@(_StimpakNative)"
           DestinationFolder="$(OutDir)"
           SkipUnchangedFiles="true" />
-    <Exec Condition="'$(OS)' != 'Windows_NT' and Exists('$(OutDir)stimpak-auth-window')"
-          Command="/bin/chmod +x &quot;$(OutDir)stimpak-auth-window&quot;" />
   </Target>
 </Project>

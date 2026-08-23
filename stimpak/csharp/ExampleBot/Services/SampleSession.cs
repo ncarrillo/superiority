@@ -9,8 +9,6 @@ namespace ExampleBot.Services;
 /// </summary>
 public sealed class SampleSession : IChatSession
 {
-    public bool HasAuthWindow => true;
-
     public PeopleRegistry People { get; } = new();
 
     public void Connect()
@@ -25,9 +23,9 @@ public sealed class SampleSession : IChatSession
     {
     }
 
-    public void SubmitAuth(ulong authId, string token)
-    {
-    }
+    public ValueTask CompleteAuthenticationAsync(
+        AuthenticationRequired request,
+        CancellationToken cancellation) => ValueTask.CompletedTask;
 
     public async IAsyncEnumerable<SC2Event> ReadEventsAsync(
         [EnumeratorCancellation] CancellationToken cancellation)

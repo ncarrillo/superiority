@@ -33,14 +33,14 @@ fi
 
 cargo xwin build --release --locked \
   -p stimpak \
-  -p stimpak-auth-window \
+  -p stimpak-auth \
   --target "$target"
 
 destination="$root/build/stimpak/windows/$architecture/unsigned"
 /usr/bin/install -d "$destination"
 /usr/bin/install -m 755 "$root/target/$target/release/stimpak.dll" "$destination/stimpak.dll"
-/usr/bin/install -m 755 "$root/target/$target/release/stimpak-auth-window.exe" \
-  "$destination/stimpak-auth-window.exe"
+/usr/bin/install -m 755 "$root/target/$target/release/stimpak_auth.dll" \
+  "$destination/stimpak_auth.dll"
 
 print "Built unsigned $rid artifacts on macOS under $destination"
 print "Sign and stage both files on this macOS host with:"

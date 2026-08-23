@@ -20,19 +20,18 @@ extern "C" {
 #define STIMPAK_ERR_INVALID_ARGUMENT -1
 #define STIMPAK_ERR_DISCONNECTED -2
 #define STIMPAK_ERR_NO_SUCH_AUTH -3
-#define STIMPAK_ERR_AUTH_FAILED -4
 #define STIMPAK_ERR_PANIC -99
 
-#define STIMPAK_ABI_VERSION 1u
-#define STIMPAK_EVENT_SCHEMA_VERSION 1u
+#define STIMPAK_ABI_VERSION 3u
+#define STIMPAK_EVENT_SCHEMA_VERSION 2u
 
 typedef struct StimpakClient StimpakClient;
 
 /* Every string argument is UTF-8 and valid only for the duration of the call. */
-STIMPAK_API StimpakClient *stimpak_client_open(
-    const char *credential_path,
-    const char *auth_window_path);
-STIMPAK_API bool stimpak_client_has_auth_window(StimpakClient *client);
+/* application_id is a stable namespace such as "com.example.ExampleBot". */
+STIMPAK_API StimpakClient *stimpak_client_open(const char *application_id);
+/* Advanced override; most applications should let Stimpak choose the path. */
+STIMPAK_API StimpakClient *stimpak_client_open_at_path(const char *credential_path);
 STIMPAK_API void stimpak_client_close(StimpakClient *client);
 
 STIMPAK_API int32_t stimpak_client_connect(

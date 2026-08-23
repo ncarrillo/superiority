@@ -1,4 +1,3 @@
-mod auth;
 mod event;
 
 use std::{
@@ -11,7 +10,6 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{Receiver, RecvTimeoutError, Sender},
     },
-    thread,
     time::Duration,
 };
 
@@ -26,8 +24,6 @@ use superiority_core::{
     product::Product,
 };
 
-use crate::auth::AuthWindow;
-
 /// how long `stimpak_client_close` waits for a session to finish before giving
 /// up on it.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -39,17 +35,15 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const STIMPAK_PRODUCT: Product = Product::StarCraft2;
 
 /// the native function and ownership contract described by `stimpak.h`.
-pub const STIMPAK_ABI_VERSION: u32 = 1;
+pub const STIMPAK_ABI_VERSION: u32 = 3;
 /// the tagged JSON event vocabulary consumed by managed bindings.
-pub const STIMPAK_EVENT_SCHEMA_VERSION: u32 = 1;
+pub const STIMPAK_EVENT_SCHEMA_VERSION: u32 = 2;
 
 pub const STIMPAK_OK: i32 = 0;
 pub const STIMPAK_ERR_INVALID_ARGUMENT: i32 = -1;
 /// the session thread is gone; close the client.
 pub const STIMPAK_ERR_DISCONNECTED: i32 = -2;
 pub const STIMPAK_ERR_NO_SUCH_AUTH: i32 = -3;
-/// the sign-in window was closed, or could not produce a token.
-pub const STIMPAK_ERR_AUTH_FAILED: i32 = -4;
 /// a panic was caught at the boundary. a bug in this library.
 pub const STIMPAK_ERR_PANIC: i32 = -99;
 
@@ -71,7 +65,6 @@ pub struct Client {
     next_auth: AtomicU64,
     /// set once the session thread is gone, so the end is reported exactly once.
     ended: AtomicBool,
-    window: AuthWindow,
     names: Mutex<event::Names>,
 }
 
@@ -148,7 +141,6 @@ fn connect(
 }
 
 fn cancel_pending_auth(client: &Client, detail: &str) -> i32 {
-    client.window.cancel();
     let Ok(mut pending) = client.pending.lock() else {
         return STIMPAK_ERR_PANIC;
     };
@@ -163,48 +155,56 @@ fn cancel_pending_auth(client: &Client, detail: &str) -> i32 {
     }
 }
 
-fn complete_window_auth(
-    pending: &PendingAuth,
-    auth_id: u64,
-    outcome: Result<Option<String>, String>,
-) {
-    let response = match outcome {
-        Ok(Some(token)) => SecretBytes::new(token.into_bytes()),
-        Ok(None) => Err(auth_cancelled("sign-in window closed")),
-        Err(detail) => Err(auth_cancelled(&detail)),
-    };
-    let Ok(mut pending) = pending.lock() else {
-        return;
-    };
-    let Some(reply) = pending
-        .take_if(|(waiting, _)| *waiting == auth_id)
-        .map(|(_, reply)| reply)
-    else {
-        return;
-    };
-    drop(pending);
-    let _ = reply.send(response);
+fn open_with_store(store: FileCredentialStore) -> *mut Client {
+    let ClientHandle {
+        commands,
+        events,
+        finished,
+    } = spawn_client_with(STIMPAK_PRODUCT, Box::new(NoObserver), Box::new(store));
+    Box::into_raw(Box::new(Client {
+        commands,
+        events: Mutex::new(events),
+        finished,
+        pending: Arc::new(Mutex::new(None)),
+        next_auth: AtomicU64::new(1),
+        ended: AtomicBool::new(false),
+        names: Mutex::new(event::Names::default()),
+    }))
 }
 
 /// the session thread starts immediately but stays idle until
-/// `stimpak_client_connect`. null if `credential_path` is missing or unusable, or
+/// `stimpak_client_connect`. null if `application_id` is missing or invalid, or
 /// if the thread could not start.
 ///
-/// `credential_path` names the file this client caches its signed-in session
-/// in. there is no default: the app's own cache belongs to the app, and two
-/// programs sharing one file means either can sign the other out.
-///
-/// `auth_window_path` is optional. when it, `STIMPAK_AUTH_WINDOW`, or a sibling of
-/// the running executable names `stimpak-auth-window`, sign-in happens in a window
-/// this library opens and the host never sees an `authentication_required`
-/// event. pass null to rely on the other two.
+/// `application_id` is a stable namespace such as `com.example.ExampleBot`.
+/// Stimpak derives a product-specific credential file below the current user's
+/// platform application-data directory.
 ///
 /// # Safety
-/// both arguments must be null or nul-terminated strings valid for the call.
+/// `application_id` must be a nul-terminated string valid for the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn stimpak_client_open(
+pub unsafe extern "C" fn stimpak_client_open(application_id: *const c_char) -> *mut Client {
+    catch_unwind(|| {
+        let Some(application_id) = (unsafe { text(application_id) }) else {
+            return ptr::null_mut();
+        };
+        let Ok(store) = FileCredentialStore::for_application(STIMPAK_PRODUCT, &application_id)
+        else {
+            return ptr::null_mut();
+        };
+        open_with_store(store)
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// opens a client with an explicit credential file. Most applications should
+/// use `stimpak_client_open` and let Stimpak choose the platform location.
+///
+/// # Safety
+/// `credential_path` must be a nul-terminated string valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn stimpak_client_open_at_path(
     credential_path: *const c_char,
-    auth_window_path: *const c_char,
 ) -> *mut Client {
     catch_unwind(|| {
         let Some(credential_path) = (unsafe { text(credential_path) }) else {
@@ -213,38 +213,9 @@ pub unsafe extern "C" fn stimpak_client_open(
         if credential_path.is_empty() {
             return ptr::null_mut();
         }
-        let window = AuthWindow::new(unsafe { text(auth_window_path) }.map(PathBuf::from));
-        let store = FileCredentialStore::at(PathBuf::from(credential_path));
-        let ClientHandle {
-            commands,
-            events,
-            finished,
-        } = spawn_client_with(STIMPAK_PRODUCT, Box::new(NoObserver), Box::new(store));
-        Box::into_raw(Box::new(Client {
-            commands,
-            events: Mutex::new(events),
-            finished,
-            pending: Arc::new(Mutex::new(None)),
-            next_auth: AtomicU64::new(1),
-            ended: AtomicBool::new(false),
-            window,
-            names: Mutex::new(event::Names::default()),
-        }))
+        open_with_store(FileCredentialStore::at(PathBuf::from(credential_path)))
     })
     .unwrap_or(ptr::null_mut())
-}
-
-/// whether this client can sign in on its own. false means the host must
-/// handle `authentication_required` itself.
-///
-/// # Safety
-/// `client` must be a live client pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn stimpak_client_has_auth_window(client: *mut Client) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        unsafe { borrow(client) }.is_some_and(|client| client.window.locate().is_some())
-    }))
-    .unwrap_or(false)
 }
 
 /// closes the session and waits for its thread to finish, so a caller that
@@ -252,7 +223,7 @@ pub unsafe extern "C" fn stimpak_client_has_auth_window(client: *mut Client) -> 
 /// briefly overlapping.
 ///
 /// The wait is bounded so a transport that does not settle cannot hold the
-/// host's shutdown indefinitely. Any sign-in helper is cancelled first.
+/// host's shutdown indefinitely.
 ///
 /// # Safety
 /// `client` must come from `stimpak_client_open` and must not be closed twice.
@@ -262,7 +233,6 @@ pub unsafe extern "C" fn stimpak_client_close(client: *mut Client) {
         return;
     }
     let client = unsafe { Box::from_raw(client) };
-    client.window.cancel();
     if let Ok(mut pending) = client.pending.lock()
         && let Some((_, reply)) = pending.take()
     {
@@ -624,7 +594,6 @@ pub unsafe extern "C" fn stimpak_client_cancel_auth(client: *mut Client, auth_id
             return STIMPAK_ERR_NO_SUCH_AUTH;
         };
         drop(pending);
-        client.window.cancel();
         if reply
             .send(Err(auth_cancelled("sign-in cancelled by host")))
             .is_ok()
@@ -667,43 +636,16 @@ pub unsafe extern "C" fn stimpak_client_poll(client: *mut Client, timeout_ms: u3
                 return describe(&event::Event::SessionEnded);
             }
         };
-        // a sign-in this library can answer itself never reaches the host: the
-        // window runs, the reply goes back, and the session carries on. only
-        // when there is no window does the event surface, with its reply parked
-        // under an id the host can quote back.
+        // Authentication is deliberately host-owned. The base binding has no
+        // UI dependency; an optional in-process provider can answer this same
+        // event through submit/cancel without changing the native protocol.
         let auth_id = match &received {
-            ClientEvent::Authentication { url, reply, .. } => {
+            ClientEvent::Authentication { reply, .. } => {
                 let id = client.next_auth.fetch_add(1, Ordering::Relaxed);
                 if let Ok(mut pending) = client.pending.lock() {
                     *pending = Some((id, reply.clone()));
                 } else {
                     let _ = reply.send(Err(auth_cancelled("sign-in state is unavailable")));
-                    return ptr::null_mut();
-                }
-                if let Some(helper) = client.window.locate() {
-                    let completion = match client.window.present(&helper, url.as_str()) {
-                        Ok(completion) => completion,
-                        Err(detail) => {
-                            complete_window_auth(&client.pending, id, Err(detail));
-                            return ptr::null_mut();
-                        }
-                    };
-                    let pending = Arc::clone(&client.pending);
-                    let spawn = thread::Builder::new()
-                        .name("stimpak-auth-result".into())
-                        .spawn(move || {
-                            let outcome = completion.recv().unwrap_or_else(|_| {
-                                Err("sign-in window stopped without a result".to_owned())
-                            });
-                            complete_window_auth(&pending, id, outcome);
-                        });
-                    if let Err(error) = spawn {
-                        complete_window_auth(
-                            &client.pending,
-                            id,
-                            Err(format!("could not collect the sign-in result: {error}")),
-                        );
-                    }
                     return ptr::null_mut();
                 }
                 id
@@ -782,14 +724,16 @@ mod tests {
     fn scratch_client() -> *mut Client {
         let path = std::env::temp_dir().join(format!("sc2-ffi-test-{}.bin", std::process::id()));
         let path = CString::new(path.to_string_lossy().as_ref()).unwrap();
-        unsafe { stimpak_client_open(path.as_ptr(), ptr::null()) }
+        unsafe { stimpak_client_open_at_path(path.as_ptr()) }
     }
 
     #[test]
-    fn opening_without_a_credential_path_is_refused() {
-        assert!(unsafe { stimpak_client_open(ptr::null(), ptr::null()) }.is_null());
+    fn opening_without_an_application_id_is_refused() {
+        assert!(unsafe { stimpak_client_open(ptr::null()) }.is_null());
         let empty = CString::new("").unwrap();
-        assert!(unsafe { stimpak_client_open(empty.as_ptr(), ptr::null()) }.is_null());
+        assert!(unsafe { stimpak_client_open(empty.as_ptr()) }.is_null());
+        let traversal = CString::new("../another-app").unwrap();
+        assert!(unsafe { stimpak_client_open(traversal.as_ptr()) }.is_null());
     }
 
     #[test]
@@ -837,6 +781,7 @@ mod tests {
         let header = include_str!("../include/stimpak.h");
         for symbol in [
             "stimpak_client_connect_configured",
+            "stimpak_client_open_at_path",
             "stimpak_client_sign_out",
             "stimpak_client_join_group",
             "stimpak_client_search_groups",
@@ -855,17 +800,6 @@ mod tests {
     fn an_idle_poll_reports_nothing_rather_than_blocking_forever() {
         let client = scratch_client();
         assert!(unsafe { stimpak_client_poll(client, 10) }.is_null());
-        unsafe { stimpak_client_close(client) };
-    }
-
-    #[test]
-    fn a_missing_helper_leaves_the_host_to_sign_in() {
-        let path = std::env::temp_dir().join("sc2-ffi-no-window.bin");
-        let path = CString::new(path.to_string_lossy().as_ref()).unwrap();
-        let absent = CString::new("/definitely/not/a/real/helper").unwrap();
-        let client = unsafe { stimpak_client_open(path.as_ptr(), absent.as_ptr()) };
-        assert!(!client.is_null());
-        assert!(!unsafe { stimpak_client_has_auth_window(client) });
         unsafe { stimpak_client_close(client) };
     }
 }
@@ -887,7 +821,7 @@ mod lifecycle_tests {
         let before = std::thread::available_parallelism().is_ok();
         assert!(before);
         for _ in 0..25 {
-            let client = unsafe { stimpak_client_open(path.as_ptr(), ptr::null()) };
+            let client = unsafe { stimpak_client_open_at_path(path.as_ptr()) };
             assert!(!client.is_null());
             assert_eq!(unsafe { stimpak_client_join_public(client, 1) }, STIMPAK_OK);
             unsafe { stimpak_client_close(client) };
@@ -897,10 +831,10 @@ mod lifecycle_tests {
     #[test]
     fn a_new_session_works_after_the_previous_one_is_closed() {
         let path = scratch("successor");
-        let first = unsafe { stimpak_client_open(path.as_ptr(), ptr::null()) };
+        let first = unsafe { stimpak_client_open_at_path(path.as_ptr()) };
         unsafe { stimpak_client_close(first) };
 
-        let second = unsafe { stimpak_client_open(path.as_ptr(), ptr::null()) };
+        let second = unsafe { stimpak_client_open_at_path(path.as_ptr()) };
         assert!(!second.is_null());
         assert_eq!(unsafe { stimpak_client_join_public(second, 1) }, STIMPAK_OK);
         unsafe { stimpak_client_close(second) };

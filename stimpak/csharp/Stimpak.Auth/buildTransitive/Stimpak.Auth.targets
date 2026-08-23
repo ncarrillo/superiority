@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <_StimpakAuthPackageRoot>$(MSBuildThisFileDirectory)../</_StimpakAuthPackageRoot>
+    <_StimpakAuthRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_StimpakAuthRuntimeIdentifier>
+    <_StimpakAuthRuntimeIdentifier Condition="'$(_StimpakAuthRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</_StimpakAuthRuntimeIdentifier>
+  </PropertyGroup>
+
+  <Target Name="StimpakAuthCopyNativeRuntime" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup Condition="Exists('$(_StimpakAuthPackageRoot)runtimes')">
+      <_StimpakAuthNative Include="$(_StimpakAuthPackageRoot)runtimes/$(_StimpakAuthRuntimeIdentifier)/native/*" />
+    </ItemGroup>
+    <Error Condition="Exists('$(_StimpakAuthPackageRoot)runtimes') and '@(_StimpakAuthNative)' == ''"
+           Text="The Stimpak.Auth package has no native runtime for $(_StimpakAuthRuntimeIdentifier)." />
+    <Copy Condition="'@(_StimpakAuthNative)' != ''"
+          SourceFiles="@(_StimpakAuthNative)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

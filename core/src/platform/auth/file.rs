@@ -17,6 +17,7 @@ use crate::{Error, Result, bgs::SecretBytes, product::Product};
 use super::CredentialStore;
 
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
+const MAX_APPLICATION_ID_BYTES: usize = 128;
 /// what the cache was called when there was only ever one product to cache for.
 /// Still read, once, so signing in does not start over — see `for_product`.
 const LEGACY_CREDENTIAL_FILENAME: &str = "web-credentials.bin";
@@ -156,6 +157,22 @@ impl FileCredentialStore {
         }
     }
 
+    /// a product-specific cache in Stimpak's per-user application-data area.
+    /// The id is a namespace, not a secret; reverse-DNS names are recommended.
+    pub fn for_application(product: Product, application_id: &str) -> Result<Self> {
+        if !valid_application_id(application_id) {
+            return Err(Error::Authentication(
+                "application id must start with an ASCII letter or digit and contain only letters, digits, '.', '-' or '_'"
+                    .into(),
+            ));
+        }
+        Ok(Self {
+            path: application_credential_directory(application_id)
+                .map(|dir| dir.join(credential_filename(product))),
+            legacy: None,
+        })
+    }
+
     /// the app's cache for one product. each product signs in separately, so
     /// each gets its own file.
     #[must_use]
@@ -168,6 +185,40 @@ impl FileCredentialStore {
                 .map(|dir| dir.join(LEGACY_CREDENTIAL_FILENAME)),
         }
     }
+}
+
+fn valid_application_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= MAX_APPLICATION_ID_BYTES
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
+#[cfg(windows)]
+fn application_credential_directory(application_id: &str) -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("APPDATA"))
+        .map(|root| PathBuf::from(root).join("Stimpak").join(application_id))
+}
+
+#[cfg(target_os = "macos")]
+fn application_credential_directory(application_id: &str) -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join("Library/Application Support/Stimpak")
+            .join(application_id)
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn application_credential_directory(application_id: &str) -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .map(|root| root.join("stimpak").join(application_id))
 }
 
 #[cfg(windows)]
@@ -188,8 +239,7 @@ fn create_private_directory(path: &Path) -> Result<()> {
     builder.mode(0o700);
     builder
         .create(path)
-        .map_err(|error| cache_error("create directory", &error))?;
-    secure_directory(path)
+        .map_err(|error| cache_error("create directory", &error))
 }
 
 #[cfg(unix)]
@@ -201,18 +251,6 @@ fn secure_file(path: &Path) -> Result<()> {
 #[cfg(windows)]
 #[expect(clippy::unnecessary_wraps, reason = "the other platform's twin fails")]
 fn secure_file(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn secure_directory(path: &Path) -> Result<()> {
-    fs::set_permissions(path, Permissions::from_mode(0o700))
-        .map_err(|error| cache_error("secure directory", &error))
-}
-
-#[cfg(windows)]
-#[expect(clippy::unnecessary_wraps, reason = "the other platform's twin fails")]
-fn secure_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -258,6 +296,42 @@ mod tests {
             credential_filename(Product::Remastered)
         );
         assert!(credential_filename(Product::StarCraft2).contains("S2"));
+    }
+
+    #[test]
+    fn application_ids_are_safe_path_components() {
+        assert!(valid_application_id("com.example.ExampleBot"));
+        assert!(valid_application_id("bot-2_preview"));
+        assert!(!valid_application_id("../another-app"));
+        assert!(!valid_application_id("nested/app"));
+        assert!(!valid_application_id(""));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_caller_directory_keeps_its_permissions() {
+        let directory = std::env::temp_dir().join(format!(
+            "superiority-owned-directory-test-{}-{:x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).expect("test directory is created");
+        fs::set_permissions(&directory, Permissions::from_mode(0o755))
+            .expect("fixture permissions are set");
+
+        let store = FileCredentialStore::at(directory.join("credentials.bin"));
+        let credential = SecretBytes::new(vec![1, 2, 3]).expect("fixture is valid");
+        store.store(&credential).expect("credential is stored");
+
+        assert_eq!(
+            fs::metadata(&directory)
+                .expect("directory metadata exists")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        fs::remove_dir_all(directory).expect("test directory is removed");
     }
 
     #[test]

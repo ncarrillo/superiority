@@ -1,0 +1,155 @@
+name: Stimpak
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .cargo/**
+      - .github/workflows/stimpak.yml
+      - bsn-derive/**
+      - core/**
+      - stimpak/**
+      - scripts/build-stimpak-windows-macos.zsh
+      - Cargo.lock
+      - Cargo.toml
+  push:
+    branches:
+      - main
+    paths:
+      - .cargo/**
+      - .github/workflows/stimpak.yml
+      - bsn-derive/**
+      - core/**
+      - stimpak/**
+      - scripts/build-stimpak-windows-macos.zsh
+      - Cargo.lock
+      - Cargo.toml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stimpak-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            rid: osx-arm64
+            lint: true
+          - runner: macos-15-intel
+            rid: osx-x64
+            lint: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Select stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+      - name: Test native libraries
+        run: cargo test --release --locked -p stimpak -p stimpak-auth
+      - name: Lint native libraries
+        if: matrix.lint
+        run: cargo clippy --release --locked -p stimpak -p stimpak-auth --all-targets --no-deps -- -D warnings
+      - name: Test managed libraries
+        run: dotnet run --project stimpak/csharp/Stimpak.Tests/Stimpak.Tests.csproj -c Release
+      - name: Build ExampleBot
+        run: dotnet build stimpak/csharp/ExampleBot/ExampleBot.csproj -c Release
+      - name: Stage native libraries
+        run: |
+          install -d \
+            "ci-artifacts/Stimpak/runtimes/${{ matrix.rid }}/native" \
+            "ci-artifacts/Stimpak.Auth/runtimes/${{ matrix.rid }}/native"
+          install -m 755 target/release/libstimpak.dylib \
+            "ci-artifacts/Stimpak/runtimes/${{ matrix.rid }}/native/libstimpak.dylib"
+          install -m 755 target/release/libstimpak_auth.dylib \
+            "ci-artifacts/Stimpak.Auth/runtimes/${{ matrix.rid }}/native/libstimpak_auth.dylib"
+          codesign --force --options runtime --sign - \
+            "ci-artifacts/Stimpak/runtimes/${{ matrix.rid }}/native/libstimpak.dylib"
+          codesign --force --options runtime --sign - \
+            "ci-artifacts/Stimpak.Auth/runtimes/${{ matrix.rid }}/native/libstimpak_auth.dylib"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: stimpak-runtimes-${{ matrix.rid }}
+          path: ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux linux-x64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Select stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+      - name: Test native libraries
+        run: cargo test --release --locked -p stimpak -p stimpak-auth
+      - name: Test managed libraries
+        run: dotnet run --project stimpak/csharp/Stimpak.Tests/Stimpak.Tests.csproj -c Release
+      - name: Build ExampleBot
+        run: dotnet build stimpak/csharp/ExampleBot/ExampleBot.csproj -c Release
+      - name: Stage native libraries
+        run: |
+          install -d \
+            ci-artifacts/Stimpak/runtimes/linux-x64/native \
+            ci-artifacts/Stimpak.Auth/runtimes/linux-x64/native
+          install -m 755 target/release/libstimpak.so \
+            ci-artifacts/Stimpak/runtimes/linux-x64/native/libstimpak.so
+          install -m 755 target/release/libstimpak_auth.so \
+            ci-artifacts/Stimpak.Auth/runtimes/linux-x64/native/libstimpak_auth.so
+      - uses: actions/upload-artifact@v6
+        with:
+          name: stimpak-runtimes-linux-x64
+          path: ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows win-x64
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Select stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+      - name: Install Windows cross-compiler
+        run: cargo install cargo-xwin --version 0.23.1 --locked
+      - name: Cross-compile native libraries
+        run: scripts/build-stimpak-windows-macos.zsh x86_64
+      - name: Stage unsigned native libraries
+        run: |
+          install -d \
+            ci-artifacts/Stimpak/runtimes/win-x64/native \
+            ci-artifacts/Stimpak.Auth/runtimes/win-x64/native
+          install -m 755 build/stimpak/windows/x86_64/unsigned/stimpak.dll \
+            ci-artifacts/Stimpak/runtimes/win-x64/native/stimpak.dll
+          install -m 755 build/stimpak/windows/x86_64/unsigned/stimpak_auth.dll \
+            ci-artifacts/Stimpak.Auth/runtimes/win-x64/native/stimpak_auth.dll
+      - uses: actions/upload-artifact@v6
+        with:
+          name: stimpak-runtimes-win-x64-unsigned
+          path: ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14

@@ -10,5 +10,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../Stimpak/Stimpak.csproj" />
+    <ProjectReference Include="../Stimpak.Auth/Stimpak.Auth.csproj" />
   </ItemGroup>
 </Project>

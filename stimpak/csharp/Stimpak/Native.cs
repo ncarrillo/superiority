@@ -11,15 +11,13 @@ internal static partial class Native
     internal const int ErrInvalidArgument = -1;
     internal const int ErrDisconnected = -2;
     internal const int ErrNoSuchAuth = -3;
-    internal const int ErrAuthFailed = -4;
     internal const int ErrPanic = -99;
 
     [LibraryImport(Library, EntryPoint = "stimpak_client_open", StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial IntPtr Open(string credentialPath, string? authWindowPath);
+    internal static partial IntPtr Open(string applicationId);
 
-    [LibraryImport(Library, EntryPoint = "stimpak_client_has_auth_window")]
-    [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool HasAuthWindow(IntPtr client);
+    [LibraryImport(Library, EntryPoint = "stimpak_client_open_at_path", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr OpenAtPath(string credentialPath);
 
     [LibraryImport(Library, EntryPoint = "stimpak_client_close")]
     internal static partial void Close(IntPtr client);

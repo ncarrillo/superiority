@@ -36,8 +36,9 @@ if [[ ! -f "$password_file" ]]; then
 fi
 
 source_dir="$root/build/stimpak/windows/$architecture/unsigned"
-destination="$root/stimpak/csharp/artifacts/runtimes/$rid/native"
-for name in stimpak.dll stimpak-auth-window.exe; do
+core_destination="$root/stimpak/csharp/artifacts/runtimes/$rid/native"
+auth_destination="$root/stimpak/csharp/Stimpak.Auth/artifacts/runtimes/$rid/native"
+for name in stimpak.dll stimpak_auth.dll; do
   if [[ ! -f "$source_dir/$name" ]]; then
     print -u2 "missing unsigned artifact: $source_dir/$name"
     exit 1
@@ -50,7 +51,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for name in stimpak.dll stimpak-auth-window.exe; do
+for name in stimpak.dll stimpak_auth.dll; do
   signed="$temporary/$name"
   osslsigncode sign \
     -pkcs12 "$certificate" \
@@ -64,9 +65,9 @@ for name in stimpak.dll stimpak-auth-window.exe; do
   osslsigncode verify -in "$signed" >/dev/null
 done
 
-/usr/bin/install -d "$destination"
-/usr/bin/install -m 755 "$temporary/stimpak.dll" "$destination/stimpak.dll"
-/usr/bin/install -m 755 "$temporary/stimpak-auth-window.exe" \
-  "$destination/stimpak-auth-window.exe"
+/usr/bin/install -d "$core_destination" "$auth_destination"
+/usr/bin/install -m 755 "$temporary/stimpak.dll" "$core_destination/stimpak.dll"
+/usr/bin/install -m 755 "$temporary/stimpak_auth.dll" \
+  "$auth_destination/stimpak_auth.dll"
 
-print "Signed and staged $rid on macOS under $destination"
+print "Signed and staged Stimpak and Stimpak.Auth $rid runtimes on macOS"

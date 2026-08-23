@@ -10,9 +10,6 @@ namespace ExampleBot.Services;
 /// </summary>
 public interface IChatSession : IDisposable
 {
-    /// <summary>false means sign-in falls to the caller.</summary>
-    bool HasAuthWindow { get; }
-
     /// <summary>
     /// who this session knows about. lives and dies with the session, because
     /// the handles in it are only meaningful within one.
@@ -25,7 +22,9 @@ public interface IChatSession : IDisposable
 
     void SendWhisper(string name, string body);
 
-    void SubmitAuth(ulong authId, string token);
+    ValueTask CompleteAuthenticationAsync(
+        AuthenticationRequired request,
+        CancellationToken cancellation);
 
     IAsyncEnumerable<SC2Event> ReadEventsAsync(CancellationToken cancellation);
 }

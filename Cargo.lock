@@ -780,13 +780,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "brand-assets"
-version = "0.1.0"
-dependencies = [
- "image",
-]
-
-[[package]]
 name = "bsn-derive"
 version = "0.1.0"
 dependencies = [
@@ -6907,11 +6900,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "stimpak-auth-window"
+name = "stimpak-auth"
 version = "0.1.0"
 dependencies = [
- "tao",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "url",
+ "windows 0.61.3",
  "wry",
 ]
 
@@ -7012,21 +7008,6 @@ dependencies = [
  "rayon",
  "tracing",
  "ztracing",
-]
-
-[[package]]
-name = "sunken-server"
-version = "0.1.0"
-dependencies = [
- "hex",
- "native-tls",
- "prost",
- "rand 0.8.7",
- "rsa",
- "sha2",
- "superiority-core",
- "tungstenite",
- "url",
 ]
 
 [[package]]

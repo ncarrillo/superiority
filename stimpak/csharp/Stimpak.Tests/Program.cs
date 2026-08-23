@@ -1,4 +1,5 @@
 using Stimpak;
+using Stimpak.Auth;
 
 var failures = new List<string>();
 var passed = 0;
@@ -13,6 +14,9 @@ Run("connection targets serialize", ConnectionTargetsSerialize);
 Run("rosters are coalesced", RostersAreCoalesced);
 Run("event buffers are bounded", EventBuffersAreBounded);
 Run("native and managed versions agree", NativeAndManagedVersionsAgree);
+Run("application ids reject paths", ApplicationIdsRejectPaths);
+Run("optional auth native and managed versions agree", AuthNativeAndManagedVersionsAgree);
+Run("embedded auth failures cross the FFI boundary", EmbeddedAuthFailuresCrossFfi);
 
 if (failures.Count != 0)
 {
@@ -92,6 +96,12 @@ static void MalformedEventsAreSurfaced()
 
 static void AccountAndGroupEventsDecode()
 {
+    var authentication = EventJson.Deserialize(
+        "{\"type\":\"authentication_required\",\"auth_id\":4," +
+        "\"url\":\"https://example.com\",\"fresh_account\":true}");
+    Assert(authentication is AuthenticationRequired { AuthId: 4, FreshAccount: true },
+        "authentication request did not retain fresh-account intent");
+
     var account = EventJson.Deserialize(
         "{\"type\":\"account\",\"account\":{\"account_id\":42," +
         "\"battle_tag\":\"Medic#1234\",\"region\":1,\"games\":[\"S2\"]}}");
@@ -146,8 +156,50 @@ static void NativeAndManagedVersionsAgree()
         "event schema mismatch");
 
     var credential = Path.Combine(Path.GetTempPath(), $"stimpak-{Guid.NewGuid():N}.bin");
-    using var client = new StimpakClient(new StimpakClientOptions(credential) { EventCapacity = 8 });
+    using var client = new StimpakClient(new StimpakClientOptions("Stimpak.Tests")
+    {
+        CredentialPath = credential,
+        EventCapacity = 8,
+    });
     Assert(StimpakClient.NativeVersion.Length != 0, "native version is empty");
+}
+
+static void AuthNativeAndManagedVersionsAgree()
+{
+    Assert(EmbeddedAuthenticator.NativeAbiVersion == EmbeddedAuthenticator.SupportedNativeAbi,
+        "authentication ABI mismatch");
+    Assert(EmbeddedAuthenticator.NativeVersion.Length != 0,
+        "authentication native version is empty");
+}
+
+static void ApplicationIdsRejectPaths()
+{
+    try
+    {
+        using var _ = new StimpakClient("../another-app");
+        throw new InvalidOperationException("path-like application id was accepted");
+    }
+    catch (ArgumentException error)
+    {
+        Assert(error.Message.Contains("ApplicationId", StringComparison.Ordinal),
+            "application-id validation did not explain the failure");
+    }
+}
+
+static void EmbeddedAuthFailuresCrossFfi()
+{
+    var authenticator = new EmbeddedAuthenticator(new SynchronizationContext());
+    var request = new AuthenticationRequired(9, "not a url", false);
+    try
+    {
+        _ = authenticator.AuthenticateAsync(request).AsTask().GetAwaiter().GetResult();
+        throw new InvalidOperationException("invalid URL unexpectedly authenticated");
+    }
+    catch (StimpakAuthenticationException error)
+    {
+        Assert(error.Message.Contains("invalid authentication URL", StringComparison.Ordinal),
+            "native authentication error detail was lost");
+    }
 }
 
 static void Assert(bool condition, string message)

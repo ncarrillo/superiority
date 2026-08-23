@@ -1,13 +1,13 @@
 using Stimpak;
+using Stimpak.Auth;
 
 namespace ExampleBot.Services;
 
-public sealed class StimpakSession(string credentialPath, string? authWindowPath = null)
+public sealed class StimpakSession(StimpakClientOptions options)
     : IChatSession
 {
-    private readonly StimpakClient _client = new(credentialPath, authWindowPath);
-
-    public bool HasAuthWindow => _client.HasAuthWindow;
+    private readonly StimpakClient _client = new(options);
+    private readonly EmbeddedAuthenticator _authenticator = new();
 
     public PeopleRegistry People => _client.People;
 
@@ -18,7 +18,10 @@ public sealed class StimpakSession(string credentialPath, string? authWindowPath
 
     public void SendWhisper(string name, string body) => _client.SendWhisper(name, body);
 
-    public void SubmitAuth(ulong authId, string token) => _client.SubmitAuth(authId, token);
+    public ValueTask CompleteAuthenticationAsync(
+        AuthenticationRequired request,
+        CancellationToken cancellation) =>
+        _client.CompleteAuthenticationAsync(request, _authenticator, cancellation);
 
     public IAsyncEnumerable<SC2Event> ReadEventsAsync(CancellationToken cancellation) =>
         _client.ReadEventsAsync(cancellation);

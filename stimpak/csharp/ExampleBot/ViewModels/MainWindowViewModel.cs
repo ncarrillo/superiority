@@ -70,7 +70,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     public MainWindowViewModel(IChatSession session)
     {
         _session = session;
-        Warning = session.HasAuthWindow ? "" : "NO SIGN-IN WINDOW";
     }
 
     /// <summary>
@@ -91,6 +90,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             await foreach (var next in _session.ReadEventsAsync(_stopping.Token))
             {
+                if (next is AuthenticationRequired authentication)
+                {
+                    Note("Sign in to Battle.net…", NoticeBrush);
+                    try
+                    {
+                        await _session.CompleteAuthenticationAsync(
+                            authentication,
+                            _stopping.Token);
+                    }
+                    catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
+                    {
+                    }
+                    catch (Exception error)
+                    {
+                        Note(error.Message, DangerBrush);
+                    }
+                    continue;
+                }
                 Apply(next);
             }
         }
@@ -135,10 +152,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
                     Stimpak.Stage.Disconnected => DangerBrush,
                     _ => NoticeBrush,
                 };
-                break;
-
-            case AuthenticationRequired auth:
-                Note($"Sign in at {auth.Url}", NoticeBrush);
                 break;
 
             case PublicChannelsReceived catalogue:

@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using ExampleBot.Services;
 using ExampleBot.ViewModels;
 using ExampleBot.Views;
+using Stimpak;
 
 namespace ExampleBot;
 
@@ -18,7 +19,13 @@ public partial class App : Application
             // composition happens here and nowhere else: the window knows a
             // view model, the view model knows a session interface, and only
             // this line knows which session is the real one.
-            var session = new StimpakSession("bot-credentials.bin");
+            var options = new StimpakClientOptions("Stimpak.ExampleBot");
+            var credentialPath = Environment.GetEnvironmentVariable("STIMPAK_CREDENTIAL_PATH");
+            if (!string.IsNullOrWhiteSpace(credentialPath))
+            {
+                options = options with { CredentialPath = credentialPath };
+            }
+            var session = new StimpakSession(options);
             var model = new MainWindowViewModel(session);
             desktop.MainWindow = new MainWindow { DataContext = model };
             model.Start();
