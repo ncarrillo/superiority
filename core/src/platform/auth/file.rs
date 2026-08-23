@@ -199,7 +199,7 @@ fn secure_file(path: &Path) -> Result<()> {
 }
 
 #[cfg(windows)]
-#[allow(clippy::unnecessary_wraps)]
+#[expect(clippy::unnecessary_wraps, reason = "the other platform's twin fails")]
 fn secure_file(_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -211,7 +211,7 @@ fn secure_directory(path: &Path) -> Result<()> {
 }
 
 #[cfg(windows)]
-#[allow(clippy::unnecessary_wraps)]
+#[expect(clippy::unnecessary_wraps, reason = "the other platform's twin fails")]
 fn secure_directory(_path: &Path) -> Result<()> {
     Ok(())
 }

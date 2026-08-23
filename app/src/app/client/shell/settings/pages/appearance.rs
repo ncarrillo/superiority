@@ -34,7 +34,6 @@ impl SettingsComponent {
                     .child("Appearance"),
             )
             .child(
-                // one caption everywhere: the page is already the game's
                 div()
                     .absolute()
                     .left(px(22.0))

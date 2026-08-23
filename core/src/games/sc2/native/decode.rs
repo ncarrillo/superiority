@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::games::sc2::native::errors::native_error;
 use crate::{
     Error, Result,
     bsn::{
@@ -1085,7 +1086,7 @@ pub(crate) fn chat_whisper_with_provenance(
     let start_bit = reader.position();
     let mut provenance = Vec::new();
     let marker = if echo { "WhisperEcho" } else { "Whisper" };
-    // The two callbacks carry the same values but not in the same generated
+    // the two callbacks carry the same values but not in the same generated
     // order. Chat/19 is marker, sender, body. Chat/30 has 18 filler bits, then
     // body, marker, sender. Reflection also names their zero-bit markers
     // differently (`Whisper` vs `WhisperEcho`).
@@ -2319,7 +2320,7 @@ pub(crate) fn conference_descriptions_with_provenance(
 }
 
 /// skips one of the configuration's arrays: a three-bit count then that many
-/// 32-bit elements — `Program::Id` is a `FourCC` and `Realm::Id` a `u32`.
+/// 32-bit elements — `Program::Id` is a FourCC and `Realm::Id` a `u32`.
 fn read_conference_array(reader: &mut BitReader<'_>) -> Result<()> {
     let count = usize::try_from(reader.read(CONFERENCE_ARRAY_COUNT_BITS)?).unwrap_or_default();
     for _ in 0..count {
@@ -4285,9 +4286,12 @@ fn trace_toon_handle(
         depth,
     ));
     Ok(FriendIdentity::Character {
-        program_id: u32::try_from(values[0]).expect("program id fits in u32"),
-        region: u32::try_from(values[1]).expect("region fits in u32"),
-        realm: u32::try_from(values[2]).expect("realm fits in u32"),
+        program_id: u32::try_from(values[0])
+            .map_err(|_| native_error("friend character program id is outside u32"))?,
+        region: u32::try_from(values[1])
+            .map_err(|_| native_error("friend character region is outside u32"))?,
+        realm: u32::try_from(values[2])
+            .map_err(|_| native_error("friend character realm is outside u32"))?,
         id: values[3],
     })
 }
@@ -4660,10 +4664,6 @@ fn read_u16(reader: &mut BitReader<'_>, width: usize) -> Result<u16> {
 
 fn read_u8(reader: &mut BitReader<'_>, width: usize) -> Result<u8> {
     u8::try_from(reader.read(width)?).map_err(|_| native_error("integer exceeds u8"))
-}
-
-fn native_error(message: impl Into<String>) -> Error {
-    Error::Native(message.into())
 }
 
 #[cfg(test)]

@@ -17,6 +17,8 @@ use super::controls;
 
 /// rows for players who are not really there — one value applied to the whole
 /// row, lifted on hover so they still feel clickable.
+/// the heading and mark of a roster that is being filtered
+const FILTER_HIGHLIGHT: u32 = 0x0039_aee8;
 const DIMMED_ROW_OPACITY: f32 = 0.55;
 const DIMMED_ROW_HOVER_OPACITY: f32 = 0.8;
 
@@ -45,25 +47,6 @@ pub fn animated_row_slot(
         progress,
         reveal_opacity,
         ROSTER_ROW_HEIGHT,
-        row_gap,
-    )
-}
-
-#[must_use]
-pub fn animated_row_slot_with_height(
-    row: impl IntoElement,
-    motion: RowMotion,
-    progress: f32,
-    reveal_opacity: f32,
-    row_height: f32,
-    row_gap: f32,
-) -> Div {
-    crate::patterns::roster::animated_row_slot(
-        row,
-        motion,
-        progress,
-        reveal_opacity,
-        row_height,
         row_gap,
     )
 }
@@ -367,7 +350,7 @@ impl RosterHeaderModel {
     #[must_use]
     pub fn heading_color(&self, focused: bool) -> Hsla {
         if focused || self.filter_active {
-            rgb(0x39aee8).into()
+            rgb(FILTER_HIGHLIGHT).into()
         } else {
             rgb(TEXT).into()
         }
@@ -469,8 +452,8 @@ impl RenderOnce for RosterHeader {
                     .font_family(FONT_INTERFACE)
                     .font_weight(gpui::FontWeight::BOLD)
                     .text_size(px(14.0))
-                    .text_color(rgb(0x39aee8))
-                    .hover(|style| style.text_color(rgb(0xffffff)))
+                    .text_color(rgb(FILTER_HIGHLIGHT))
+                    .hover(|style| style.text_color(rgb(0x00ff_ffff)))
                     .active(|style| style.opacity(0.64))
                     .on_click(move |event, window, cx| on_clear(event, window, cx))
                     .child("×"),
@@ -662,8 +645,6 @@ fn row_body(user: &RosterUser, assets: &Sc2Assets) -> Div {
         .items_center()
         .gap(px(10.0))
         .px(px(ROW_INSET))
-        // one dim value for the whole row rather than a separate value per
-        // portrait / name / detail line.
         .opacity(if user.dimmed { DIMMED_ROW_OPACITY } else { 1.0 })
         .child(portrait(user, assets))
         .child(name_block(user))

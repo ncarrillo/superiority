@@ -576,7 +576,7 @@ fn read_club_field(
     let member_type = *shape
         .member_types
         .get(position)
-        .ok_or_else(|| wire_error(format!("club summary metadata omits field {position}")))?;
+        .ok_or_else(|| bsn_wire_error(format!("club summary metadata omits field {position}")))?;
     let start_bit = reader.position();
     let value = codec.decode_from(reader, member_type)?;
     fields.push((position, value, start_bit, reader.position()));
@@ -589,9 +589,9 @@ fn read_generated_string(
     maximum: usize,
 ) -> Result<String> {
     let length = usize::try_from(reader.read(count_width)?)
-        .map_err(|_| wire_error("generated string length exceeds usize"))?;
+        .map_err(|_| bsn_wire_error("generated string length exceeds usize"))?;
     if length > maximum {
-        return Err(wire_error(format!(
+        return Err(bsn_wire_error(format!(
             "generated string length {length} exceeds {maximum}"
         )));
     }
@@ -614,7 +614,7 @@ fn build_struct(
                 index: shape.index_values[position],
                 name: shape.member_names[position].clone(),
                 value: values.remove(&position).ok_or_else(|| {
-                    wire_error(format!("generated layout omits field {position}"))
+                    bsn_wire_error(format!("generated layout omits field {position}"))
                 })?,
             })
         })
@@ -647,7 +647,7 @@ fn encode_club_summary_info(
     _writer: &mut BitWriter,
     _value: &BsnValue,
 ) -> Result<()> {
-    Err(wire_error("club summary information is inbound-only"))
+    Err(bsn_wire_error("club summary information is inbound-only"))
 }
 
 fn decode_club_user_text(
@@ -718,7 +718,7 @@ fn encode_club_user_text(
     _writer: &mut BitWriter,
     _value: &BsnValue,
 ) -> Result<()> {
-    Err(wire_error("club user text is inbound-only"))
+    Err(bsn_wire_error("club user text is inbound-only"))
 }
 
 #[derive(Clone, Debug)]
@@ -821,7 +821,7 @@ fn read_category_generated_state(reader: &mut BitReader<'_>) -> Result<()> {
 fn read_bounded_u32_array(reader: &mut BitReader<'_>) -> Result<()> {
     let count = usize::try_from(reader.read(3)?).expect("3-bit value fits in usize");
     if count >= 5 {
-        return Err(wire_error(format!(
+        return Err(bsn_wire_error(format!(
             "generated category array count {count} exceeds four"
         )));
     }
@@ -838,7 +838,7 @@ fn read_category_generated_variant(reader: &mut BitReader<'_>) -> Result<()> {
         0 => {
             let length = usize::try_from(reader.read(7)?).expect("7-bit value fits in usize");
             if length >= 125 {
-                return Err(wire_error(format!(
+                return Err(bsn_wire_error(format!(
                     "generated category string length {length} exceeds 124"
                 )));
             }
@@ -853,7 +853,7 @@ fn read_category_generated_variant(reader: &mut BitReader<'_>) -> Result<()> {
             reader.read(32)?;
         }
         tag => {
-            return Err(wire_error(format!(
+            return Err(bsn_wire_error(format!(
                 "unsupported generated category variant {tag}"
             )));
         }
@@ -878,7 +878,7 @@ fn build_category_description(
             .member_names
             .iter()
             .position(|candidate| candidate.as_deref() == Some(name))
-            .ok_or_else(|| wire_error(format!("category metadata omits field {name}")))?;
+            .ok_or_else(|| bsn_wire_error(format!("category metadata omits field {name}")))?;
         fields.push(BsnField {
             index: shape.index_values[position],
             name: shape.member_names[position].clone(),
@@ -894,7 +894,7 @@ fn encode_category_description(
     _writer: &mut BitWriter,
     _value: &BsnValue,
 ) -> Result<()> {
-    Err(wire_error(
+    Err(bsn_wire_error(
         "generated category descriptions are inbound-only",
     ))
 }
@@ -929,6 +929,6 @@ fn traced_integer(
     }
 }
 
-fn wire_error(message: impl Into<String>) -> Error {
+fn bsn_wire_error(message: impl Into<String>) -> Error {
     Error::BsnWire(message.into())
 }

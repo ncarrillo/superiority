@@ -375,8 +375,12 @@ struct ToonFullName {
       <Fragment slot="title"><code>Chat/30</code> Chat::WhisperEchoRecv</Fragment>
       <p>The server's echo of a whisper this client itself sent, so an outbound
       whisper appears in the conversation once acknowledged.</p>
-      <RustSchema code={`// Same wire layout and decoder as Chat/19 WhisperRecv.
-type WhisperEchoRecv = WhisperRecv;`} />
+      <RustSchema code={`struct WhisperEchoRecv {
+    // Generated wire order: 18 filler bits, body, marker, sender.
+    body: String, // byte count: 10 wire bits, 0..=1020; byte-aligned
+    whisper_echo: WhisperEcho,
+    peer: ToonFullName,
+}`} />
     </Endpoint>
 
     <Endpoint id="chat-whisper-undeliverable" direction="server → client" phase="protected" structure="unresolved" status="defined, decoding pending">

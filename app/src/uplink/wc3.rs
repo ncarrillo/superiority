@@ -39,22 +39,19 @@ impl Wc3Projector {
     pub(super) fn channel_events(&mut self, channel: &ChatChannel) -> Vec<EventKind> {
         let key = channel_key(&channel.name);
         let mut events = Vec::new();
-        if !self.channels.contains_key(&channel.id) {
+        self.channels.entry(channel.id).or_insert_with(|| {
             events.push(EventKind::Joined {
                 channel: ChannelRef {
                     key: key.clone(),
                     name: Some(channel.name.clone()),
                 },
             });
-            self.channels.insert(
-                channel.id,
-                ProjectedChannel {
-                    key: key.clone(),
-                    roster: BTreeMap::new(),
-                    roster_sent: false,
-                },
-            );
-        }
+            ProjectedChannel {
+                key: key.clone(),
+                roster: BTreeMap::new(),
+                roster_sent: false,
+            }
+        });
         let projected = self
             .channels
             .get_mut(&channel.id)
@@ -110,9 +107,9 @@ impl Wc3Projector {
                 })
                 .into_iter()
                 .collect(),
-            // Private conversations belong only to the local Social surface.
+            // private conversations belong only to the local Social surface.
             ChatEvent::Whisper { .. } => Vec::new(),
-            // Subscription notices are session-wide and have no authoritative
+            // subscription notices are session-wide and have no authoritative
             // room identity, so the multi-channel uplink does not assign one.
             ChatEvent::Notice { .. } => Vec::new(),
             ChatEvent::MemberJoined { channel_id, name } => self.notice(

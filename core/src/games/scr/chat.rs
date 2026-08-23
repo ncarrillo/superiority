@@ -50,7 +50,7 @@ pub struct ChatAttribute {
     pub value: String,
 }
 
-// Attribute values can contain account identifiers (including BattleTags) and
+// attribute values can contain account identifiers (including BattleTags) and
 // rich-presence payloads. Keep them available to product adapters, but do not
 // spill them into routine debug and error logs.
 impl std::fmt::Debug for ChatAttribute {
@@ -408,7 +408,7 @@ impl ChatState {
                     return false;
                 };
                 let key = friend.name.to_ascii_lowercase();
-                // A same-named LegacyChat presence update must not erase the
+                // a same-named LegacyChat presence update must not erase the
                 // stable account route previously supplied by AuroraFriends.
                 friend.account_id = self.friends.get(&key).and_then(|friend| friend.account_id);
                 if self.friends.get(&key) != Some(&friend) {
@@ -483,8 +483,10 @@ impl ChatState {
             .aurora_friend_keys
             .get(&u64::from(account_id))
             .and_then(|key| self.friends.get(key))
-            .map(|friend| friend.name.clone())
-            .unwrap_or_else(|| format!("Battle.net account {account_id}"));
+            .map_or_else(
+                || format!("Battle.net account {account_id}"),
+                |friend| friend.name.clone(),
+            );
         self.events.push(ChatEvent {
             kind: EventKind::Whisper,
             channel_id: None,
@@ -787,12 +789,14 @@ fn printable_strings(data: &[u8], depth: usize) -> Vec<String> {
 // the sender.
 fn parse_event(kind: EventKind, body: &[u8]) -> ChatEvent {
     let channel_id = protobuf::first_varint(body, 1).and_then(|id| u32::try_from(id).ok());
-    let strings = printable_strings(body, 0);
+    let mut strings = printable_strings(body, 0);
+    let text = strings.pop();
+    let sender = (!strings.is_empty()).then(|| strings.swap_remove(0));
     ChatEvent {
         kind,
         channel_id,
-        sender: (strings.len() >= 2).then(|| strings[0].clone()),
-        text: strings.last().cloned(),
+        sender,
+        text,
         aurora_whisper: None,
     }
 }
@@ -1201,7 +1205,7 @@ mod tests {
             }]
         );
 
-        // Replayed snapshot records are acknowledged without making the UI
+        // replayed snapshot records are acknowledged without making the UI
         // rebuild an unchanged list.
         assert!(state.apply(&offline));
         assert_eq!(state.friends_revision(), 1);

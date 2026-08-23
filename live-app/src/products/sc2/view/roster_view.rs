@@ -162,13 +162,12 @@ impl LiveView {
             ROSTER_ROW_GAP,
             |member, motion| {
                 let selected = self.workspace.roster.selection(channel) == Some(member.handle);
-                let row = if motion == roster::RowMotion::Removed {
+                if motion == roster::RowMotion::Removed {
                     roster::static_row(&self.roster_user(member), &self.ui_assets, selected)
                         .into_any_element()
                 } else {
                     self.roster_row(channel, member, cx).into_any_element()
-                };
-                row
+                }
             },
         )
     }

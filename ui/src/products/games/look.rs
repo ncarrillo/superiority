@@ -241,9 +241,6 @@ mod tests {
 
     #[test]
     fn a_card_out_of_play_is_dimmer_than_any_state_it_could_be_in() {
-        // the design's empty state was drawn for somebody who has the game and
-        // no profile on it, so on its own it still reads as an offer. out of
-        // play has to be unmistakably further down than every one of the six.
         let palette = &GAMES[0];
         let now = Instant::now();
         let mut out = CardLook::resolve(
@@ -271,7 +268,6 @@ mod tests {
             );
         }
 
-        // and nothing on it is lit, marked, or moving
         assert!(out.colourless);
         assert!(out.glow.abs() < f32::EPSILON);
         assert!(out.badge.abs() < f32::EPSILON);

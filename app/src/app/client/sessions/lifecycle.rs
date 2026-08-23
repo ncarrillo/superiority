@@ -74,7 +74,7 @@ impl SuperiorityView {
         // the bar counts these back in as each one settles
         self.games.begin_refresh(products.len(), Instant::now());
 
-        // Let every live loop close cleanly. A subsequent Connect stays queued
+        // let every live loop close cleanly. A subsequent Connect stays queued
         // behind Disconnect in that worker's channel, so no second worker and
         // no overlapping browser authorization is created.
         for product in &products {
@@ -246,7 +246,7 @@ impl SuperiorityView {
         self.session.connection.dialog_closing = false;
         self.session.connection.close_due = None;
         self.session.connection.hide_due = None;
-        // Sign Out is account switching, not a dead end. Queue a clean SC2
+        // sign Out is account switching, not a dead end. Queue a clean SC2
         // authorization behind the worker's SignOut command; its new account
         // response will atomically repopulate the picker and queue only the
         // products provisioned to that identity.

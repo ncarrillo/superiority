@@ -12,7 +12,7 @@ impl JoinComponent {
             InvitationKind::Party { .. } => ("PARTY INVITATION", "invited you to"),
         };
         let accept = ui_buttons::button(
-            ("invitation-accept", u64::from(id)),
+            ("invitation-accept", id),
             ui_buttons::ModalVariant::Sc2,
             ui_buttons::ButtonWeight::Primary,
             ui_buttons::ButtonTone::Chrome,
@@ -25,7 +25,7 @@ impl JoinComponent {
             this.answer_invitation(id, true, window, cx);
         }));
         let decline = ui_buttons::button(
-            ("invitation-decline", u64::from(id)),
+            ("invitation-decline", id),
             ui_buttons::ModalVariant::Sc2,
             ui_buttons::ButtonWeight::Ghost,
             ui_buttons::ButtonTone::Chrome,
@@ -79,7 +79,7 @@ impl JoinComponent {
                             .items_center()
                             .font_weight(FontWeight::BOLD)
                             .text_size(px(9.0))
-                            .text_color(rgb(0x4bb8e8))
+                            .text_color(rgb(0x004b_b8e8))
                             .child(kicker),
                     )
                     .child(
@@ -89,7 +89,7 @@ impl JoinComponent {
                             .items_center()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_size(px(14.0))
-                            .text_color(rgb(0xdce7f5))
+                            .text_color(rgb(0x00dc_e7f5))
                             .child(invitation.inviter_label().to_owned()),
                     )
                     .child(
@@ -98,7 +98,7 @@ impl JoinComponent {
                             .flex()
                             .items_center()
                             .text_size(px(10.0))
-                            .text_color(rgb(0x8397b0))
+                            .text_color(rgb(0x0083_97b0))
                             .child(format!("{preposition} {}", invitation.destination_label())),
                     ),
             )

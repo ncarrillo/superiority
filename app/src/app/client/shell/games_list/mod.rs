@@ -123,8 +123,6 @@ pub(in crate::app::client) struct GamesComponent {
     /// Set once the picker has dissolved into a realm. From here the client
     /// takes over and the picker is done for this session.
     pub(in crate::app::client) entered: bool,
-    /// What the live session says about the game the card is for: how far the
-    /// connection has got, and what to say about it.
     /// The live session behind each card, keyed by the product it belongs to.
     ///
     /// Per-product because more than one game can be signed in at once. While
@@ -285,9 +283,7 @@ impl GamesComponent {
         }
     }
 
-    /// The live session behind a card — which is only ever the one game this
-    /// client speaks. The others have no session to show, and showing them this
-    /// one said that every realm was in whatever channel `StarCraft II` was in.
+    /// the live session behind a card: only playable games have one.
     pub(in crate::app::client) fn live_for(&self, index: usize) -> Option<&LiveGame> {
         let game = GAMES.get(index).filter(|game| game.playable)?;
         self.live.get(&Product::from_code(game.program)?)

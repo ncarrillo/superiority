@@ -477,15 +477,13 @@ impl<T: ScrollableHandle> ScrollbarState<T> {
         }
         self.hide_task = Some(cx.spawn_in(window, async move |state, cx| {
             cx.background_executor().timer(HIDE_DELAY).await;
-            match state.update(cx, |state, cx| {
+            let _ = state.update(cx, |state, cx| {
                 if state.interaction == ThumbInteraction::Idle {
                     state.visible = false;
                     state.hide_task = None;
                     cx.notify();
                 }
-            }) {
-                Ok(()) | Err(_) => {}
-            }
+            });
         }));
     }
 

@@ -38,10 +38,18 @@ pub const SID_FRIENDS_REMOVE: u8 = 0x68;
 pub const SID_FRIENDS_POSITION: u8 = 0x69;
 
 pub const EID_SHOW_USER: u32 = 0x01;
-pub const EID_JOIN: u32 = 0x02;
-pub const EID_LEAVE: u32 = 0x03;
 pub const EID_WHISPER: u32 = 0x04;
 pub const EID_TALK: u32 = 0x05;
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+pub const EID_JOIN: u32 = 0x02;
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+pub const EID_LEAVE: u32 = 0x03;
 pub const EID_CHANNEL: u32 = 0x07;
 pub const EID_WHISPER_SENT: u32 = 0x0A;
 pub const EID_CHANNEL_DOES_NOT_EXIST: u32 = 0x0E;
@@ -365,27 +373,6 @@ impl<W: Write> LegacyPeer<W> {
         self.send(SID_FRIENDS_LIST, payload.finish())
     }
 
-    pub fn send_friend_update(&mut self, index: u8, friend: &FriendEntry) -> io::Result<()> {
-        let mut payload = PayloadWriter::new();
-        payload.byte(index);
-        write_friend(&mut payload, friend, false);
-        self.send(SID_FRIENDS_UPDATE, payload.finish())
-    }
-
-    pub fn send_friend_add(&mut self, friend: &FriendEntry) -> io::Result<()> {
-        let mut payload = PayloadWriter::new();
-        write_friend(&mut payload, friend, true);
-        self.send(SID_FRIENDS_ADD, payload.finish())
-    }
-
-    pub fn send_friend_remove(&mut self, index: u8) -> io::Result<()> {
-        self.send(SID_FRIENDS_REMOVE, vec![index])
-    }
-
-    pub fn send_friend_position(&mut self, old: u8, new: u8) -> io::Result<()> {
-        self.send(SID_FRIENDS_POSITION, vec![old, new])
-    }
-
     pub fn send_channel_list(&mut self, channels: &[String]) -> io::Result<()> {
         let mut payload = PayloadWriter::new();
         for channel in channels {
@@ -648,6 +635,43 @@ impl<W: Write> LegacyPeer<W> {
 
     fn send(&mut self, id: u8, payload: Vec<u8>) -> io::Result<()> {
         Packet::new(id, payload).write_to(&mut self.writer)
+    }
+
+    #[expect(
+        dead_code,
+        reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+    )]
+    pub fn send_friend_update(&mut self, index: u8, friend: &FriendEntry) -> io::Result<()> {
+        let mut payload = PayloadWriter::new();
+        payload.byte(index);
+        write_friend(&mut payload, friend, false);
+        self.send(SID_FRIENDS_UPDATE, payload.finish())
+    }
+
+    #[expect(
+        dead_code,
+        reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+    )]
+    pub fn send_friend_add(&mut self, friend: &FriendEntry) -> io::Result<()> {
+        let mut payload = PayloadWriter::new();
+        write_friend(&mut payload, friend, true);
+        self.send(SID_FRIENDS_ADD, payload.finish())
+    }
+
+    #[expect(
+        dead_code,
+        reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+    )]
+    pub fn send_friend_remove(&mut self, index: u8) -> io::Result<()> {
+        self.send(SID_FRIENDS_REMOVE, vec![index])
+    }
+
+    #[expect(
+        dead_code,
+        reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+    )]
+    pub fn send_friend_position(&mut self, old: u8, new: u8) -> io::Result<()> {
+        self.send(SID_FRIENDS_POSITION, vec![old, new])
     }
 }
 

@@ -176,7 +176,7 @@ pub struct AccountSummary {
     /// The Battle.net region this session is connected through.
     pub region: Option<u32>,
     /// Retail products selected by Battle.net Desktop's signed catalog rules,
-    /// by `FourCC`. `None` means account state did not answer.
+    /// by FourCC. `None` means account state did not answer.
     pub games: Option<Vec<String>>,
 }
 
@@ -319,7 +319,7 @@ fn connect_once(
     expected_battle_tag: Option<&str>,
     channels: Vec<ChatChannel>,
 ) -> Result<()> {
-    // Both classic products branch before Front is opened. Each has a JSON
+    // both classic products branch before Front is opened. Each has a JSON
     // account service and only that service issues a ticket its classic route
     // accepts.
     if product == Product::Remastered {
@@ -409,8 +409,8 @@ fn connect_once(
         Some(account_id),
         authentication.session.battle_tag.as_deref(),
     )?;
-    // Evaluate exactly the same inputs and retail rules as Battle.net Desktop.
-    // In particular, W3 beta id 50676 is intentionally absent from the retail
+    // evaluate exactly the same inputs and retail rules as Battle.net Desktop.
+    // in particular, W3 beta id 50676 is intentionally absent from the retail
     // predicate even though it creates a W3 game-account record.
     let retail_games = match bgs.account_catalog(&authentication.session) {
         Ok(catalog) => {
@@ -450,7 +450,7 @@ fn connect_once(
             None
         }
     };
-    // One interactive account authorization is enough. Battle.net's
+    // one interactive account authorization is enough. Battle.net's
     // authenticated Front session can mint a product-scoped credential for
     // every provisioned protocol; route those tickets to the queued workers
     // before publishing Account (which is what starts that queue).
@@ -590,7 +590,7 @@ fn run_remastered(
     let timeout = Endpoint::default().timeout;
 
     let fresh_account = Cell::new(force_interactive && expected_account_id.is_none());
-    // A browser credential is only durable after the classic account layer
+    // a browser credential is only durable after the classic account layer
     // proves that it belongs to the authoritative Battle.net account. Keeping
     // it in the callback used to persist a previous account's still-valid SSO
     // ticket before that check ran, trapping every reconnect in the same
@@ -652,10 +652,10 @@ fn run_remastered(
         |line| trace_connection(format_args!("[S1] {line}")),
         |step| emit(events, ClientEvent::Stage(stage_of(step))),
     );
-    // A valid ticket for a different account is not a toon-selection problem:
+    // a valid ticket for a different account is not a toon-selection problem:
     // it means WebKit inherited a previous Battle.net SSO identity. Discard
     // the ticket and clear that browser identity before one explicit retry.
-    // This is the only safe way to prevent two product sessions from silently
+    // this is the only safe way to prevent two product sessions from silently
     // representing different accounts.
     let mismatched_identity = identity_mismatch.replace(false);
     if mismatched_identity {
@@ -676,7 +676,7 @@ fn run_remastered(
         && !force_interactive
         && matches!(connected, Err(Error::Authentication(_) | Error::Server(_)))
     {
-        // A cached credential that the service rejected is worth exactly one
+        // a cached credential that the service rejected is worth exactly one
         // product-token rotation. Network errors do not enter this branch.
         trace_connection(format_args!(
             "[S1] cached credential did not work; asking for a fresh sign-in"
@@ -701,7 +701,7 @@ fn run_remastered(
         classic.battle_tag(),
     )?;
     if let Some(credential) = pending_credential.borrow_mut().take() {
-        // Kept, so a validated account can reconnect without flashing the
+        // kept, so a validated account can reconnect without flashing the
         // browser challenge on every launch.
         if let Err(error) = credentials.store(&credential) {
             trace_connection(format_args!("[S1] could not keep the credential: {error}"));
@@ -739,7 +739,7 @@ fn run_remastered(
     let mut tap = observer
         .begin_classic_session(Product::Remastered, classic.battle_tag().map(str::to_owned));
     publish_classic_channel(events, tap.as_mut(), &classic);
-    // Joining produces the welcome, population, and help notices. Publish
+    // joining produces the welcome, population, and help notices. Publish
     // them now, after the UI knows which channel owns the transcript; waiting
     // for another inbound frame leaves them stuck on an otherwise quiet room.
     emit_classic_events(events, tap.as_mut(), &mut classic);
@@ -826,7 +826,7 @@ fn run_warcraft(
         &mut on_step,
         &mut on_account,
     );
-    // A generated token can remain valid while belonging to an identity an
+    // a generated token can remain valid while belonging to an identity an
     // older release selected only for WC3. Replace it once. Classic rejection
     // also gets one product-token rotation. Neither case clears the shared SSO
     // store: that store is the already-established authoritative identity.
@@ -944,7 +944,7 @@ fn run_live_warcraft(
                     match warcraft.leave(channel_index) {
                         Ok(activity) => emit_warcraft_events(events, tap, activity),
                         Err(error) => {
-                            // The desktop follows SC2 and removes a tab as soon
+                            // the desktop follows SC2 and removes a tab as soon
                             // as its close button is accepted. Force the still-
                             // joined authoritative snapshot back through if
                             // Battle.net rejects the leave so the room cannot
@@ -974,13 +974,15 @@ fn run_live_warcraft(
                         ),
                     ),
                 },
-                Ok(ClientCommand::Connect { .. })
-                | Ok(ClientCommand::JoinClassic(_))
-                | Ok(ClientCommand::SendClassicCommand(_))
-                | Ok(ClientCommand::JoinChannel(_))
-                | Ok(ClientCommand::AnswerGroupInvitation { .. })
-                | Ok(ClientCommand::AnswerPartyInvitation { .. })
-                | Ok(ClientCommand::SearchGroups { .. })
+                Ok(
+                    ClientCommand::Connect { .. }
+                    | ClientCommand::JoinClassic(_)
+                    | ClientCommand::SendClassicCommand(_)
+                    | ClientCommand::JoinChannel(_)
+                    | ClientCommand::AnswerGroupInvitation { .. }
+                    | ClientCommand::AnswerPartyInvitation { .. }
+                    | ClientCommand::SearchGroups { .. },
+                )
                 | Err(TryRecvError::Empty) => break,
             }
         }
@@ -1124,7 +1126,7 @@ fn run_live_classic(
                         let result = classic.send_whisper(&name, &body);
                         (result, Some(name))
                     }
-                    // Only account and name identities belong to SC:R. Keep a
+                    // only account and name identities belong to SC:R. Keep a
                     // guarded name fallback for conversations opened by text.
                     _ => {
                         let result = classic.send_whisper(&display_name, &body);
@@ -1142,7 +1144,7 @@ fn run_live_classic(
                 }
             }
             Ok(ClientCommand::JoinClassic(target)) => {
-                // Public channels have stable numeric ids. Names use SC:R's
+                // public channels have stable numeric ids. Names use SC:R's
                 // dedicated custom-channel request; they do not have to be in
                 // the current roster before they can be joined.
                 let target = target.trim();
@@ -1161,7 +1163,7 @@ fn run_live_classic(
             // it; a quiet queue is the same non-event
             Ok(_) | Err(TryRecvError::Empty) => {}
         }
-        // A synchronous send or join can receive unrelated callbacks before
+        // a synchronous send or join can receive unrelated callbacks before
         // its own response. ClassicSession retains them, so do not make their
         // delivery depend on a later successful poll.
         emit_classic_events(events, tap, &mut classic);
@@ -1170,7 +1172,7 @@ fn run_live_classic(
         if now >= next_keep_alive {
             classic.keep_alive()?;
             next_keep_alive = now + KEEP_ALIVE_INTERVAL;
-            // Ping can receive and acknowledge unrelated callbacks before its
+            // ping can receive and acknowledge unrelated callbacks before its
             // own empty response, so publish any state retained by the call.
             emit_classic_events(events, tap, &mut classic);
             emit_classic_friends(events, &classic, &mut friends_revision);
@@ -1183,7 +1185,7 @@ fn run_live_classic(
             Ok(true) => publish_classic_channel(events, tap, &classic),
             Ok(false) => {}
             Err(error) => {
-                trace_connection(format_args!("[S1] profile avatar lookup failed: {error}"))
+                trace_connection(format_args!("[S1] profile avatar lookup failed: {error}"));
             }
         }
         emit_classic_events(events, tap, &mut classic);
@@ -1316,7 +1318,9 @@ fn run_live(
                     }
                 }
                 Ok(ClientCommand::SearchGroups { query }) => {
-                    let _ = chat.search_groups(&query);
+                    if let Err(error) = chat.search_groups(&query) {
+                        emit(events, ClientEvent::CommandError(error.to_string()));
+                    }
                 }
                 // Remastered's own join; this session is StarCraft II's
                 Ok(
@@ -1401,9 +1405,7 @@ fn emit(events: &Sender<ClientEvent>, event: ClientEvent) {
 
 fn trace_connection(message: impl std::fmt::Display) {
     let message = message.to_string();
-    if std::env::var_os("SUPERIORITY_TRACE").is_some()
-        || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
-    {
+    if crate::trace_enabled() || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some() {
         eprintln!("superiority: {message}");
     }
     if let Some(path) = std::env::var_os("SUPERIORITY_TRACE_FILE")

@@ -182,40 +182,6 @@ struct ChannelView {
     users: BTreeMap<u32, UserView>,
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
-struct RosterDelta {
-    joined: usize,
-    left: usize,
-}
-
-impl RosterDelta {
-    const fn is_empty(&self) -> bool {
-        self.joined == 0 && self.left == 0
-    }
-}
-
-#[derive(Debug, Default, Eq, PartialEq)]
-struct FriendDelta {
-    added: usize,
-    removed: usize,
-    moved: usize,
-    updated: usize,
-}
-
-impl FriendDelta {
-    const fn is_empty(&self) -> bool {
-        self.added == 0 && self.removed == 0 && self.moved == 0 && self.updated == 0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum FriendOperation {
-    Add(FriendEntry),
-    Remove(u8),
-    Move { old: u8, new: u8 },
-    Update { index: u8, friend: FriendEntry },
-}
-
 struct ClientState {
     toon_name: String,
     entered_chat: bool,
@@ -406,10 +372,6 @@ fn client_loop(
         for event in &events {
             report_sc2_event(reporter, event);
         }
-        let roster_changed = events.iter().any(event_changes_legacy_roster);
-        let friends_changed = events
-            .iter()
-            .any(|event| matches!(event, Event::FriendsChanged));
         if state.entered_chat {
             for event in &events {
                 relay_event(
@@ -791,112 +753,6 @@ fn send_friends_snapshot(
     Ok(())
 }
 
-fn synchronize_friends(
-    session: &Session,
-    peer: &mut BotPeer,
-    previous: &mut Option<Vec<FriendEntry>>,
-) -> io::Result<FriendDelta> {
-    let Some(old) = previous.as_ref() else {
-        return Ok(FriendDelta::default());
-    };
-    let current = legacy_friends(session);
-    let operations = friend_operations(old, &current);
-    let mut delta = FriendDelta::default();
-    for operation in operations {
-        match operation {
-            FriendOperation::Add(friend) => {
-                peer.send_friend_add(&friend)?;
-                delta.added += 1;
-            }
-            FriendOperation::Remove(index) => {
-                peer.send_friend_remove(index)?;
-                delta.removed += 1;
-            }
-            FriendOperation::Move { old, new } => {
-                peer.send_friend_position(old, new)?;
-                delta.moved += 1;
-            }
-            FriendOperation::Update { index, friend } => {
-                peer.send_friend_update(index, &friend)?;
-                delta.updated += 1;
-            }
-        }
-    }
-    *previous = Some(current);
-    Ok(delta)
-}
-
-fn friend_operations(old: &[FriendEntry], current: &[FriendEntry]) -> Vec<FriendOperation> {
-    let mut working = old.to_vec();
-    let mut operations = Vec::new();
-
-    for index in (0..working.len()).rev() {
-        if !current
-            .iter()
-            .any(|friend| friend.name == working[index].name)
-        {
-            operations.push(FriendOperation::Remove(friend_index(index)));
-            working.remove(index);
-        }
-    }
-
-    for (target_index, desired) in current.iter().enumerate() {
-        if working
-            .get(target_index)
-            .is_some_and(|friend| friend.name == desired.name)
-        {
-            update_friend_if_needed(&mut working, &mut operations, target_index, desired);
-            continue;
-        }
-
-        if let Some(old_index) = working
-            .iter()
-            .position(|friend| friend.name == desired.name)
-        {
-            operations.push(FriendOperation::Move {
-                old: friend_index(old_index),
-                new: friend_index(target_index),
-            });
-            let moved = working.remove(old_index);
-            working.insert(target_index, moved);
-            update_friend_if_needed(&mut working, &mut operations, target_index, desired);
-        } else {
-            operations.push(FriendOperation::Add(desired.clone()));
-            working.push(desired.clone());
-            let added_index = working.len() - 1;
-            if added_index != target_index {
-                operations.push(FriendOperation::Move {
-                    old: friend_index(added_index),
-                    new: friend_index(target_index),
-                });
-                let added = working.remove(added_index);
-                working.insert(target_index, added);
-            }
-        }
-    }
-    debug_assert_eq!(working, current);
-    operations
-}
-
-fn update_friend_if_needed(
-    working: &mut [FriendEntry],
-    operations: &mut Vec<FriendOperation>,
-    index: usize,
-    desired: &FriendEntry,
-) {
-    if working[index] != *desired {
-        operations.push(FriendOperation::Update {
-            index: friend_index(index),
-            friend: desired.clone(),
-        });
-        working[index] = desired.clone();
-    }
-}
-
-fn friend_index(index: usize) -> u8 {
-    u8::try_from(index).expect("friend snapshots are capped at 255 entries")
-}
-
 fn legacy_friend(friend: &Friend) -> FriendEntry {
     let (status, location, product, location_name) = match friend.presence {
         FriendPresence::Available => (
@@ -1011,46 +867,6 @@ fn send_channel_snapshot(
     Ok(())
 }
 
-fn synchronize_roster(
-    session: &Session,
-    peer: &mut BotPeer,
-    previous: &mut Option<ChannelView>,
-) -> io::Result<RosterDelta> {
-    let Some(current) = session.active_channel().map(channel_view) else {
-        return Ok(RosterDelta::default());
-    };
-    let Some(old) = previous.as_ref() else {
-        return Ok(RosterDelta::default());
-    };
-    if old.index != current.index {
-        return Ok(RosterDelta::default());
-    }
-
-    let mut delta = RosterDelta::default();
-    for (handle, user) in &old.users {
-        if current
-            .users
-            .get(handle)
-            .is_none_or(|current_user| current_user != user)
-        {
-            peer.send_chat_event(EID_LEAVE, &user.name, "", 0, 0)?;
-            delta.left += 1;
-        }
-    }
-    for (handle, user) in &current.users {
-        if old
-            .users
-            .get(handle)
-            .is_none_or(|old_user| old_user != user)
-        {
-            peer.send_chat_event(EID_JOIN, &user.name, DEFAULT_STATS, 0, 0)?;
-            delta.joined += 1;
-        }
-    }
-    *previous = Some(current);
-    Ok(delta)
-}
-
 fn channel_view(channel: ChannelSnapshot) -> ChannelView {
     ChannelView {
         index: channel.index,
@@ -1161,14 +977,224 @@ fn event_changes_snapshot(event: &Event) -> bool {
     )
 }
 
-fn event_changes_legacy_roster(event: &Event) -> bool {
-    matches!(
-        event,
-        Event::Joined { .. }
-            | Event::RosterChanged { .. }
-            | Event::MemberJoined { .. }
-            | Event::MemberLeft { .. }
-    )
+#[derive(Debug, Default, Eq, PartialEq)]
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+struct RosterDelta {
+    joined: usize,
+    left: usize,
+}
+
+impl RosterDelta {
+    #[expect(
+        dead_code,
+        reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+    )]
+    const fn is_empty(&self) -> bool {
+        self.joined == 0 && self.left == 0
+    }
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+struct FriendDelta {
+    added: usize,
+    removed: usize,
+    moved: usize,
+    updated: usize,
+}
+
+impl FriendDelta {
+    #[expect(
+        dead_code,
+        reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+    )]
+    const fn is_empty(&self) -> bool {
+        self.added == 0 && self.removed == 0 && self.moved == 0 && self.updated == 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+enum FriendOperation {
+    Add(FriendEntry),
+    Remove(u8),
+    Move { old: u8, new: u8 },
+    Update { index: u8, friend: FriendEntry },
+}
+
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+fn synchronize_friends(
+    session: &Session,
+    peer: &mut BotPeer,
+    previous: &mut Option<Vec<FriendEntry>>,
+) -> io::Result<FriendDelta> {
+    let Some(old) = previous.as_ref() else {
+        return Ok(FriendDelta::default());
+    };
+    let current = legacy_friends(session);
+    let operations = friend_operations(old, &current);
+    let mut delta = FriendDelta::default();
+    for operation in operations {
+        match operation {
+            FriendOperation::Add(friend) => {
+                peer.send_friend_add(&friend)?;
+                delta.added += 1;
+            }
+            FriendOperation::Remove(index) => {
+                peer.send_friend_remove(index)?;
+                delta.removed += 1;
+            }
+            FriendOperation::Move { old, new } => {
+                peer.send_friend_position(old, new)?;
+                delta.moved += 1;
+            }
+            FriendOperation::Update { index, friend } => {
+                peer.send_friend_update(index, &friend)?;
+                delta.updated += 1;
+            }
+        }
+    }
+    *previous = Some(current);
+    Ok(delta)
+}
+
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+fn friend_operations(old: &[FriendEntry], current: &[FriendEntry]) -> Vec<FriendOperation> {
+    let mut working = old.to_vec();
+    let mut operations = Vec::new();
+
+    for index in (0..working.len()).rev() {
+        if !current
+            .iter()
+            .any(|friend| friend.name == working[index].name)
+        {
+            operations.push(FriendOperation::Remove(friend_index(index)));
+            working.remove(index);
+        }
+    }
+
+    for (target_index, desired) in current.iter().enumerate() {
+        if working
+            .get(target_index)
+            .is_some_and(|friend| friend.name == desired.name)
+        {
+            update_friend_if_needed(&mut working, &mut operations, target_index, desired);
+            continue;
+        }
+
+        if let Some(old_index) = working
+            .iter()
+            .position(|friend| friend.name == desired.name)
+        {
+            operations.push(FriendOperation::Move {
+                old: friend_index(old_index),
+                new: friend_index(target_index),
+            });
+            let moved = working.remove(old_index);
+            working.insert(target_index, moved);
+            update_friend_if_needed(&mut working, &mut operations, target_index, desired);
+        } else {
+            operations.push(FriendOperation::Add(desired.clone()));
+            working.push(desired.clone());
+            let added_index = working.len() - 1;
+            if added_index != target_index {
+                operations.push(FriendOperation::Move {
+                    old: friend_index(added_index),
+                    new: friend_index(target_index),
+                });
+                let added = working.remove(added_index);
+                working.insert(target_index, added);
+            }
+        }
+    }
+    debug_assert_eq!(working, current);
+    operations
+}
+
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+fn update_friend_if_needed(
+    working: &mut [FriendEntry],
+    operations: &mut Vec<FriendOperation>,
+    index: usize,
+    desired: &FriendEntry,
+) {
+    if working[index] != *desired {
+        operations.push(FriendOperation::Update {
+            index: friend_index(index),
+            friend: desired.clone(),
+        });
+        working[index] = desired.clone();
+    }
+}
+
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+fn friend_index(index: usize) -> u8 {
+    u8::try_from(index).expect("friend snapshots are capped at 255 entries")
+}
+
+#[expect(
+    dead_code,
+    reason = "friend sync for legacy clients is written and tested but not yet driven from the relay loop"
+)]
+fn synchronize_roster(
+    session: &Session,
+    peer: &mut BotPeer,
+    previous: &mut Option<ChannelView>,
+) -> io::Result<RosterDelta> {
+    let Some(current) = session.active_channel().map(channel_view) else {
+        return Ok(RosterDelta::default());
+    };
+    let Some(old) = previous.as_ref() else {
+        return Ok(RosterDelta::default());
+    };
+    if old.index != current.index {
+        return Ok(RosterDelta::default());
+    }
+
+    let mut delta = RosterDelta::default();
+    for (handle, user) in &old.users {
+        if current
+            .users
+            .get(handle)
+            .is_none_or(|current_user| current_user != user)
+        {
+            peer.send_chat_event(EID_LEAVE, &user.name, "", 0, 0)?;
+            delta.left += 1;
+        }
+    }
+    for (handle, user) in &current.users {
+        if old
+            .users
+            .get(handle)
+            .is_none_or(|old_user| old_user != user)
+        {
+            peer.send_chat_event(EID_JOIN, &user.name, DEFAULT_STATS, 0, 0)?;
+            delta.joined += 1;
+        }
+    }
+    *previous = Some(current);
+    Ok(delta)
 }
 
 #[cfg(test)]

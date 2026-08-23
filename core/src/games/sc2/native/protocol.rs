@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
+use crate::games::sc2::native::errors::native_error;
 use crate::{
     Error, Result,
     bgs::{NativeHandoff, fourcc},
@@ -844,14 +845,14 @@ impl Protocol {
                 _ => unreachable!("custom native route has no decoder"),
             })
         })();
-        let root_type_name = self
-            .codec
-            .schema()
-            .type_metadata(type_id)
-            .ok()
-            .and_then(|metadata| metadata.name)
-            .unwrap_or_else(|| "unnamed".to_owned());
         let payload = payload_result.map_err(|error| {
+            let root_type_name = self
+                .codec
+                .schema()
+                .type_metadata(type_id)
+                .ok()
+                .and_then(|metadata| metadata.name)
+                .unwrap_or_else(|| "unnamed".to_owned());
             append_route_context(
                 error,
                 slot,
@@ -1632,6 +1633,7 @@ impl Protocol {
     /// pull the reliable-transport control fields (command, correlation id, reply
     /// flag, sequence) out of an already-decoded message frame — the shape
     /// [`RecordStream::receive`] hands back as `Payload::MessageFrame`.
+    #[must_use]
     pub fn transport_fields(
         &self,
         frame: &crate::native::model::ConnectionMessageFrame,
@@ -2308,7 +2310,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (10/27) ----
     /// minimal valid server->client `current_season` record for the
     /// S2_MASTER slot / current-season command. mirrors `decode::current_season`
     /// exactly with `failure = 0`: no ranked matchmakers, no leagues, an
@@ -2346,7 +2347,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (4/0) ----
     /// build a minimal valid server->client `Presence/UpdateNotify`
     /// (`PRESENCE_SLOT` / `PRESENCE_UPDATE_COMMAND`) record. this is a pure
     /// bit-packed layout (no reflected BSN types); every write mirrors a read in
@@ -2386,7 +2386,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (4/1) ----
     /// presence `FieldSpecAnnounce` — the presence-field dictionary the server
     /// announces to the client. mirrors [`decode::presence_fields`] exactly.
     /// pass the field specs (an empty slice yields the minimal valid record).
@@ -2425,7 +2424,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (15/10) ----
     /// toon `Welcome` — the minimal server->client welcome notify. mirrors
     /// [`decode::toon_welcome`] exactly: every reflected member is encoded with its
     /// schema default, every counted array is emitted empty, and the opaque wire
@@ -2436,7 +2434,6 @@ impl Protocol {
         let type_id = self.incoming_type(TOON_SLOT, TOON_WELCOME_COMMAND)?;
         let mut writer = Self::record_writer(TOON_WELCOME_COMMAND, TOON_SLOT)?;
 
-        // m_depotRegion — reflected
         let depot_region = self.member_type(type_id, "m_depotRegion")?;
         self.codec.encode_reflected_into(
             &mut writer,
@@ -2447,7 +2444,6 @@ impl Protocol {
         // m_achievementHandles — empty array (4-bit element count)
         writer.write(0, 4)?;
 
-        // m_isPlayingFromIGR, m_defaultPortrait — reflected
         for name in ["m_isPlayingFromIGR", "m_defaultPortrait"] {
             let field = self.member_type(type_id, name)?;
             self.codec
@@ -2457,7 +2453,6 @@ impl Protocol {
         // portrait obfuscation selector — 31-bit opaque field
         writer.write(0, 31)?;
 
-        // m_maxGameServerConnectTimeoutMS, m_programName, m_programFlags — reflected
         for name in [
             "m_maxGameServerConnectTimeoutMS",
             "m_programName",
@@ -2477,7 +2472,6 @@ impl Protocol {
         // trailing obfuscation selector — 3-bit opaque field
         writer.write(0, 3)?;
 
-        // m_maxMapFavorites — reflected
         let max_map_favorites = self.member_type(type_id, "m_maxMapFavorites")?;
         self.codec.encode_reflected_into(
             &mut writer,
@@ -2490,7 +2484,6 @@ impl Protocol {
         encode_generated_utf8(&mut writer, "", 13, 4096, 1024)?;
         encode_generated_utf8(&mut writer, "", 13, 4096, 1024)?;
 
-        // m_currentTime — reflected
         let current_time = self.member_type(type_id, "m_currentTime")?;
         self.codec.encode_reflected_into(
             &mut writer,
@@ -2502,7 +2495,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (13/57) ----
     /// multiplayer `ClubSettings` (S2_MULTIPLAYER_SLOT / S2_MULTIPLAYER_CLUB_SETTINGS_COMMAND).
     /// the minimal valid server->client settings record. mirrors
     /// [`decode::club_settings`] field-for-field: an empty `description` and
@@ -2526,7 +2518,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (3/30) ----
     /// encode a minimal server->client `Friends/30 FriendsList` record
     /// (FRIENDS_SLOT / FRIENDS_LIST_COMMAND), the inverse of
     /// `decode::friends_list`. that decoder is pure bit-packing: an optional
@@ -2549,7 +2540,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (15/0) ----
     /// server->client `ToonList` (`TOON_SLOT`/`TOON_LIST_COMMAND`) carrying a
     /// single synthetic toon display. mirrors [`decode::toon_list_with_provenance`]:
     /// a 6-bit display count, then per display a 7-bit `(len - 2)` length-prefixed
@@ -2612,7 +2602,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (1/14) ----
     /// connection `GameSiteInfo` — the synthetic server's greeting record.
     /// mirrors [`decode::game_site_info`], which decodes two reflected fields in
     /// wire order: `m_externalIp4Addr` (a `Battlenet::IP4::AddressPort`: a fixed
@@ -2647,7 +2636,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (15/6) ----
     /// server `Toon::SelectResponse` (`ToonSelected`). mirrors
     /// [`decode::toon_selected_with_provenance`] field-for-field: a reflected
     /// record address, the four reflected toon-handle fields in the decoder's
@@ -2666,7 +2654,6 @@ impl Protocol {
 
         let mut writer = Self::record_writer(TOON_SELECTED_COMMAND, TOON_SLOT)?;
 
-        // value.record_address — reflected, minimal default.
         let record_address = self.default_value(record_address_type)?;
         self.codec
             .encode_reflected_into(&mut writer, record_address_type, &record_address)?;
@@ -2683,20 +2670,16 @@ impl Protocol {
         let region = self.default_value(region_type)?;
         self.codec
             .encode_reflected_into(&mut writer, region_type, &region)?;
-        // m_realm: synthetic realm 1.
         let handle_realm_type = self.member_type(handle_type, "m_realm")?;
         self.codec
             .encode_reflected_into(&mut writer, handle_realm_type, &BsnValue::Integer(1))?;
-        // m_id: synthetic handle id 42.
         let id_type = self.member_type(handle_type, "m_id")?;
         self.codec
             .encode_reflected_into(&mut writer, id_type, &BsnValue::Integer(42))?;
 
-        // value.realm — reflected integer.
         self.codec
             .encode_reflected_into(&mut writer, realm_type, &BsnValue::Integer(1))?;
 
-        // value.last_logon — reflected, minimal default.
         let last_logon = self.default_value(last_logon_type)?;
         self.codec
             .encode_reflected_into(&mut writer, last_logon_type, &last_logon)?;
@@ -2711,7 +2694,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (13/46) ----
     /// build a minimal server->client `S2Multiplayer/13 GetToonClubs/46`
     /// ("club_summaries") record carrying an EMPTY club list.
     ///
@@ -2751,7 +2733,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    // ---- unknown (14/4) ----
     /// encode a minimal server->client `Profile/14 SettingsAvailable(4)` record.
     ///
     /// mirrors [`decode::profile_settings`], which reads the three reflected
@@ -3192,10 +3173,6 @@ fn value_bytes<'a>(value: &'a BsnValue, label: &str) -> Result<&'a [u8]> {
         BsnValue::Bytes(value) => Ok(value),
         _ => Err(native_error(format!("{label} is not bytes"))),
     }
-}
-
-fn native_error(message: impl Into<String>) -> Error {
-    Error::Native(message.into())
 }
 
 fn append_route_context(
@@ -3857,7 +3834,7 @@ mod tests {
     #[test]
     fn decodes_retail_whisper_echo() {
         let protocol = protocol();
-        // Captured from the current service after an SC:R conversation sent
+        // captured from the current service after an SC:R conversation sent
         // `beep`. Chat/30 names its empty marker `WhisperEcho`, not the
         // `Whisper` marker used by Chat/19.
         let packet =
@@ -4335,7 +4312,6 @@ mod tests {
         );
     }
 
-    // ---- unknown (10/27) ----
     #[test]
     fn current_season_response_round_trips() {
         let protocol = crate::native::protocol::Protocol::current().expect("protocol schema loads");
@@ -4371,7 +4347,6 @@ mod tests {
         }
     }
 
-    // ---- unknown (4/0) ----
     #[test]
     fn presence_update_response_round_trips_minimal_record() {
         let protocol = Protocol::current().unwrap();
@@ -4395,7 +4370,6 @@ mod tests {
         assert!(update.variable_sizes.is_empty());
     }
 
-    // ---- unknown (4/1) ----
     #[test]
     fn presence_fields_response_round_trips_minimal_and_populated() {
         let protocol = protocol();
@@ -4434,11 +4408,9 @@ mod tests {
         }
     }
 
-    // ---- unknown (15/10) ----
     #[test]
     #[ignore = "toon_welcome field order still diverges from the decoder; omitted from the greeting for now"]
     fn toon_welcome_response_round_trips() {
-        // build the minimal welcome record and prove it decodes back to the same route.
         let protocol = Protocol::current().expect("load current native protocol");
         let bytes = protocol
             .toon_welcome_response()
@@ -4457,7 +4429,6 @@ mod tests {
         );
     }
 
-    // ---- unknown (13/57) ----
     #[test]
     fn club_settings_response_round_trips_through_the_decoder() {
         let protocol = crate::native::protocol::Protocol::current().unwrap();
@@ -4475,7 +4446,6 @@ mod tests {
         );
     }
 
-    // ---- unknown (3/30) ----
     #[test]
     fn friends_list_response_round_trips_empty_page() {
         let protocol = Protocol::current().unwrap();
@@ -4541,7 +4511,6 @@ mod tests {
         assert_eq!(field("m_result"), "variant 0");
     }
 
-    // ---- unknown (15/0) ----
     #[test]
     fn toon_list_response_round_trips() {
         let protocol = Protocol::current().unwrap();
@@ -4579,7 +4548,6 @@ mod tests {
         assert_eq!(field("profile.m_label"), TOON_PROFILE_LABEL.to_string());
     }
 
-    // ---- unknown (1/14) ----
     #[test]
     fn game_site_info_greeting_round_trips() {
         let protocol = Protocol::current().unwrap();
@@ -4597,7 +4565,6 @@ mod tests {
         }
     }
 
-    // ---- unknown (15/6) ----
     #[test]
     fn toon_selected_response_round_trips_through_the_decoder() {
         let protocol = Protocol::current().unwrap();
@@ -4616,7 +4583,6 @@ mod tests {
         assert_eq!(selected.handle.id, 42);
     }
 
-    // ---- unknown (13/46) ----
     #[test]
     fn an_empty_club_summaries_reply_round_trips() {
         let protocol = Protocol::current().unwrap();
@@ -4646,7 +4612,6 @@ mod tests {
         }
     }
 
-    // ---- unknown (14/4) ----
     #[test]
     fn profile_settings_response_round_trips() {
         let protocol = crate::native::protocol::Protocol::current().unwrap();

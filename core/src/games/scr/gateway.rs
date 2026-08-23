@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn decodes_the_live_gateway_population_shape() {
-        // Captured live on U.S. East. Field 2 has been observed as both 2 and
+        // captured live on U.S. East. Field 2 has been observed as both 2 and
         // 0, so it must not be interpreted as a gateway identity check.
         let body = Message::new()
             .varint(1, 47)

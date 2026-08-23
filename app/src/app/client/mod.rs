@@ -72,7 +72,6 @@ use crate::{
     product::Product,
     uplink,
 };
-// one game's wire protocol, named in full so the dependency is visible
 use superiority_core::native::{
     ImageTableEntry, PresenceState, WhisperTarget, protocol::MAX_JOINED_CHANNELS,
 };
@@ -133,7 +132,6 @@ use roster::{
     shared_roster_user,
 };
 use sessions::{ClientRuntime, ProductSession};
-// one game's wire protocol, named in full so the dependency is visible
 use settings::{SETTINGS_PAGE_CROSSFADE_DURATION, SettingsComponent};
 use social::{
     ConversationLine, SOCIAL_PANE_SLIDE_DURATION, SocialComponent, SocialPaneTransition, UiFriend,

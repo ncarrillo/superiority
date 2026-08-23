@@ -1,5 +1,6 @@
 use subtle::ConstantTimeEq;
 
+use crate::games::sc2::native::errors::native_error;
 use crate::{
     Error, Result,
     bsn::value::{BsnStruct, BsnValue},
@@ -203,10 +204,6 @@ const fn module_id(hash: [u8; 32]) -> [u8; 40] {
         index += 1;
     }
     output
-}
-
-fn native_error(message: impl Into<String>) -> Error {
-    Error::Native(message.into())
 }
 
 #[cfg(test)]

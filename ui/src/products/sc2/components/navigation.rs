@@ -384,9 +384,9 @@ impl RenderOnce for ChannelTabs {
                             } else {
                                 glyph
                                     .hover(|style| {
-                                        style.bg(rgba(0x315d8748)).text_color(rgb(0xffffff))
+                                        style.bg(rgba(0x315d_8748)).text_color(rgb(0x00ff_ffff))
                                     })
-                                    .active(|style| style.bg(rgba(0x315d8790)).opacity(0.72))
+                                    .active(|style| style.bg(rgba(0x315d_8790)).opacity(0.72))
                             }
                         })
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -446,9 +446,9 @@ impl RenderOnce for ChannelTabs {
                     })
             } else {
                 add.font_family(FONT_INTERFACE)
-                    .text_color(rgb(0x7d8fa8))
-                    .hover(|style| style.bg(rgba(0x153e6640)).text_color(rgb(0xd6e0f0)))
-                    .active(|style| style.bg(rgba(0x245d8b78)).text_color(rgb(0xffffff)))
+                    .text_color(rgb(0x007d_8fa8))
+                    .hover(|style| style.bg(rgba(0x153e_6640)).text_color(rgb(0x00d6_e0f0)))
+                    .active(|style| style.bg(rgba(0x245d_8b78)).text_color(rgb(0x00ff_ffff)))
             });
         }
 
@@ -547,7 +547,7 @@ fn measure_tab_title(title: &str, window: &Window, variant: ModalVariant) -> f32
     let run = TextRun {
         len: title.len(),
         font: font(tab_font(variant)),
-        color: rgb(0xffffff).into(),
+        color: rgb(0x00ff_ffff).into(),
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -709,29 +709,29 @@ const fn tab_font(variant: ModalVariant) -> &'static str {
 fn tab_text_tint(tone: ChannelTabTone, active: bool, hovered: bool, unread: bool) -> Hsla {
     if unread && !active {
         return match tone {
-            ChannelTabTone::Party => rgb(0xf092c4).into(),
-            ChannelTabTone::Group => rgb(0xf0aa64).into(),
-            ChannelTabTone::Standard => rgb(0x6bc2f2).into(),
+            ChannelTabTone::Party => rgb(0x00f0_92c4).into(),
+            ChannelTabTone::Group => rgb(0x00f0_aa64).into(),
+            ChannelTabTone::Standard => rgb(0x006b_c2f2).into(),
         };
     }
     if active {
         return match tone {
-            ChannelTabTone::Party => rgb(0xffe8f6).into(),
-            ChannelTabTone::Group => rgb(0xffedd7).into(),
-            ChannelTabTone::Standard => rgb(0xe6f9ff).into(),
+            ChannelTabTone::Party => rgb(0x00ff_e8f6).into(),
+            ChannelTabTone::Group => rgb(0x00ff_edd7).into(),
+            ChannelTabTone::Standard => rgb(0x00e6_f9ff).into(),
         };
     }
     if hovered {
         return match tone {
-            ChannelTabTone::Party => rgb(0xb9789d).into(),
-            ChannelTabTone::Group => rgb(0xb78358).into(),
-            ChannelTabTone::Standard => rgb(0x7394b4).into(),
+            ChannelTabTone::Party => rgb(0x00b9_789d).into(),
+            ChannelTabTone::Group => rgb(0x00b7_8358).into(),
+            ChannelTabTone::Standard => rgb(0x0073_94b4).into(),
         };
     }
     match tone {
-        ChannelTabTone::Party => rgb(0x76516a).into(),
-        ChannelTabTone::Group => rgb(0x745b45).into(),
-        ChannelTabTone::Standard => rgb(0x415d7d).into(),
+        ChannelTabTone::Party => rgb(0x0076_516a).into(),
+        ChannelTabTone::Group => rgb(0x0074_5b45).into(),
+        ChannelTabTone::Standard => rgb(0x0041_5d7d).into(),
     }
 }
 
@@ -767,9 +767,11 @@ fn tab_name_layout(measured: f32, slot_width: f32) -> TabNameLayout {
     let centered_width = (slot_width - TAB_NAME_INSET * 2.0).max(1.0);
     let viewport_width = (slot_width - TAB_NAME_LEAD - TAB_NAME_INSET).max(1.0);
     let uses_marquee = measured > centered_width;
-    let travel = uses_marquee
-        .then(|| (measured - viewport_width).max(0.0))
-        .unwrap_or(0.0);
+    let travel = if uses_marquee {
+        (measured - viewport_width).max(0.0)
+    } else {
+        0.0
+    };
     TabNameLayout {
         uses_marquee,
         viewport_width,
@@ -838,7 +840,7 @@ fn tab_slot(left: f32, width: f32, opacity: f32, variant: ModalVariant) -> Div {
     let top = if variant == ModalVariant::Reforged {
         0.0
     } else {
-        crate::products::sc2::theme::TAB_TOP
+        TAB_TOP
     };
     div()
         .absolute()

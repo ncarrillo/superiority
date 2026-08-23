@@ -363,12 +363,12 @@ impl LiveChat {
                 Payload::CacheStreamItems(response) if response.token == ERROR_CATALOG_TOKEN => {
                     match error_catalog::load(response) {
                         Ok(count) => {
-                            if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                            if crate::trace_enabled() {
                                 eprintln!("superiority: Battle.net error catalog entries={count}");
                             }
                         }
                         Err(error) => {
-                            if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                            if crate::trace_enabled() {
                                 eprintln!(
                                     "superiority: could not load Battle.net error catalog: {error}"
                                 );
@@ -396,7 +396,7 @@ impl LiveChat {
                     {
                         *identifier = resolved_general;
                     }
-                    if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                    if crate::trace_enabled() {
                         eprintln!(
                             "superiority: Battle.net public-channel catalog entries={} General={resolved_general}",
                             catalog.len()
@@ -428,7 +428,7 @@ impl LiveChat {
                     });
                 }
                 Payload::ChatJoin(result) => {
-                    if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                    if crate::trace_enabled() {
                         eprintln!(
                             "superiority: join response requested={initial_channel:?} success={} type={:?} returned_name_id={:?} shard={:?} channel_index={:?} token={:?}",
                             result.success,
@@ -565,7 +565,7 @@ impl LiveChat {
                 let token = random();
                 let request = match &initial_channel {
                     ChatChannel::Public(channel_name_id) => {
-                        if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+                        if crate::trace_enabled() {
                             eprintln!(
                                 "superiority: joining public channel id={channel_name_id} locale=enUS"
                             );
@@ -2518,15 +2518,13 @@ impl CommandProbe {
 }
 
 fn trace_party(message: impl std::fmt::Display) {
-    if std::env::var_os("SUPERIORITY_TRACE").is_some()
-        || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
-    {
+    if crate::trace_enabled() || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some() {
         eprintln!("superiority: {message}");
     }
 }
 
 fn trace_battle_net_error(context: impl std::fmt::Display, code: u16) {
-    if code != 0 && std::env::var_os("SUPERIORITY_TRACE").is_some() {
+    if code != 0 && crate::trace_enabled() {
         eprintln!(
             "superiority: {context}: {}",
             crate::native::errors::description(code)

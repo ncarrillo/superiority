@@ -25,7 +25,7 @@ pub const DEFAULT_ENDPOINT_BASE: &str = "https://live.superioritybot.com";
 /// credential in Application Support.
 pub const IDENTITY_FILENAME: &str = "live-feed.json";
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct UplinkConfig {
     /// Master switch. Off means the tap projects nothing and sends nothing.
     pub enabled: bool,
@@ -38,18 +38,6 @@ pub struct UplinkConfig {
     pub token: Option<Zeroizing<String>>,
     /// The public feed slug the token writes into.
     pub feed_id: Option<String>,
-}
-
-impl Default for UplinkConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            shared_channels: BTreeSet::new(),
-            endpoint_base: None,
-            token: None,
-            feed_id: None,
-        }
-    }
 }
 
 impl UplinkConfig {
@@ -241,7 +229,7 @@ mod tests {
             endpoint_base: Some("http://127.0.0.1:8787/".into()),
             ..UplinkConfig::default()
         };
-        // The env override wins when present, so only assert the fallback
+        // the env override wins when present, so only assert the fallback
         // when the variable is absent from the test environment.
         if std::env::var_os(ENDPOINT_ENV).is_none() {
             assert_eq!(config.endpoint_base(), "http://127.0.0.1:8787");

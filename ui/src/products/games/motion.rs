@@ -114,11 +114,7 @@ impl<C: AnimationClock> Motion<C> {
     /// How far into entering a realm this is, for a caller that needs to know
     /// where to snap back from.
     #[must_use]
-    pub fn commitment_now(self, now: C) -> f32 {
-        self.commitment(now)
-    }
-
-    fn commitment(self, now: C) -> f32 {
+    pub fn commitment(self, now: C) -> f32 {
         match self {
             Self::Entering { started, .. } => {
                 let total = (DISSOLVE_AT + DISSOLVE).as_secs_f32();
@@ -177,9 +173,10 @@ impl<C: AnimationClock> Motion<C> {
                     flood: beat(elapsed, CENTRE_AT, FLOOD_FADE),
                     flooding: Some(card),
                     entering: beat(elapsed, DISSOLVE_AT, DISSOLVE),
-                    progress: 0.08f32
-                        .mul_add(1.0 - beat(elapsed, DISSOLVE_AT, ENTER_PROGRESS), 0.0)
-                        + beat(elapsed, DISSOLVE_AT, ENTER_PROGRESS),
+                    progress: {
+                        let landed = beat(elapsed, DISSOLVE_AT, ENTER_PROGRESS);
+                        0.08f32.mul_add(1.0 - landed, landed)
+                    },
                 }
             }
             Self::SnappingBack { .. } => StageMotion {

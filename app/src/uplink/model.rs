@@ -12,7 +12,6 @@ use std::{
 use serde::Serialize;
 
 use crate::chat::{ChatChannel, ChatEvent, ChatUser, channel_title, strip_character_code};
-// one game's wire protocol, named in full so the dependency is visible
 use superiority_core::native::presence::PresenceState;
 
 /// Events per POST; matches the ingest Worker's cap.
@@ -191,7 +190,7 @@ fn channel_ref(
     ChannelRef {
         key: channel_identity(channel),
         name: match channel {
-            // The learned group name when the session has one; otherwise no
+            // the learned group name when the session has one; otherwise no
             // claim — the viewer falls back to "Group {id}" like a fresh tab.
             ChatChannel::Club(club_id) => club_names.get(club_id).cloned(),
             // use the catalog learned from battle.net before the offline fallback.
@@ -224,7 +223,7 @@ fn user_ref(
 ) -> UserRef {
     UserRef {
         handle: user.handle,
-        // The app never shows the #code (visible_name strips it); neither
+        // the app never shows the #code (visible_name strips it); neither
         // does the wire.
         name: user
             .name
@@ -361,7 +360,7 @@ impl Projector {
                     })
                     .collect::<BTreeMap<_, _>>();
                 if self.roster_sent.contains(&snapshot.channel_index) {
-                    // The session re-emits a full snapshot on every membership
+                    // the session re-emits a full snapshot on every membership
                     // or presence record; the viewer only needs what changed.
                     let known = self.roster_state.entry(snapshot.channel_index).or_default();
                     let users: Vec<UserRef> = mirror
@@ -427,13 +426,13 @@ impl Projector {
                         user: projected,
                     })
             }
-            // Being removed from a channel means it is no longer ours to
+            // being removed from a channel means it is no longer ours to
             // share: forget it and tell the viewer it closed, exactly as a
             // deliberate leave does.
             ChatEvent::Removed { channel_index, .. } => self
                 .leave(*channel_index, enabled, shared)
                 .map(|channel| EventKind::Left { channel }),
-            // A group summary that names a shared open channel refreshes the
+            // a group summary that names a shared open channel refreshes the
             // viewer's tab title (the server keeps the latest non-empty name).
             ChatEvent::GroupSummary {
                 club_id,
@@ -847,12 +846,12 @@ mod tests {
             })
         };
 
-        // First complete snapshot: the full roster.
+        // first complete snapshot: the full roster.
         assert!(matches!(
             projector.project(&snapshot(PresenceState::Unknown), all),
             Some(EventKind::Roster { .. })
         ));
-        // Same snapshot again: nothing changed, nothing sent.
+        // same snapshot again: nothing changed, nothing sent.
         assert!(
             projector
                 .project(&snapshot(PresenceState::Unknown), all)
@@ -867,7 +866,7 @@ mod tests {
             }
             other => panic!("expected a roster delta, got {other:?}"),
         }
-        // And the delta is remembered — replaying it is silent.
+        // and the delta is remembered — replaying it is silent.
         assert!(
             projector
                 .project(&snapshot(PresenceState::Available), all)
@@ -881,7 +880,7 @@ mod tests {
         let all = gates(true, None);
         projector.project(&joined(0, ChatChannel::Public(1033)), all);
 
-        // The ban: a Removed event closes the channel for the viewer.
+        // the ban: a Removed event closes the channel for the viewer.
         let removed = ChatEvent::Removed {
             channel_index: 0,
             reason: Some(315),
@@ -891,7 +890,7 @@ mod tests {
             other => panic!("expected the channel to close, got {other:?}"),
         }
 
-        // The session emits a roster snapshot right after the removal; it must
+        // the session emits a roster snapshot right after the removal; it must
         // not resurrect the channel the viewer just dropped.
         let snapshot = ChatEvent::Roster(RosterSnapshot {
             channel_index: 0,
@@ -914,14 +913,14 @@ mod tests {
             .leave(0, true, None)
             .expect("shared channel announces");
         assert_eq!(channel.key, "public:1033");
-        // The index is forgotten: traffic on it no longer resolves.
+        // the index is forgotten: traffic on it no longer resolves.
         let message = ChatEvent::Message {
             channel_index: 0,
             sender: user(7, "Overmind"),
             body: "ghost".into(),
         };
         assert!(projector.project(&message, all).is_none());
-        // And a second leave has nothing to announce.
+        // and a second leave has nothing to announce.
         assert!(projector.leave(0, true, None).is_none());
     }
 
@@ -1007,7 +1006,7 @@ mod tests {
                 )
                 .is_none()
         );
-        // Enable mid-session: the index resolves because Joined was observed.
+        // enable mid-session: the index resolves because Joined was observed.
         let message = ChatEvent::Message {
             channel_index: 0,
             sender: user(7, "Overmind"),
@@ -1049,7 +1048,7 @@ mod tests {
                 .project(&snapshot(true), gates(true, Some(&share)))
                 .is_none()
         );
-        // Rejoining the channel resets the throttle.
+        // rejoining the channel resets the throttle.
         projector.project(&joined(0, channel), gates(true, Some(&share)));
         assert!(
             projector

@@ -250,9 +250,12 @@ impl Schema {
             .iter()
             .filter_map(|shape| {
                 let name = shape.name?;
-                let candidate = name.to_lowercase();
-                ((exact && candidate == needle) || (!exact && candidate.contains(&needle)))
-                    .then_some(shape.type_id)
+                let hit = if exact {
+                    name.eq_ignore_ascii_case(query)
+                } else {
+                    name.to_lowercase().contains(&needle)
+                };
+                hit.then_some(shape.type_id)
             })
             .map(|type_id| self.type_metadata(type_id))
             .collect()
@@ -501,8 +504,12 @@ impl Metadata {
             let Some(name) = &info.name else {
                 continue;
             };
-            let candidate = name.to_lowercase();
-            if (exact && candidate == needle) || (!exact && candidate.contains(&needle)) {
+            let hit = if exact {
+                name.eq_ignore_ascii_case(query)
+            } else {
+                name.to_lowercase().contains(&needle)
+            };
+            if hit {
                 matches.push(info);
             }
         }

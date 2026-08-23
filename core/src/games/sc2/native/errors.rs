@@ -198,3 +198,9 @@ pub const fn error_name(code: u16) -> Option<&'static str> {
         _ => return None,
     })
 }
+
+/// a native-protocol failure, in the one error shape every native module
+/// reports through
+pub(crate) fn native_error(message: impl Into<String>) -> crate::Error {
+    crate::Error::Native(message.into())
+}

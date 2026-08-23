@@ -10,7 +10,7 @@ fn invalidates_immediately(event: &ClientEvent) -> bool {
 impl SuperiorityView {
     pub(in crate::app::client) fn handle_client_event(&mut self, event: ClientEvent) -> bool {
         let invalidates_immediately = invalidates_immediately(&event);
-        // Background events are handled while their session is temporarily
+        // background events are handled while their session is temporarily
         // focused, so this is also the product that emitted the event.
         let event_product = self.focused;
         match event {
@@ -53,7 +53,7 @@ impl SuperiorityView {
                 product,
                 credential,
             } => {
-                // Only the authoritative SC2 Front session mints credentials
+                // only the authoritative SC2 Front session mints credentials
                 // for its queued product workers. Install before Account is
                 // handled below; Account is the event that starts the queue.
                 if event_product == Product::StarCraft2

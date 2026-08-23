@@ -34,7 +34,7 @@ mod macos {
     use crate::{Error, Result};
     use superiority_core::{Product, bgs::SecretBytes};
 
-    // Every product mints a different credential, but all authorizations must
+    // every product mints a different credential, but all authorizations must
     // inherit one Battle.net SSO identity. A single persistent WKWebView store
     // is the browser side of that invariant.
     const AUTHENTICATION_STORE_IDENTIFIER: [u8; 16] = [

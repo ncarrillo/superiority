@@ -264,11 +264,11 @@ impl ProtectedDirection {
             .map(|(header, _)| (header.service_slot, header.command_id));
         match inspect_native_record(protocol, direction, &self.plaintext) {
             Ok(record) if candidate_layout(protocol, &record) => {
-                return Ok(Some(SweepUpdate::Status(format!(
+                Ok(Some(SweepUpdate::Status(format!(
                     "capture ended after candidate wire layout {} decoded {} bytes; a following record is needed to corroborate its boundary",
                     record.type_name,
                     record.bytes.len()
-                ))));
+                ))))
             }
             Err(ProtocolError::IncompleteFrame(_)) => {
                 let route = route.map_or_else(
@@ -278,17 +278,17 @@ impl ProtectedDirection {
                         None => format!("service-less command {command}"),
                     },
                 );
-                return Ok(Some(SweepUpdate::Status(format!(
+                Ok(Some(SweepUpdate::Status(format!(
                     "capture ended partway through {route}; {} decrypted bytes remain buffered",
                     self.plaintext.len()
-                ))));
+                ))))
             }
             Ok(record) => {
                 let reason = format!(
                     "capture ended with a complete {} record still buffered unexpectedly",
                     record.type_name
                 );
-                return Err(Error::UnknownPacket(Box::new(UnknownPacket {
+                Err(Error::UnknownPacket(Box::new(UnknownPacket {
                     flow: flow.clone(),
                     direction,
                     stream_offset: self.stream_offset,
@@ -296,11 +296,11 @@ impl ProtectedDirection {
                     reason,
                     plaintext: self.plaintext.clone(),
                     ciphertext: self.ciphertext.clone(),
-                })));
+                })))
             }
             Err(error) => {
                 let reason = error.to_string();
-                return Err(Error::UnknownPacket(Box::new(UnknownPacket {
+                Err(Error::UnknownPacket(Box::new(UnknownPacket {
                     flow: flow.clone(),
                     direction,
                     stream_offset: self.stream_offset,
@@ -308,7 +308,7 @@ impl ProtectedDirection {
                     reason,
                     plaintext: self.plaintext.clone(),
                     ciphertext: self.ciphertext.clone(),
-                })));
+                })))
             }
         }
     }

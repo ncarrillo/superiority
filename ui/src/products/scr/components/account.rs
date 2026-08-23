@@ -74,7 +74,7 @@ impl RenderOnce for AccountButton {
             .cursor_pointer()
             .border_1()
             .border_color(if self.open {
-                rgb(BORDER_FOCUSED).into()
+                rgb(BORDER_FOCUSED)
             } else {
                 rgba(0xc93a_2c99)
             })
@@ -85,7 +85,7 @@ impl RenderOnce for AccountButton {
             })
             .hover(|style| style.border_color(rgb(ACCENT)).bg(rgba(0xc93a_2c29)))
             .active(|style| style.opacity(0.78))
-            // The surrounding SC:R header is a drag surface. The plaque is
+            // the surrounding SC:R header is a drag surface. The plaque is
             // a control, so its press must never start a window drag.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
@@ -187,7 +187,7 @@ impl RenderOnce for AccountMenu {
             .font_family(FONT_INTERFACE)
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(
-                // A restrained scan-line wash keeps the menu in the same
+                // a restrained scan-line wash keeps the menu in the same
                 // console family without sacrificing the account text.
                 div().absolute().inset_0().bg(linear_gradient(
                     180.0,
@@ -288,7 +288,7 @@ fn menu_button(id: &'static str, label: &'static str, primary: bool) -> Stateful
         .bg(if primary {
             rgba(0x3d12_0ecc)
         } else {
-            rgb(PANEL_BACKGROUND).into()
+            rgb(PANEL_BACKGROUND)
         })
         .font_family(FONT_INTERFACE)
         .font_weight(gpui::FontWeight::BOLD)
@@ -298,7 +298,7 @@ fn menu_button(id: &'static str, label: &'static str, primary: bool) -> Stateful
             style
                 .border_color(rgb(ACCENT))
                 .bg(rgba(0x4e12_0ee6))
-                .text_color(rgb(0xffffff))
+                .text_color(rgb(0x00ff_ffff))
         })
         .active(|style| style.opacity(0.72))
         .child(label)

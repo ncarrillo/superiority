@@ -70,8 +70,6 @@ fn content_style(line: &TranscriptLine) -> ContentStyle {
         TranscriptLine::Message {
             sender: None, text, ..
         } => ContentStyle {
-            // The recovered WC3 callback does not yet expose a sender. Keep
-            // exactly the words the server supplied instead of inventing one.
             text: text.clone(),
             color: PARCHMENT,
             emphasis: None,

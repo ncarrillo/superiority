@@ -23,7 +23,7 @@ use crate::{
 };
 
 const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
-const MAX_HANDSHAKE_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_HANDSHAKE_BYTES: usize = 64 * 1024;
 /// RFC 6455's magic string, which the accept digest is built over.
 const WEBSOCKET_ACCEPT_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -497,7 +497,7 @@ fn upgrade_leniently(
 
     // Read exactly the head and not one byte more.
     //
-    // A byte over-read here is the first byte of the first frame, and there is
+    // a byte over-read here is the first byte of the first frame, and there is
     // nowhere to put it back: the framing below starts from an empty buffer, so
     // losing one byte misaligns every frame after it and the first thing it
     // decodes is garbage. Hence one byte at a time, straight from the stream —
@@ -513,7 +513,9 @@ fn upgrade_leniently(
             break;
         }
         if head.len() > MAX_HANDSHAKE_BYTES {
-            return Err(transport_error("upgrade headers exceed 64 KiB"));
+            return Err(transport_error(format!(
+                "upgrade headers exceed {MAX_HANDSHAKE_BYTES} bytes"
+            )));
         }
     }
 

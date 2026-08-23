@@ -20,9 +20,9 @@ impl UpdateComponent {
             _ => status.to_owned(),
         };
         let status_color = match self.update_model.stage {
-            UpdateStage::Ready | UpdateStage::Installing | UpdateStage::Current => rgb(0x47d185),
-            UpdateStage::Error => rgb(0xf2705c),
-            _ => rgb(0x33a8f0),
+            UpdateStage::Ready | UpdateStage::Installing | UpdateStage::Current => rgb(0x0047_d185),
+            UpdateStage::Error => rgb(0x00f2_705c),
+            _ => rgb(0x0033_a8f0),
         };
         let mut primary = ui_buttons::button(
             "update-primary",
@@ -52,7 +52,7 @@ impl UpdateComponent {
             .w(px(780.0))
             .h(px(590.0))
             .font_family(FONT_INTERFACE)
-            .text_color(rgb(0xd6e0f0))
+            .text_color(rgb(0x00d6_e0f0))
             .on_click(|_, _, cx| cx.stop_propagation())
             // the shared modal shell, dressed as whichever realm it is opened
             // over
@@ -95,7 +95,7 @@ impl UpdateComponent {
                     .items_center()
                     .justify_center()
                     .text_size(px(12.0))
-                    .text_color(rgb(0x7d8fa8))
+                    .text_color(rgb(0x007d_8fa8))
                     .child(self.update_model.summary.clone()),
             )
             .child(
@@ -105,7 +105,7 @@ impl UpdateComponent {
                     .top(px(166.0))
                     .w(px(704.0))
                     .h(px(258.0))
-                    .bg(rgb(0x060a0f))
+                    .bg(rgb(0x0006_0a0f))
                     .border_1()
                     .border_color(rgba(BORDER_STRUCTURAL))
                     .rounded(px(1.0)),
@@ -161,7 +161,7 @@ impl UpdateComponent {
                     .top(px(472.0))
                     .w(px(704.0))
                     .h(px(4.0))
-                    .bg(rgb(0x091016)),
+                    .bg(rgb(0x0009_1016)),
             )
             .child(
                 div()
@@ -182,7 +182,7 @@ impl UpdateComponent {
                     .flex()
                     .items_center()
                     .text_size(px(10.5))
-                    .text_color(rgb(0x7d8fa8))
+                    .text_color(rgb(0x007d_8fa8))
                     .child("The signed update is verified before installation."),
             )
             .child(
@@ -209,7 +209,7 @@ impl UpdateComponent {
                     .id("update-close")
                     .on_click(cx.listener(|this, _, _, cx| this.close_update_dialog(cx))),
             );
-        let dimmer = div().absolute().inset_0().bg(rgba(0x000305b3));
+        let dimmer = div().absolute().inset_0().bg(rgba(0x0003_05b3));
         let dimmer = if self.update_dialog_closing {
             dimmer
                 .with_animation(
@@ -223,7 +223,7 @@ impl UpdateComponent {
                 .with_animation(
                     "update-dimmer-open",
                     Animation::new(Duration::from_millis(160)).with_easing(ease_in_out),
-                    |dimmer, delta| dimmer.opacity(delta),
+                    gpui::Styled::opacity,
                 )
                 .into_any_element()
         };

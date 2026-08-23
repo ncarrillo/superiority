@@ -1,51 +1,36 @@
 use super::super::*;
 
+/// the roster filter never grows past this many characters; anything longer
+/// is cut back in the field itself so the field and the filter agree
+const ROSTER_FILTER_MAX_CHARS: usize = 64;
+
+fn clamped_roster_filter(input: &ui_text_input::TextInput) -> String {
+    let content = input.content();
+    if content.chars().count() <= ROSTER_FILTER_MAX_CHARS {
+        return content;
+    }
+    let clamped: String = content.chars().take(ROSTER_FILTER_MAX_CHARS).collect();
+    input.set_content(clamped.clone());
+    clamped
+}
+
 impl SuperiorityView {
     pub(in crate::app::client) fn sync_text_inputs(&mut self, cx: &mut Context<Self>) {
-        if self.session.wc3().is_some() {
-            let mut roster_filter = self
-                .session
-                .wc3()
-                .expect("checked Reforged state")
-                .roster_input
-                .content();
-            if roster_filter.chars().count() > 64 {
-                roster_filter = roster_filter.chars().take(64).collect();
-                self.session
-                    .wc3()
-                    .expect("checked Reforged state")
-                    .roster_input
-                    .set_content(roster_filter.clone());
-            }
-            let changed = self
-                .session
-                .wc3()
-                .and_then(Wc3SessionUi::active)
+        if let Some(wc3) = self.session.wc3() {
+            let roster_filter = clamped_roster_filter(&wc3.roster_input);
+            let changed = wc3
+                .active()
                 .is_some_and(|channel| channel.roster_filter != roster_filter);
             if changed && let Some(wc3) = self.session.wc3_mut() {
                 wc3.set_roster_filter(roster_filter);
             }
             return;
         }
-        if self.session.scr().is_some() {
-            let mut roster_filter = self
-                .session
-                .scr()
-                .expect("checked Remastered state")
-                .roster_input
-                .content();
-            if roster_filter.chars().count() > 64 {
-                roster_filter = roster_filter.chars().take(64).collect();
-                self.session
-                    .scr()
-                    .expect("checked Remastered state")
-                    .roster_input
-                    .set_content(roster_filter.clone());
-            }
-            let changed = self
-                .session
-                .scr()
-                .and_then(|scr| scr.channel.as_ref())
+        if let Some(scr) = self.session.scr() {
+            let roster_filter = clamped_roster_filter(&scr.roster_input);
+            let changed = scr
+                .channel
+                .as_ref()
                 .is_some_and(|channel| channel.roster_filter != roster_filter);
             if changed && let Some(scr) = self.session.scr_mut() {
                 scr.set_roster_filter(roster_filter);
@@ -89,14 +74,7 @@ impl SuperiorityView {
             }
         }
 
-        let mut roster_filter = self.session.roster.roster_input.content();
-        if roster_filter.chars().count() > 64 {
-            roster_filter = roster_filter.chars().take(64).collect();
-            self.session
-                .roster
-                .roster_input
-                .set_content(roster_filter.clone());
-        }
+        let roster_filter = clamped_roster_filter(&self.session.roster.roster_input);
         if roster_filter != self.active_roster_filter() {
             self.set_roster_filter(roster_filter);
         }

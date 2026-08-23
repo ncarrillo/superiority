@@ -237,7 +237,6 @@ mod tests {
 
     #[test]
     fn the_active_tab_follows_itself_and_slides_past_a_reorder() {
-        // the carried tab is the active one
         assert_eq!(reordered_active(0, 0, 2), 2);
         // a tab moved from before the active one to after it slides it left
         assert_eq!(reordered_active(1, 0, 2), 0);

@@ -10,13 +10,13 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::products::sc2::theme::{FONT_INTERFACE, FONT_INTERNATIONAL};
 
-const BODY_TEXT: u32 = 0xdbe7f7;
-const HEADING_TEXT: u32 = 0x62c9ff;
-const MUTED_TEXT: u32 = 0x9fb5cf;
-const LINK_TEXT: u32 = 0x3eb8ff;
-const CODE_TEXT: u32 = 0x8edaff;
-const STRONG_TEXT: u32 = 0xf2f7ff;
-const SELECTION_BACKGROUND: u32 = 0x1769_9dcc;
+const BODY_TEXT: u32 = 0x00db_e7f7;
+const HEADING_TEXT: u32 = 0x0062_c9ff;
+const MUTED_TEXT: u32 = 0x009f_b5cf;
+const LINK_TEXT: u32 = 0x003e_b8ff;
+const CODE_TEXT: u32 = 0x008e_daff;
+const STRONG_TEXT: u32 = 0x00f2_f7ff;
+use crate::foundation::text_input::SELECTION_BACKGROUND;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReleaseNotesDocument {
@@ -496,9 +496,9 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
             .mb(px(16.0))
             .px(px(12.0))
             .py(px(9.0))
-            .bg(rgba(0x06111bd9))
+            .bg(rgba(0x0611_1bd9))
             .border_1()
-            .border_color(rgba(0x144f78d9))
+            .border_color(rgba(0x144f_78d9))
             .font_family("Menlo")
             .text_size(px(12.0))
             .line_height(px(20.0))
@@ -510,13 +510,13 @@ fn render_block(block: &ReleaseNotesBlock, row: usize, selection: &ReleaseNotesS
             .px(px(8.0))
             .py(px(6.0))
             .border_b_1()
-            .border_color(rgba(0x144f78a8))
+            .border_color(rgba(0x144f_78a8))
             .when(*header, |row| {
                 row.font_weight(FontWeight::BOLD)
                     .text_color(rgb(HEADING_TEXT))
             })
             .child(rich_text()),
-        BlockKind::Rule => div().w_full().h(px(1.0)).my(px(18.0)).bg(rgba(0x3eb8ff66)),
+        BlockKind::Rule => div().w_full().h(px(1.0)).my(px(18.0)).bg(rgba(0x3eb8_ff66)),
     }
 }
 
@@ -567,10 +567,13 @@ fn styled_inline(inline: &InlineText, selection: Option<&Range<usize>>) -> Style
     }
 
     let mut text = StyledText::new(inline.text.clone()).with_highlights(highlights);
-    let code =
-        merge_ranges(inline.spans.iter().filter_map(|span| {
-            matches!(span.style, InlineStyle::Code).then(|| span.range.clone())
-        }));
+    let code = merge_ranges(
+        inline
+            .spans
+            .iter()
+            .filter(|&span| matches!(span.style, InlineStyle::Code))
+            .map(|span| span.range.clone()),
+    );
     if !code.is_empty() {
         text =
             text.with_font_family_overrides(code.into_iter().map(|range| (range, "Menlo".into())));

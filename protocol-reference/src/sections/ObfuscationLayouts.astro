@@ -102,18 +102,20 @@ const awaitingLayouts = markedTypes.filter((type) => !recoveredNames.has(type.na
   generated codecs can transmit a structure in a different field order and insert
   filler bits between fields.</p>
 
-  <h3 id="wire-layout-storage">Layout storage</h3>
-  <p>The SC2 5.0.16.97563 client contains two forms of layout data:</p>
+  <h3 id="wire-layout-storage">Where layouts live</h3>
+  <p>The SC2 5.0.16.97563 client contains two layout mechanisms:</p>
   <ul>
-    <li><b>A generic runtime table.</b> <code>Obfuscator::GetStruct(type_id)</code>
-    returns a pointer to a field count followed by packed <code>u32</code> entries.</li>
+    <li><b>The generic BSN library.</b> <code>Obfuscator::GetStruct(type_id)</code>
+    can return a field count followed by packed <code>u32</code> entries.</li>
     <li><b>Generated per-type code.</b> Many readers, writers, and size functions
     have the field sequence and filler calls compiled directly into their instructions.</li>
   </ul>
-  <p>The complete mapping is distributed across that runtime table and the generated
-  functions. The embedded metadata supplies the authoritative list of marked types.
-  Generated reader, writer, and size behavior supplies the authoritative layout for
-  each marked type.</p>
+  <p>The generic table is inactive during normal retail startup. An early debugger
+  attachment armed before SC2 ran any of its own code observed no table construction,
+  lookup, or destruction. A scan of every writable region in a 3,782 MiB process dump
+  also found no referenced copy of the recovered layouts. Generated reader, writer,
+  and size behavior supplies the recoverable layout for each marked type. The embedded
+  metadata supplies the list of marked types.</p>
 
   <h3 id="obfuscation-marker">The <code>0x40</code> marker</h3>
   <p>Bit 6 of a metadata type tag is stored as the <code>Obfuscated</code> flag. Its
@@ -128,7 +130,7 @@ const awaitingLayouts = markedTypes.filter((type) => !recoveredNames.has(type.na
   <p>The bit carries no field indices or filler widths. A decoder needs the separate
   per-type entry, the generated reader, or verified metadata-order behavior.</p>
 
-  <h3 id="wire-layout-model">Table format</h3>
+  <h3 id="wire-layout-model">Layout representation</h3>
   <p>A structure entry begins with its reflected field count. One packed
   <code>u32</code> follows for each field, in transmitted order. Bits 0 through 25
   select the logical field. Bits 26 through 31 give the filler width immediately
@@ -179,8 +181,8 @@ struct StructWireLayout {
 
   <h3 id="wire-layout-catalog">Layout catalog</h3>
   <p>The Sunken registry published here contains {markedTypes.length} named types with
-  the <code>0x40</code> marker. The current catalog accounts for all of them: eight
-  recovered table transformations, one generated custom codec, {metadataOrderNames.length}
+  the <code>0x40</code> marker. The current catalog contains {changedLayouts.length}
+  recovered transformations, one generated custom codec, {metadataOrderNames.length}
   verified metadata-order types, and {awaitingLayouts.length} awaiting layout recovery.</p>
 
   <table class="wire-layout-catalog">

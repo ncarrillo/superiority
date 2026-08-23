@@ -60,13 +60,16 @@ impl Sender {
             .name
             .clone()
             .unwrap_or_else(|| format!("User {}", self.handle));
-        self.clan_tag.as_ref().map_or(name.clone(), |clan| {
-            if clan.is_empty() {
-                name
-            } else {
-                format!("<{clan}> {name}")
-            }
-        })
+        self.clan_tag.as_deref().map_or_else(
+            || name.clone(),
+            |clan| {
+                if clan.is_empty() {
+                    name.clone()
+                } else {
+                    format!("<{clan}> {name}")
+                }
+            },
+        )
     }
 }
 

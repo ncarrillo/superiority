@@ -10,8 +10,9 @@
   binaries on macOS without signing them.
 - `package-macos.zsh` builds the app and packages it as a distributable DMG,
   with optional Developer ID signing and notarization.
-- `prepare-app-assets.zsh` converts the extracted SC2 asset tree into the
-  curated resources embedded by the macOS client.
+
+- `prepare-app-assets.zsh` converts the extracted SC2 and WC3 asset trees into
+  the curated resources embedded by the desktop clients.
 
 ## Publishing and infrastructure
 

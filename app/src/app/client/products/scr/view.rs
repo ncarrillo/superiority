@@ -371,14 +371,16 @@ impl SuperiorityView {
                 .as_ref()
                 .is_some_and(|animation| animation.scope == channel.id && animation.is_running(now))
         });
-        let members = animating
-            .then(|| {
+        let members = if animating {
+            {
                 scr.visible_members()
                     .into_iter()
                     .cloned()
                     .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+            }
+        } else {
+            Default::default()
+        };
         let selected = scr.selected_member();
         let animation = animating.then_some(scr.roster.animation.as_ref()).flatten();
         let rows = ui_roster_pattern::animated_rows(
@@ -573,8 +575,6 @@ impl SuperiorityView {
         } else {
             "Use /join to enter a channel"
         });
-        // the row it sits in carries the margins now, the way the shared
-        // window's footer does
         scr.composer
             .set_ink(ui_inputs::field_ink(ui_inputs::ModalVariant::Remastered));
         div().w_full().flex_shrink_0().child(

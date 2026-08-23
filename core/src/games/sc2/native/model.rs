@@ -212,7 +212,7 @@ pub struct CacheStreamItems {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct ConferenceDescription {
     pub conference_id: u32,
-    /// `Battlenet::Locale::Id`, a `FourCC` such as `enUS`.
+    /// `Battlenet::Locale::Id`, a FourCC such as `enUS`.
     pub locale: u32,
     /// the catalogue id the public-channel name table is keyed by.
     pub channel_name_id: u16,

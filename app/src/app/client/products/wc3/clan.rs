@@ -56,10 +56,7 @@ pub(in crate::app::client) fn is_local_clan_member(
     battle_tag: Option<&str>,
 ) -> bool {
     battle_tag.is_some_and(|battle_tag| {
-        let account = battle_tag
-            .split_once('#')
-            .map_or(battle_tag, |(name, _)| name);
-        strip_character_code(member_name).eq_ignore_ascii_case(account)
+        strip_character_code(member_name).eq_ignore_ascii_case(strip_character_code(battle_tag))
     })
 }
 

@@ -516,7 +516,7 @@ impl ClanState {
                     let membership = match parse_my_clan(&callback.body) {
                         Ok(membership) => membership,
                         Err(error) => {
-                            // An empty callback is the only captured no-clan
+                            // an empty callback is the only captured no-clan
                             // signal. Preserve Pending for any other unknown
                             // shape instead of inventing account state or
                             // dropping the otherwise healthy chat session.
@@ -919,7 +919,7 @@ impl ClassicSession {
             timeout,
             latest_cookie,
         };
-        // Startup callbacks are meaningful product events; keep them ready for
+        // startup callbacks are meaningful product events; keep them ready for
         // the worker's first dispatch rather than discarding them here.
         Ok(this)
     }
@@ -1130,7 +1130,7 @@ fn parse_my_clan(body: &[u8]) -> Result<ClanMembership> {
 }
 
 fn parse_clan_members(body: &[u8], expected_id: u64) -> Result<Vec<ClanMember>> {
-    // The response is already correlated to the request by the Classic RPC
+    // the response is already correlated to the request by the Classic RPC
     // token. Retail may omit its optional ClanId field; when the field is
     // present, still require and verify its numeric identity.
     if let Some(clan_id) = protobuf::first_bytes(body, 1) {
@@ -1164,7 +1164,7 @@ fn parse_clan_members(body: &[u8], expected_id: u64) -> Result<Vec<ClanMember>> 
             "clan member name",
         )?;
         let rank = protobuf::first_varint(member, 2)
-            .map(|rank| u32::try_from(rank))
+            .map(u32::try_from)
             .transpose()
             .map_err(|_| classic_error("ClanMember rank exceeds uint32"))?
             .unwrap_or_default();
@@ -1234,7 +1234,7 @@ fn validate_online_stats(body: &[u8], session_key: &SecretBytes) -> Result<()> {
     let ciphertext = fields
         .iter()
         .find(|field| field.number == 3)
-        .and_then(|field| field.bytes())
+        .and_then(crate::platform::wire::raw::Field::bytes)
         .ok_or_else(|| {
             let shape = fields
                 .iter()
@@ -1270,7 +1270,7 @@ fn validate_online_stats(body: &[u8], session_key: &SecretBytes) -> Result<()> {
     if length == 0 || protobuf::fields(&plaintext[..length]).next().is_none() {
         return Err(classic_error("decrypted OnlineStats is empty"));
     }
-    // Validate every protobuf field, not only the first.
+    // validate every protobuf field, not only the first.
     protobuf::fields(&plaintext[..length]).collect::<Result<Vec<_>>>()?;
     Ok(())
 }
@@ -1608,7 +1608,7 @@ fn parse_friend_update(body: &[u8]) -> Result<FriendUpdate> {
 /// identifiers, names, and chat text deliberately never enter the trace.
 fn trace_classic(message: impl std::fmt::Display) {
     let message = message.to_string();
-    if std::env::var_os("SUPERIORITY_TRACE").is_some() {
+    if crate::trace_enabled() {
         eprintln!("superiority: {message}");
     }
     if let Some(path) = std::env::var_os("SUPERIORITY_TRACE_FILE")
@@ -1934,7 +1934,7 @@ mod tests {
             })
         );
 
-        // Retail may serialize an optional descriptor string as a present,
+        // retail may serialize an optional descriptor string as a present,
         // zero-length protobuf field. That is the same semantic value as an
         // omitted optional string, not a malformed required display name.
         let empty_description = Message::new()

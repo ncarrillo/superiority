@@ -206,7 +206,7 @@ impl AuroraClient {
         self.await_response(token)?;
 
         let session = self.logon(credential, challenge)?;
-        // Bind the account before asking for a product handoff. A valid cached
+        // bind the account before asking for a product handoff. A valid cached
         // token can belong to a different Battle.net account; letting it reach
         // the classic edge first makes entitlement failure indistinguishable
         // from a bad handoff.

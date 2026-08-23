@@ -87,7 +87,7 @@ fn process_executable_path(pid: i32) -> Option<std::path::PathBuf> {
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn sc2_executable_path(pid: i32) -> Result<std::path::PathBuf> {
     let path = process_executable_path(pid)
         .ok_or_else(|| Error::Platform(format!("could not resolve SC2 PID {pid}")))?;

@@ -84,7 +84,6 @@ impl Drop for BrowserErrorSilencer {
 fn duplicate_descriptor(descriptor: i32) -> io::Result<std::os::fd::OwnedFd> {
     use std::os::fd::FromRawFd;
 
-    // a successful dup returns a descriptor owned by the caller.
     let duplicate = unsafe { libc::dup(descriptor) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error());

@@ -480,10 +480,6 @@ pub fn card_button(
     out_of_play: Option<&'static str>,
     seated: bool,
 ) -> Stateful<Div> {
-    // the modern button, in this realm's own personality. The keyboard's
-    // seat carries the primary weight; every other card rests as a ghost.
-    // A realm that failed offers RETRY in its error channel, and a
-    // connection under way wears the loading dress without ever spinning.
     let realm = personality(palette);
     let life = if out_of_play.is_some() {
         ui_buttons::ButtonLife::Disabled
@@ -638,19 +634,6 @@ pub fn room_layer(palette: &GamePalette, light: f32, art: ImageSource) -> Div {
         )))
 }
 
-/// The marker takes the colour of what the state means, in the hero's own
-/// palette: focus while it is working, the ok colour when it has arrived, the
-/// error colour when it has not.
-#[must_use]
-pub const fn marker_colour(state: CardState, room: &GamePalette) -> u32 {
-    match state {
-        CardState::Connected => room.ok,
-        CardState::Unreachable => room.err,
-        CardState::NoAccount => 0x006e_7a8c,
-        _ => room.focus,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::model::{CardData, GAMES, LiveCard};
@@ -715,9 +698,18 @@ mod tests {
         );
         assert_eq!(tag, None);
 
-        // the design screens still get their dressing
         let (tag, handle) = identity_parts(&GAMES[1], &design(false));
         assert_eq!(handle, GAMES[1].handle);
         assert_eq!(tag.is_some(), GAMES[1].clan_tag.is_some());
+    }
+}
+
+#[must_use]
+pub const fn marker_colour(state: CardState, room: &GamePalette) -> u32 {
+    match state {
+        CardState::Connected => room.ok,
+        CardState::Unreachable => room.err,
+        CardState::NoAccount => 0x006e_7a8c,
+        _ => room.focus,
     }
 }

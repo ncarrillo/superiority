@@ -70,7 +70,7 @@ impl WarcraftSession {
             challenge.resolve(url)
         };
         let authentication = account.authenticate(cached.as_ref(), &mut browser)?;
-        // Surface the identity as soon as BGS names it. If the account-bound
+        // surface the identity as soon as BGS names it. If the account-bound
         // Classic handoff is refused, the UI and diagnostics must still say
         // which Battle.net account was actually attempted.
         on_account(
@@ -84,7 +84,7 @@ impl WarcraftSession {
             authentication.session.account_id,
             authentication.session.battle_tag.as_deref(),
         )?;
-        // Reading these keeps the protocol diagnostics exercised even though
+        // reading these keeps the protocol diagnostics exercised even though
         // the desktop currently renders the shared four-stage progress model.
         let _logon_diagnostics = (
             authentication.browser_used,
@@ -92,15 +92,15 @@ impl WarcraftSession {
                 .queue_updates
                 .iter()
                 .filter_map(|state| state.position)
-                .last(),
+                .next_back(),
         );
 
         on_step(Step::AskingForServer);
-        // Retail performs ProcessTask before rotating the generated token.
+        // retail performs ProcessTask before rotating the generated token.
         let endpoint = account.request_classic_endpoint(&authentication.session)?;
         let successor = account.generate_auth_token()?;
         credentials.store(&successor)?;
-        // The WC3 SDK tears down its JSON-BGS channel before it opens the
+        // the WC3 SDK tears down its JSON-BGS channel before it opens the
         // Classic route. The handoff is a connection transfer, not two live
         // sessions for the same account. Keeping BGS open here makes the
         // Classic edge answer AuthSession with an empty rejection.
@@ -145,7 +145,11 @@ impl WarcraftSession {
 
         on_step(Step::StartingChat);
         let mut initial_events = VecDeque::from(classic.dispatch_queued()?);
-        if !classic.public_channels().is_empty() {
+        if classic.public_channels().is_empty() {
+            initial_events.push_back(ChatEvent::Notice {
+                text: "Battle.net advertised no public Warcraft III channels.".into(),
+            });
+        } else {
             initial_events.extend(classic.join(0)?);
             let deadline = Instant::now() + timeout;
             while classic.channel().is_none() && Instant::now() < deadline {
@@ -164,10 +168,6 @@ impl WarcraftSession {
                     "WC3 joined a public channel but received no roster".into(),
                 ));
             }
-        } else {
-            initial_events.push_back(ChatEvent::Notice {
-                text: "Battle.net advertised no public Warcraft III channels.".into(),
-            });
         }
         if let Some(cookie) = classic.take_cookie() {
             store_cookie(&cookie)?;
@@ -206,6 +206,7 @@ impl WarcraftSession {
         self.classic.channels()
     }
 
+    #[must_use]
     pub fn public_channels(&self) -> Vec<String> {
         self.classic
             .public_channels()
@@ -214,8 +215,7 @@ impl WarcraftSession {
             .map(|(index, channel)| {
                 channel
                     .display_name()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| format!("Public Channel {}", index + 1))
+                    .map_or_else(|| format!("Public Channel {}", index + 1), str::to_owned)
             })
             .collect()
     }
@@ -224,6 +224,7 @@ impl WarcraftSession {
         self.classic.friends()
     }
 
+    #[must_use]
     pub const fn friends_revision(&self) -> u64 {
         self.classic.friends_revision()
     }

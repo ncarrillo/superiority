@@ -7,32 +7,25 @@ impl SuperiorityView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // every link in the chain that has to hold for typing to reach the
-        // composer, in one line
-        let (composer_focused, composer_content, composer_cursor) =
-            if let Some(wc3) = self.session.wc3() {
-                (
-                    wc3.composer.is_focused(window),
-                    wc3.composer.content(),
-                    wc3.composer.cursor(),
-                )
+        if superiority_core::trace_enabled() {
+            // every link in the chain that has to hold for typing to reach the
+            // composer, in one line
+            let composer = if let Some(wc3) = self.session.wc3() {
+                &wc3.composer
             } else if let Some(scr) = self.session.scr() {
-                (
-                    scr.composer.is_focused(window),
-                    scr.composer.content(),
-                    scr.composer.cursor(),
-                )
+                &scr.composer
             } else {
-                (
-                    self.session.composer.composer.is_focused(window),
-                    self.session.composer.composer.content(),
-                    self.session.composer.composer.cursor(),
-                )
+                &self.session.composer.composer
             };
-        Self::trace(format_args!(
-            "key {:?} product={:?} focus={composer_focused} content={composer_content:?} cursor={composer_cursor}",
-            event.keystroke.key, self.focused,
-        ));
+            Self::trace(format_args!(
+                "key {:?} product={:?} focus={} content={:?} cursor={}",
+                event.keystroke.key,
+                self.focused,
+                composer.is_focused(window),
+                composer.content(),
+                composer.cursor(),
+            ));
+        }
         self.sync_text_inputs(cx);
         if self.updates.update_dialog_visible {
             if event.keystroke.modifiers.platform

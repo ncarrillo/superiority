@@ -170,7 +170,7 @@ pub(in crate::app) fn configure_window(window: &Window) {
         {
             view.setHidden(true);
         }
-        for child in view.subviews().iter() {
+        for child in &view.subviews() {
             clear_titlebar_fill(&child);
         }
     }

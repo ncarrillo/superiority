@@ -273,7 +273,7 @@ pub fn root() -> Div {
 
 #[must_use]
 fn crossfade_layers(incoming: impl IntoElement, outgoing: impl IntoElement, progress: f32) -> Div {
-    let progress = normalized_crossfade_progress(progress);
+    let progress = (progress).clamp(0.0, 1.0);
     div()
         .absolute()
         .inset_0()
@@ -304,10 +304,6 @@ fn transition_layers(
         }
         Some(_) => current,
     }
-}
-
-fn normalized_crossfade_progress(progress: f32) -> f32 {
-    progress.clamp(0.0, 1.0)
 }
 
 fn channel_chrome_with_layout(
@@ -371,14 +367,7 @@ fn channel_chrome_with_layout(
 
 #[cfg(test)]
 mod tests {
-    use super::{channel_layout_for_viewport, normalized_crossfade_progress};
-
-    #[test]
-    fn crossfade_progress_is_bounded() {
-        assert!(normalized_crossfade_progress(-1.0).abs() < f32::EPSILON);
-        assert!((normalized_crossfade_progress(0.35) - 0.35).abs() < f32::EPSILON);
-        assert!((normalized_crossfade_progress(2.0) - 1.0).abs() < f32::EPSILON);
-    }
+    use super::channel_layout_for_viewport;
 
     #[test]
     fn channel_layout_stacks_on_phone_sized_viewports() {

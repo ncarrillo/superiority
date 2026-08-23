@@ -38,7 +38,7 @@ impl SuperiorityView {
         for event in events {
             event_changed |= self.handle_client_event(event);
         }
-        // Draining a background session swaps it into `self.session` and runs
+        // draining a background session swaps it into `self.session` and runs
         // its handlers, which moves the composer entity out from under the
         // window's keyboard focus and back — enough to drop it. While the user
         // is typing in the foreground, that showed up as characters landing on

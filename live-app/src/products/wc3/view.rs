@@ -399,7 +399,10 @@ impl Render for Wc3LiveView {
                             .min_w_0()
                             .child(self.hall.transcript_viewport(now)),
                     )
-                    .child(self.hall.roster_panel(self.roster_input.clone(), now, window, cx)),
+                    .child(
+                        self.hall
+                            .roster_panel(self.roster_input.clone(), now, window, cx),
+                    ),
             )
     }
 }

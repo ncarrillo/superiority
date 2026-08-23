@@ -19,7 +19,7 @@ use url::Url;
 pub use crate::patterns::transcript::TranscriptSelection;
 use crate::patterns::transcript::{self, SelectableText};
 
-const SELECTION_BACKGROUND: u32 = 0x1769_9dcc;
+use crate::foundation::text_input::SELECTION_BACKGROUND;
 
 /// party talk stays in the room you are reading rather than moving to a tab of
 /// its own, so it is told apart by colour: a green rail down the line, a green
@@ -85,7 +85,7 @@ fn content_style(line: &TranscriptLine) -> ContentStyle {
             )
         }
         TranscriptLine::Error { text, .. } => {
-            linked_content(format!("!  {text}"), 0xff6b63, Some(0..1), Vec::new())
+            linked_content(format!("!  {text}"), 0x00ff_6b63, Some(0..1), Vec::new())
         }
     }
 }
@@ -252,41 +252,6 @@ pub fn display_message_body(body: &str) -> (String, Vec<LobbyLink>) {
     }
     output.push_str(&body[cursor..]);
     (output, links)
-}
-
-#[must_use]
-pub fn split_media(body: &str) -> (String, Vec<String>) {
-    let mut links = Vec::new();
-    let mut text = String::with_capacity(body.len());
-    for token in body.split_whitespace() {
-        if is_media_link(token) {
-            links.push(token.to_owned());
-        } else {
-            if !text.is_empty() {
-                text.push(' ');
-            }
-            text.push_str(token);
-        }
-    }
-    (text, links)
-}
-
-fn is_media_link(token: &str) -> bool {
-    let Some(rest) = token
-        .strip_prefix("https://")
-        .or_else(|| token.strip_prefix("http://"))
-    else {
-        return false;
-    };
-    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let path = path.split(['?', '#']).next().unwrap_or(path);
-    let host = host.to_ascii_lowercase();
-    let path = path.to_ascii_lowercase();
-    [".gif", ".png", ".jpg", ".jpeg", ".webp"]
-        .iter()
-        .any(|suffix| path.ends_with(suffix))
-        || host.ends_with("giphy.com")
-        || host.ends_with("tenor.com")
 }
 
 fn styled_content(content: &ContentStyle, selection: Option<&Range<usize>>) -> StyledText {
@@ -1132,11 +1097,6 @@ fn empty_transcript(message: impl Into<gpui::SharedString>) -> Div {
 }
 
 #[must_use]
-pub fn transcript_row(line: &TranscriptLine, show_timestamps: bool, assets: &Sc2Assets) -> Div {
-    transcript_row_inner(line, show_timestamps, assets)
-}
-
-#[must_use]
 pub fn selectable_transcript_row(
     line: &TranscriptLine,
     show_timestamps: bool,
@@ -1175,30 +1135,6 @@ pub fn selectable_transcript_row(
     )
     .id(format!("transcript-row-{scope}-{row}"))
     .cursor(gpui::CursorStyle::IBeam)
-}
-
-fn transcript_row_inner(line: &TranscriptLine, show_timestamps: bool, assets: &Sc2Assets) -> Div {
-    let content = content_style(line);
-    let time = match line {
-        TranscriptLine::Notice { time, .. }
-        | TranscriptLine::SessionStart { time, .. }
-        | TranscriptLine::Message { time, .. }
-        | TranscriptLine::Error { time, .. } => time,
-        TranscriptLine::Membership(event) => &event.time,
-        TranscriptLine::Digest(event) => &event.time,
-    };
-    transcript_row_shell(
-        time,
-        show_timestamps,
-        content.color,
-        PartyMark {
-            rail: party_line(line),
-            chip: false,
-        },
-        speaker(line),
-        assets,
-        styled_content(&content, None),
-    )
 }
 
 /// what a line wears to say it was said to the party. the rail runs down every
@@ -1292,6 +1228,41 @@ fn transcript_row_shell(
             ));
     }
     row
+}
+
+#[must_use]
+pub fn split_media(body: &str) -> (String, Vec<String>) {
+    let mut links = Vec::new();
+    let mut text = String::with_capacity(body.len());
+    for token in body.split_whitespace() {
+        if is_media_link(token) {
+            links.push(token.to_owned());
+        } else {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(token);
+        }
+    }
+    (text, links)
+}
+
+fn is_media_link(token: &str) -> bool {
+    let Some(rest) = token
+        .strip_prefix("https://")
+        .or_else(|| token.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let host = host.to_ascii_lowercase();
+    let path = path.to_ascii_lowercase();
+    [".gif", ".png", ".jpg", ".jpeg", ".webp"]
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
+        || host.ends_with("giphy.com")
+        || host.ends_with("tenor.com")
 }
 
 #[cfg(test)]
@@ -1492,13 +1463,6 @@ mod tests {
     }
 
     #[test]
-    fn media_links_are_separated_from_conversation_text() {
-        let (text, links) = split_media("look https://example.com/cat.gif now");
-        assert_eq!(text, "look now");
-        assert_eq!(links, vec!["https://example.com/cat.gif"]);
-    }
-
-    #[test]
     fn transcript_urls_exclude_sentence_punctuation() {
         let text = "see (https://example.com/a?q=1), then www.example.org/docs.";
         let links = recognized_urls(text);
@@ -1527,5 +1491,12 @@ mod tests {
             &content.text[content.links[0].0.clone()],
             "https://example.com"
         );
+    }
+
+    #[test]
+    fn media_links_are_separated_from_conversation_text() {
+        let (text, links) = split_media("look https://example.com/cat.gif now");
+        assert_eq!(text, "look now");
+        assert_eq!(links, vec!["https://example.com/cat.gif"]);
     }
 }

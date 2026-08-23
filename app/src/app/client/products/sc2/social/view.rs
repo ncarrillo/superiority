@@ -55,7 +55,7 @@ impl SocialComponent {
             .bottom(px(SOCIAL_FRAME_CLIP_GUTTER))
             .overflow_hidden()
             .child(body_track);
-        // The interaction is shared, but its shell belongs to the realm the
+        // the interaction is shared, but its shell belongs to the realm the
         // user is standing in. Social opened from Remastered or Reforged must
         // not bring StarCraft II's chrome along with it.
         let modal = div()

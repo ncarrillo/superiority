@@ -146,7 +146,7 @@ fn voice(variant: ui_shared_modal::ModalVariant) -> MockVoice {
             hover: 0x3fdc_3f0f,
         },
         Reforged => MockVoice {
-            font: "Friz Quadrata TT",
+            font: ui_wc3_theme::FONT_TITLE,
             row_height: 34.0,
             portrait: 22.0,
             portrait_border: Some((0x008a_6d3b, 0x004a_3a22)),

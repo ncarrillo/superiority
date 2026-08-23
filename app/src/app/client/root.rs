@@ -99,7 +99,7 @@ impl SuperiorityView {
                 self.games.advance_if_due();
             }
             GamesScreen::Picker => {
-                // Only the design screens land a card on a timer. A live card's
+                // only the design screens land a card on a timer. A live card's
                 // state is its session's, and letting the clock declare it
                 // connected mid-handshake took the progress rail away — the
                 // rail is drawn only while the card is connecting — and gave it
@@ -297,16 +297,6 @@ impl Render for SuperiorityView {
                 ));
             }
             return root.into_any_element();
-        }
-        {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            static SEEN: AtomicUsize = AtomicUsize::new(0);
-            if SEEN.fetch_add(1, Ordering::Relaxed) < 3 {
-                Self::trace(format_args!(
-                    "shared window render, focused={:?}",
-                    self.focused
-                ));
-            }
         }
         self.sync_text_inputs(cx);
         self.sync_command_focus(window, cx);

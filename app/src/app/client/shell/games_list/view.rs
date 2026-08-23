@@ -2,7 +2,7 @@ use gpui::{PathBuilder, canvas, point};
 
 use super::*;
 
-// The card renderers and sizing fixtures live in the shared crate now; the
+// the card renderers and sizing fixtures live in the shared crate now; the
 // desktop reads them from there so both hosts draw one card system. `CardSize`,
 // `masthead`, and `picker_size` are re-exported because `mod.rs` imports them
 // from `view`.
@@ -13,7 +13,6 @@ use superiority_ui::products::games::{
     tracked,
 };
 pub(super) use superiority_ui::products::games::{CardSize, masthead, picker_size};
-// the picker-size breakpoints are exercised only by the sizing tests
 #[cfg(test)]
 use superiority_ui::products::games::{PICKER_MEDIUM, PICKER_NARROW, PICKER_WIDE};
 
@@ -118,12 +117,7 @@ const ARMED_GLOW: u32 = 0xf0a0_304d;
 /// omits only its numeric discriminator because this strip is identity, not an
 /// address field.
 pub(super) fn picker_account_name(battle_tag: Option<&str>) -> Option<String> {
-    battle_tag.map(|battle_tag| {
-        battle_tag
-            .split_once('#')
-            .map_or(battle_tag, |(name, _)| name)
-            .to_owned()
-    })
+    battle_tag.map(|battle_tag| strip_character_code(battle_tag).to_owned())
 }
 
 /// A chip: hairline border, 4×9 padding, a glyph and a tracked label in the
@@ -149,7 +143,7 @@ fn chip(
         .border_color(rgba(ink.border))
         .bg(rgba(ink.fill))
         .text_color(rgb(ink.text))
-        // The bar around this is a window-drag surface. Chips own their
+        // the bar around this is a window-drag surface. Chips own their
         // presses and must never hand them to the native window.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
     if let Some(lit) = lit {
@@ -1106,9 +1100,6 @@ pub(super) fn state_position(state: CardState) -> usize {
         .unwrap_or(0)
 }
 
-/// Which product a card stands for. `None` for a card whose `FourCC` names no
-/// product this client knows, which cannot happen today but would be a silent
-/// mis-switch if it ever did.
 pub(super) fn card_index(product: Product) -> Option<usize> {
     GAMES
         .iter()
@@ -1190,7 +1181,7 @@ mod tests {
 
     #[test]
     fn the_row_is_centred_on_the_cards_it_actually_draws() {
-        // A hidden middle game keeps its catalogue entry, but the two licensed
+        // a hidden middle game keeps its catalogue entry, but the two licensed
         // cards must still balance around the real centre of the drawn row.
         let size = super::HERO_CARD;
         let games = GamesComponent::new(
@@ -1247,7 +1238,6 @@ mod tests {
 
     #[test]
     fn a_game_the_authoritative_account_does_not_have_is_hidden_and_inert() {
-        // starcraft ii left off the list
         let owned = Some(vec!["W3".to_owned()]);
         let mut games = GamesComponent::new(Some(GamesScreen::Picker), owned, false);
 
@@ -1268,7 +1258,7 @@ mod tests {
 
     #[test]
     fn only_a_game_with_a_protocol_behind_it_is_offered() {
-        // Every drawn product now has a protocol implementation behind it.
+        // every drawn product now has a protocol implementation behind it.
         let all = Some(vec!["S2".to_owned(), "S1".to_owned(), "W3".to_owned()]);
         let games = GamesComponent::new(Some(GamesScreen::Picker), all, false);
 
@@ -1281,12 +1271,12 @@ mod tests {
 
     #[test]
     fn saying_nothing_about_ownership_offers_everything_it_can() {
-        // Design-time screens with no account catalogue demonstrate everything.
+        // design-time screens with no account catalogue demonstrate everything.
         let games = GamesComponent::new(Some(GamesScreen::Picker), None, false);
         assert!((0..super::GAMES.len()).all(|index| games.licensed(index)));
         assert!(games.owns(0));
 
-        // A live client waits for the authoritative license response and does
+        // a live client waits for the authoritative license response and does
         // not flash unprovisioned products while ownership is unknown.
         let mut live = GamesComponent::new(Some(GamesScreen::Picker), None, false);
         live.live_mode = true;
@@ -1317,7 +1307,7 @@ mod tests {
 
     #[test]
     fn a_dark_card_says_which_kind_of_dark_it_is() {
-        // All implemented products stay active when the account owns them.
+        // all implemented products stay active when the account owns them.
         let owns_all = GamesComponent::new(
             Some(GamesScreen::Picker),
             Some(vec!["S2".to_owned(), "S1".to_owned(), "W3".to_owned()]),
@@ -1327,7 +1317,7 @@ mod tests {
         assert_eq!(super::out_of_play_verb(&owns_all, 0), None);
         assert_eq!(super::out_of_play_verb(&owns_all, 1), None);
 
-        // A product the authoritative account does not own is not actionable.
+        // a product the authoritative account does not own is not actionable.
         let owns_none = GamesComponent::new(Some(GamesScreen::Picker), Some(Vec::new()), false);
         assert_eq!(super::out_of_play_verb(&owns_none, 2), Some("NOT OWNED"));
     }

@@ -45,8 +45,8 @@ impl ConnectionComponent {
                     compact_error(error),
                     compact_error(error),
                     String::new(),
-                    rgb(0xf2705c),
-                    rgb(0xf2705c),
+                    rgb(0x00f2_705c),
+                    rgb(0x00f2_705c),
                     ("connection-title-error", "connection-detail-error"),
                 )
             } else if self.starting {
@@ -55,8 +55,8 @@ impl ConnectionComponent {
                     "Starting the connection.".to_owned(),
                     "Getting ready".to_owned(),
                     String::new(),
-                    rgb(0xd6e0f0),
-                    rgb(0x33a8f0),
+                    rgb(0x00d6_e0f0),
+                    rgb(0x0033_a8f0),
                     ("connection-title-start", "connection-detail-start"),
                 )
             } else if self.signed_out {
@@ -65,8 +65,8 @@ impl ConnectionComponent {
                     "Sign in again whenever you're ready.".to_owned(),
                     "Signed out".to_owned(),
                     String::new(),
-                    rgb(0xd6e0f0),
-                    rgb(0x33a8f0),
+                    rgb(0x00d6_e0f0),
+                    rgb(0x0033_a8f0),
                     (
                         "connection-title-signed-out",
                         "connection-detail-signed-out",
@@ -79,8 +79,8 @@ impl ConnectionComponent {
                         "You're offline. Reconnect whenever you're ready.".to_owned(),
                         "Not connected".to_owned(),
                         String::new(),
-                        rgb(0xd6e0f0),
-                        rgb(0x33a8f0),
+                        rgb(0x00d6_e0f0),
+                        rgb(0x0033_a8f0),
                         ("connection-title-offline", "connection-detail-offline"),
                     ),
                     ConnectionStage::WebAuthentication => (
@@ -88,8 +88,8 @@ impl ConnectionComponent {
                         "Signing in to your Battle.net account.".to_owned(),
                         "Signing in".to_owned(),
                         format!("Step 1 of {CONNECTION_STEPS}"),
-                        rgb(0xd6e0f0),
-                        rgb(0x33a8f0),
+                        rgb(0x00d6_e0f0),
+                        rgb(0x0033_a8f0),
                         ("connection-title-web", "connection-detail-web"),
                     ),
                     ConnectionStage::GameUtilities => (
@@ -97,8 +97,8 @@ impl ConnectionComponent {
                         format!("Looking up your {} account.", product.name()),
                         "Finding your game".to_owned(),
                         format!("Step 2 of {CONNECTION_STEPS}"),
-                        rgb(0xd6e0f0),
-                        rgb(0x33a8f0),
+                        rgb(0x00d6_e0f0),
+                        rgb(0x0033_a8f0),
                         ("connection-title-game", "connection-detail-game"),
                     ),
                     ConnectionStage::NativeAuthentication => (
@@ -106,8 +106,8 @@ impl ConnectionComponent {
                         format!("Connecting to {}.", product.name()),
                         "Connecting".to_owned(),
                         format!("Step 3 of {CONNECTION_STEPS}"),
-                        rgb(0xd6e0f0),
-                        rgb(0x33a8f0),
+                        rgb(0x00d6_e0f0),
+                        rgb(0x0033_a8f0),
                         ("connection-title-native", "connection-detail-native"),
                     ),
                     ConnectionStage::ChatBootstrap => (
@@ -115,8 +115,8 @@ impl ConnectionComponent {
                         "Loading your channels and friends.".to_owned(),
                         "Joining chat".to_owned(),
                         format!("Step 4 of {CONNECTION_STEPS}"),
-                        rgb(0xd6e0f0),
-                        rgb(0x33a8f0),
+                        rgb(0x00d6_e0f0),
+                        rgb(0x0033_a8f0),
                         ("connection-title-chat", "connection-detail-chat"),
                     ),
                     ConnectionStage::Connected => (
@@ -124,8 +124,8 @@ impl ConnectionComponent {
                         "Chat is ready.".to_owned(),
                         "Connected".to_owned(),
                         String::new(),
-                        rgb(0x47d185),
-                        rgb(0x47d185),
+                        rgb(0x0047_d185),
+                        rgb(0x0047_d185),
                         ("connection-title-done", "connection-detail-done"),
                     ),
                 }
@@ -186,7 +186,7 @@ impl ConnectionComponent {
             .flex()
             .items_center()
             .text_size(px(12.0))
-            .text_color(rgb(0x7d8fa8))
+            .text_color(rgb(0x007d_8fa8))
             .child(detail)
             .with_animation(
                 reveal_ids.1,
@@ -199,7 +199,7 @@ impl ConnectionComponent {
             .w(px(540.0))
             .h(px(250.0))
             .font_family(FONT_INTERFACE)
-            .text_color(rgb(0xd6e0f0))
+            .text_color(rgb(0x00d6_e0f0))
             .on_click(|_, _, cx| cx.stop_propagation())
             // the modern shell in the product's own dressing; a connection
             // that has failed wears the alarm variant instead
@@ -225,7 +225,7 @@ impl ConnectionComponent {
                     .top(px(158.0))
                     .w(px(CONNECTION_RAIL))
                     .h(px(4.0))
-                    .bg(rgb(0x0a1a24)),
+                    .bg(rgb(0x000a_1a24)),
             )
             .child(
                 div()
@@ -247,7 +247,7 @@ impl ConnectionComponent {
                     .items_center()
                     .justify_end()
                     .text_size(px(11.5))
-                    .text_color(rgb(0x7d8fa8))
+                    .text_color(rgb(0x007d_8fa8))
                     .child(step),
             );
         if self.stage != ConnectionStage::Connected {
@@ -276,7 +276,7 @@ impl ConnectionComponent {
                 .on_click(cx.listener(|this, _, _, cx| this.cancel_connection(cx))),
             );
         }
-        let dimmer = div().absolute().inset_0().bg(rgba(0x000305ad));
+        let dimmer = div().absolute().inset_0().bg(rgba(0x0003_05ad));
         let dimmer = if self.dialog_closing {
             dimmer
                 .with_animation(
@@ -290,7 +290,7 @@ impl ConnectionComponent {
                 .with_animation(
                     "connection-dimmer-open",
                     Animation::new(Duration::from_millis(160)),
-                    |dimmer, delta| dimmer.opacity(delta),
+                    gpui::Styled::opacity,
                 )
                 .into_any_element()
         };

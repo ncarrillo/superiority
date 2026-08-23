@@ -107,7 +107,9 @@ pub(crate) async fn fetch_overview(
     backend: &str,
     feed_id: &str,
 ) -> Result<(FeedStatus, Vec<ChannelSummary>), String> {
-    let overview = get_json::<OverviewResponse>(&format!("{}/overview", product_path(backend, feed_id))).await?;
+    let overview =
+        get_json::<OverviewResponse>(&format!("{}/overview", product_path(backend, feed_id)))
+            .await?;
     Ok((overview.status, overview.channels))
 }
 
@@ -127,9 +129,12 @@ pub(crate) async fn fetch_roster(
     feed_id: &str,
     channel: &str,
 ) -> Result<Vec<RosterMember>, String> {
-    get_json::<RosterResponse>(&format!("{}/roster", channel_path(backend, feed_id, channel)))
-        .await
-        .map(|response| response.members)
+    get_json::<RosterResponse>(&format!(
+        "{}/roster",
+        channel_path(backend, feed_id, channel)
+    ))
+    .await
+    .map(|response| response.members)
 }
 
 fn product_path(backend: &str, feed_id: &str) -> String {

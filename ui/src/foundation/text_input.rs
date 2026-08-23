@@ -36,17 +36,13 @@ actions!(
     ]
 );
 
-const PLACEHOLDER: u32 = 0x5e8291;
-const CURSOR: u32 = 0x89d5ff;
+const PLACEHOLDER: u32 = 0x005e_8291;
+const CURSOR: u32 = 0x0089_d5ff;
 
-/// The colours and cursor a host dresses the input in. The defaults are the
-/// engine's original web-blue, so an undressed input looks exactly as it
-/// always did; realm surfaces override per personality.
 #[derive(Clone, Copy)]
 pub struct FieldInk {
     pub placeholder: u32,
     pub cursor: u32,
-    /// Remastered's cursor is a block, everyone else's a bar.
     pub cursor_width: f32,
 }
 
@@ -59,7 +55,8 @@ impl Default for FieldInk {
         }
     }
 }
-const SELECTION: u32 = 0x1769_9dcc;
+
+pub const SELECTION_BACKGROUND: u32 = 0x1769_9dcc;
 const HISTORY_LIMIT: usize = 100;
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -307,8 +304,7 @@ impl TextInput {
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.focus_handle.focus(window, cx);
-        self.view
-            .update(cx, |input, cx| input.start_cursor_blink(cx));
+        self.view.update(cx, TextInputView::start_cursor_blink);
     }
 
     pub fn clear(&self) {
@@ -737,19 +733,6 @@ impl EntityInputHandler for TextInputView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = std::env::var_os("SUPERIORITY_TRACE_FILE")
-            && let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-        {
-            use std::io::Write as _;
-            let _ = writeln!(
-                f,
-                "superiority: REPLACE_TEXT entity={:?} text={text:?}",
-                cx.entity_id()
-            );
-        }
         self.update(cx, |state| {
             let range = range
                 .map(|range| state.range_from_utf16(range))
@@ -789,8 +772,10 @@ impl EntityInputHandler for TextInputView {
             state.marked_range = (!text.is_empty()).then_some(start..start + text.len());
             state.selection = selected
                 .map(|range| state.range_from_utf16(range))
-                .map(|range| start + range.start..start + range.end)
-                .unwrap_or_else(|| start + text.len()..start + text.len());
+                .map_or_else(
+                    || start + text.len()..start + text.len(),
+                    |range| start + range.start..start + range.end,
+                );
             state.selection_reversed = false;
         });
         window.refresh();
@@ -956,7 +941,7 @@ impl Element for TextElement {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
+        (): &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
@@ -1047,7 +1032,7 @@ impl Element for TextElement {
             let right = x(state.selection.end).min(bounds.right());
             fill(
                 Bounds::from_corners(point(left, bounds.top()), point(right, bounds.bottom())),
-                rgba(SELECTION),
+                rgba(SELECTION_BACKGROUND),
             )
         });
         PrepaintState {
@@ -1063,29 +1048,12 @@ impl Element for TextElement {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
+        (): &mut Self::RequestLayoutState,
         state: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
-        if std::env::var_os("SUPERIORITY_TRACE_FILE").is_some()
-            && let Some(path) = std::env::var_os("SUPERIORITY_TRACE_FILE")
-            && let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-        {
-            use std::io::Write as _;
-            let _ = writeln!(
-                f,
-                "superiority: INPUT paint entity={:?} bounds={}x{} focused={}",
-                self.input.entity_id(),
-                f32::from(bounds.size.width),
-                f32::from(bounds.size.height),
-                focus_handle.is_focused(window),
-            );
-        }
         window.handle_input(
             &focus_handle,
             ElementInputHandler::new(bounds, self.input.clone()),

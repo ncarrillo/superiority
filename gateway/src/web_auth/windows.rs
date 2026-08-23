@@ -162,10 +162,7 @@ pub fn request_credential(
             Err(TryRecvError::Empty) => {}
         }
         if Instant::now() >= deadline {
-            break Err(Error::Authentication(format!(
-                "Battle.net web login timed out after {} seconds",
-                timeout.as_secs()
-            )));
+            break Err(super::timed_out(timeout));
         }
         if !pump_messages() {
             break Err(Error::Authentication(

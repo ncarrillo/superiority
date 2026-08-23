@@ -189,7 +189,7 @@ impl AccountClient {
             ciid: SecretBytes::new(
                 response
                     .ciid
-                    .ok_or_else(|| protocol_error("Connect returned no ciid"))?
+                    .ok_or_else(|| bgs_error("Connect returned no ciid"))?
                     .into_bytes(),
             )?,
             connected_region: response.connected_region,
@@ -204,7 +204,7 @@ impl AccountClient {
         challenge: &mut impl ChallengeHandler,
     ) -> Result<Authentication> {
         if self.connection.is_none() {
-            return Err(protocol_error("Connect must complete before logon"));
+            return Err(bgs_error("Connect must complete before logon"));
         }
         let logon_options = cached_token.cloned().map(|token| LogonOptions {
             auth_token: Some(Base64Bytes::from_secret(token)),
@@ -281,11 +281,11 @@ impl AccountClient {
                     )?);
                 }
                 Some(other) => {
-                    return Err(protocol_error(format!(
+                    return Err(bgs_error(format!(
                         "unexpected AuthenticationListener method {other}"
                     )));
                 }
-                None => return Err(protocol_error("AuthenticationListener has no method")),
+                None => return Err(bgs_error("AuthenticationListener has no method")),
             }
         }
         self.authenticated = true;
@@ -298,7 +298,7 @@ impl AccountClient {
 
     pub fn request_classic_endpoint(&mut self, session: &AuthSession) -> Result<ClassicEndpoint> {
         if !self.authenticated {
-            return Err(protocol_error("ProcessTask requires a completed logon"));
+            return Err(bgs_error("ProcessTask requires a completed logon"));
         }
         let account = session.wc3_game_account(
             self.connection
@@ -360,7 +360,7 @@ impl AccountClient {
         self.next_token = self
             .next_token
             .checked_add(1)
-            .ok_or_else(|| protocol_error("BGS request token exhausted"))?;
+            .ok_or_else(|| bgs_error("BGS request token exhausted"))?;
         let header = RequestHeader {
             method_id,
             service_hash,
@@ -375,12 +375,12 @@ impl AccountClient {
     fn receive_message(&mut self) -> Result<BgsMessage> {
         let value: Value = serde_json::from_str(&self.socket.receive_text()?)?;
         let Value::Array(pair) = value else {
-            return Err(protocol_error("BGS message is not a header/body pair"));
+            return Err(bgs_error("BGS message is not a header/body pair"));
         };
         let [header, body] = <[Value; 2]>::try_from(pair)
-            .map_err(|_| protocol_error("BGS message is not a header/body pair"))?;
+            .map_err(|_| bgs_error("BGS message is not a header/body pair"))?;
         if !header.is_object() || !body.is_object() {
-            return Err(protocol_error("BGS message is not a header/body pair"));
+            return Err(bgs_error("BGS message is not a header/body pair"));
         }
         Ok(BgsMessage { header, body })
     }
@@ -411,19 +411,19 @@ fn parse_process_task(response: &ProcessTaskResponse) -> Result<ClassicEndpoint>
         .string_value
         .as_deref();
     if response_type != Some("classic.protocol.v1.aurora.ConnectToServerResponse") {
-        return Err(protocol_error(
+        return Err(bgs_error(
             "ProcessTask returned an unexpected response type",
         ));
     }
     let payload = unique_attribute(&response.result, "protobuf")?
         .blob_value
         .as_ref()
-        .ok_or_else(|| protocol_error("ProcessTask protobuf result is not bytes"))?;
+        .ok_or_else(|| bgs_error("ProcessTask protobuf result is not bytes"))?;
     let url = protobuf::first_bytes(payload.expose(), 1)
         .and_then(|value| std::str::from_utf8(value).ok())
-        .ok_or_else(|| protocol_error("ProcessTask returned no endpoint URL"))?;
+        .ok_or_else(|| bgs_error("ProcessTask returned no endpoint URL"))?;
     let ticket = protobuf::first_bytes(payload.expose(), 2)
-        .ok_or_else(|| protocol_error("ProcessTask returned no ticket"))?;
+        .ok_or_else(|| bgs_error("ProcessTask returned no ticket"))?;
     ClassicEndpoint::from_url(url, SecretBytes::new(ticket.to_vec())?)
 }
 
@@ -433,16 +433,16 @@ fn unique_attribute<'a>(attributes: &'a [Attribute], name: &str) -> Result<&'a V
         .filter(|attribute| attribute.name.as_deref() == Some(name));
     let attribute = matches
         .next()
-        .ok_or_else(|| protocol_error(format!("ProcessTask has no {name} attribute")))?;
+        .ok_or_else(|| bgs_error(format!("ProcessTask has no {name} attribute")))?;
     if matches.next().is_some() {
-        return Err(protocol_error(format!(
+        return Err(bgs_error(format!(
             "ProcessTask has multiple {name} attributes"
         )));
     }
     attribute
         .value
         .as_ref()
-        .ok_or_else(|| protocol_error(format!("ProcessTask {name} has no value")))
+        .ok_or_else(|| bgs_error(format!("ProcessTask {name} has no value")))
 }
 
 fn parse_logon_complete(notification: LogonCompleteNotification) -> Result<AuthSession> {
@@ -523,9 +523,7 @@ fn challenge_url(notification: ExternalChallengeNotification) -> Result<Url> {
 fn check_status(message: &BgsMessage, label: &str) -> Result<()> {
     match message.status() {
         0 => Ok(()),
-        status => Err(protocol_error(format!(
-            "{label} failed with status {status}"
-        ))),
+        status => Err(bgs_error(format!("{label} failed with status {status}"))),
     }
 }
 
@@ -545,7 +543,7 @@ fn boolean(value: Option<&Value>) -> bool {
     }
 }
 
-fn protocol_error(message: impl Into<String>) -> Error {
+fn bgs_error(message: impl Into<String>) -> Error {
     Error::BgsWire(message.into())
 }
 

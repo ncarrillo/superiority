@@ -8,7 +8,8 @@ use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{Error, Result};
+use crate::Result;
+use crate::games::sc2::native::errors::native_error;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -401,10 +402,6 @@ fn require_length(value: &[u8], expected: usize, label: &str) -> Result<()> {
             value.len()
         )))
     }
-}
-
-fn native_error(message: impl Into<String>) -> Error {
-    Error::Native(message.into())
 }
 
 const fn hex_array_512(value: &str) -> [u8; 512] {

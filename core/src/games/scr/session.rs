@@ -276,6 +276,7 @@ impl ClassicSession {
         self.account_id
     }
 
+    #[must_use]
     pub fn connected_region(&self) -> u64 {
         self.connected_region
     }
@@ -453,7 +454,7 @@ impl ClassicSession {
         let lookup = match profile::parse_avatar_response(&response.body) {
             Ok(lookup) => lookup,
             Err(error) => {
-                // A malformed profile response is a valid terminal miss for
+                // a malformed profile response is a valid terminal miss for
                 // this roster pass. Retrying it every worker turn would pin
                 // chat behind the same bad profile indefinitely.
                 self.avatar_cache.insert(cache_key, None);
@@ -509,7 +510,7 @@ impl ClassicSession {
     }
 
     pub fn close(&mut self) -> Result<()> {
-        // Retail sends the empty LegacyChat.Disconnect request before closing
+        // retail sends the empty LegacyChat.Disconnect request before closing
         // the transport. It is deliberately fire-and-close here: waiting for
         // its response can stall shutdown when the peer is already gone.
         let disconnected = self
@@ -901,7 +902,7 @@ mod tests {
 
     #[test]
     fn get_toons_selects_the_returned_us_east_toon() {
-        // Captured from the account that exposed the hard-coded selector bug:
+        // captured from the account that exposed the hard-coded selector bug:
         // toon 1, `ncarrillo1`, gateway catalogue id 11 (U.S. East).
         let response = hex::decode("0a100801120a6e63617272696c6c6f31180b").expect("capture");
         assert_eq!(

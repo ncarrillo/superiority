@@ -32,10 +32,8 @@ use crate::products::sc2::components::modal as sc2_modal;
 use crate::products::sc2::theme::FONT_NAVIGATION;
 use crate::products::scr::theme::FONT_INTERFACE as SCR_FONT;
 
-/// Reforged speaks in Friz Quadrata, its own UI face, embedded from the client.
-const WC3_FONT: &str = "Friz Quadrata TT";
+const WC3_FONT: &str = crate::products::wc3::theme::FONT_TITLE;
 
-/// Which realm the shell is dressed as.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModalVariant {
     Sc2,
@@ -1001,9 +999,9 @@ impl ModalTextures {
     }
 }
 
-/// An RGBA bake handed to the renderer, which consumes BGRA.
+/// an RGBA bake handed to the renderer, which consumes BGRA.
 fn render_image(mut baked: RgbaImage) -> Arc<RenderImage> {
-    for pixel in baked.chunks_exact_mut(4) {
+    for pixel in baked.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     Arc::new(RenderImage::new(vec![Frame::new(baked)]))
@@ -1227,7 +1225,6 @@ mod tests {
 
     #[test]
     fn the_power_cycle_is_held_step_by_step() {
-        // steps(1): each level holds until the next keyframe, nothing eases
         assert!((held(SCR_OPEN_STEPS, 0.0) - 0.0).abs() < f32::EPSILON);
         assert!((held(SCR_OPEN_STEPS, 0.19) - 0.0).abs() < f32::EPSILON);
         assert!((held(SCR_OPEN_STEPS, 0.21) - 1.0).abs() < f32::EPSILON);

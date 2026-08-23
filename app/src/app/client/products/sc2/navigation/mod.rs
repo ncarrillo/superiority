@@ -123,12 +123,12 @@ impl ChannelComponent {
             .absolute()
             .top_0()
             .size(px(ui_account_pattern::CORNER_CONTROL_SIZE))
-            .bg(rgb(0x0b121a))
+            .bg(rgb(0x000b_121a))
             .border_1()
-            .border_color(rgb(0x1d649c))
+            .border_color(rgb(0x001d_649c))
             .cursor_pointer()
-            .hover(|style| style.bg(rgb(0x16273e)).shadow_lg())
-            .active(|style| style.bg(rgb(0x1d3a5c)).opacity(0.84))
+            .hover(|style| style.bg(rgb(0x0016_273e)).shadow_lg())
+            .active(|style| style.bg(rgb(0x001d_3a5c)).opacity(0.84))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.session.composer.composer_focused = false;
                 this.session.roster.roster.focused = false;

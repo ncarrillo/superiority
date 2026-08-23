@@ -37,7 +37,7 @@ pub mod user;
 /// balancer's root; the client appends this route itself.
 pub const CLASSIC_RPC_PATH: &str = "/S1/v2/rpc/client";
 
-/// The `FourCC`s and versions the retail client presents, recovered from build
+/// The FourCCs and versions the retail client presents, recovered from build
 /// `1.23.10_2e031d5be4` and its `libClientSdk.dylib`. The edge validates them,
 /// so none of these is a guess.
 ///

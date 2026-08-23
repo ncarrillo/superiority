@@ -133,7 +133,7 @@ impl SuperiorityView {
         };
         let startup_update_check_pending = update_service.is_some();
         let startup_connection_pending = startup_update_check_pending;
-        // One publisher, shared by every product's worker: `StarCraft II` taps
+        // one publisher, shared by every product's worker: `StarCraft II` taps
         // its own chat, and the classic products tap theirs through
         // `begin_classic_session`. A feed carries all of them at once.
         let publisher = uplink::spawn(uplink.clone(), remembered_group_names.clone());
@@ -268,8 +268,8 @@ impl SuperiorityView {
                         } else {
                             Vec::new()
                         },
-                        invitations: preview_toast
-                            .then(|| {
+                        invitations: if preview_toast {
+                            {
                                 vec![UiInvitation {
                                     id: 1,
                                     kind: InvitationKind::Group { club_id: 5322 },
@@ -277,8 +277,10 @@ impl SuperiorityView {
                                     destination: Some("<MDGTN> Blood Nation".to_owned()),
                                     closing: false,
                                 }]
-                            })
-                            .unwrap_or_default(),
+                            }
+                        } else {
+                            Default::default()
+                        },
                         next_invitation_id: if preview_toast { 2 } else { 1 },
                         channel_conferences: if preview_join {
                             preview::CATALOGUE
@@ -426,7 +428,10 @@ impl SuperiorityView {
             cx.spawn(async move |entity, cx| {
                 loop {
                     executor.timer(Duration::from_millis(50)).await;
-                    if entity.update(cx, |this, cx| this.poll_client(cx)).is_err() {
+                    if entity
+                        .update(cx, super::super::state::SuperiorityView::poll_client)
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -544,7 +549,7 @@ impl SuperiorityView {
             .filter_map(|code| Product::from_code(code))
             .filter(|product| product.can_sign_in())
             .collect();
-        // This is the signed launcher's retail-product result, not a broad
+        // this is the signed launcher's retail-product result, not a broad
         // product-record guess. Install it atomically so the picker never
         // flashes an intermediate empty or beta-only product set.
         self.games.set_owned(games);
@@ -616,8 +621,8 @@ impl SuperiorityView {
             return;
         };
         let expected_battle_tag = self.runtime.authoritative_battle_tag.clone();
-        // A queued product can be restarting after an account-wide sign-out.
-        // Clear the sign-out gate before its worker emits the first Stage:
+        // a queued product can be restarting after an account-wide sign-out.
+        // clear the sign-out gate before its worker emits the first Stage:
         // otherwise `handle_client_event` deliberately rejects every event
         // except Disconnected and the card stays on the signed-out placeholder
         // even though the protocol connected successfully underneath it.

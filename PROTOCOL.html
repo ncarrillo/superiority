@@ -354,15 +354,17 @@ alignment: byte"> <span class="schema-type-link-label">ModuleData</span></a><spa
 </pre> <p>The selected kind defines bit 7. For example, bit 7 can identify an implicit
   continuous index range.</p> <p class="back"><a href="#top">Back to overview</a></p>  </section><section id="wire-layouts">  <h2>Generated wire layouts</h2> <p>Sunken metadata provides logical field names, types, and constraints. SC2's
   generated codecs can transmit a structure in a different field order and insert
-  filler bits between fields.</p> <h3 id="wire-layout-storage">Layout storage</h3> <p>The SC2 5.0.16.97563 client contains two forms of layout data:</p> <ul> <li><b>A generic runtime table.</b> <code>Obfuscator::GetStruct(type_id)</code>
-returns a pointer to a field count followed by packed <code>u32</code> entries.</li> <li><b>Generated per-type code.</b> Many readers, writers, and size functions
-    have the field sequence and filler calls compiled directly into their instructions.</li> </ul> <p>The complete mapping is distributed across that runtime table and the generated
-  functions. The embedded metadata supplies the authoritative list of marked types.
-  Generated reader, writer, and size behavior supplies the authoritative layout for
-  each marked type.</p> <h3 id="obfuscation-marker">The <code>0x40</code> marker</h3> <p>Bit 6 of a metadata type tag is stored as the <code>Obfuscated</code> flag. Its
+  filler bits between fields.</p> <h3 id="wire-layout-storage">Where layouts live</h3> <p>The SC2 5.0.16.97563 client contains two layout mechanisms:</p> <ul> <li><b>The generic BSN library.</b> <code>Obfuscator::GetStruct(type_id)</code>
+can return a field count followed by packed <code>u32</code> entries.</li> <li><b>Generated per-type code.</b> Many readers, writers, and size functions
+    have the field sequence and filler calls compiled directly into their instructions.</li> </ul> <p>The generic table is inactive during normal retail startup. An early debugger
+  attachment armed before SC2 ran any of its own code observed no table construction,
+  lookup, or destruction. A scan of every writable region in a 3,782 MiB process dump
+  also found no referenced copy of the recovered layouts. Generated reader, writer,
+  and size behavior supplies the recoverable layout for each marked type. The embedded
+  metadata supplies the list of marked types.</p> <h3 id="obfuscation-marker">The <code>0x40</code> marker</h3> <p>Bit 6 of a metadata type tag is stored as the <code>Obfuscated</code> flag. Its
   effect is mechanical:</p> <ol> <li>The metadata parser keeps the flag alongside the low six-bit type kind.</li> <li>A generic encoder created without an <code>Obfuscator</code> checks the flag.
     A marked type triggers a safety assertion unless reflection fallback was enabled.</li> <li>With an <code>Obfuscator</code>, a non-null entry supplies field order and filler widths.</li> <li>The decoder follows a supplied entry. A null entry uses metadata field order.</li> </ol> <p>The bit carries no field indices or filler widths. A decoder needs the separate
-  per-type entry, the generated reader, or verified metadata-order behavior.</p> <h3 id="wire-layout-model">Table format</h3> <p>A structure entry begins with its reflected field count. One packed
+  per-type entry, the generated reader, or verified metadata-order behavior.</p> <h3 id="wire-layout-model">Layout representation</h3> <p>A structure entry begins with its reflected field count. One packed
 <code>u32</code> follows for each field, in transmitted order. Bits 0 through 25
   select the logical field. Bits 26 through 31 give the filler width immediately
   before that field.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><span style="color:#6BC2F2"> WireField</span><span style="color:#D6E0F0"> {</span></span>
@@ -412,10 +414,10 @@ target: u16"> <span class="schema-type-link-label">ErrorCode</span></a><span sty
 <span class="line"><span style="color:#6BC2F2">    WireField</span><span style="color:#D6E0F0"> { logical_field</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 1</span><span style="color:#D6E0F0">, filler_before</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 0</span><span style="color:#D6E0F0"> },</span></span>
 <span class="line"><span style="color:#6BC2F2">    WireField</span><span style="color:#D6E0F0"> { logical_field</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 0</span><span style="color:#D6E0F0">, filler_before</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 0</span><span style="color:#D6E0F0"> },</span></span>
 <span class="line"><span style="color:#6BC2F2">    WireField</span><span style="color:#D6E0F0"> { logical_field</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 3</span><span style="color:#D6E0F0">, filler_before</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 11</span><span style="color:#D6E0F0"> },</span></span>
-<span class="line"><span style="color:#D6E0F0">];</span></span></code></pre> <h3 id="wire-layout-catalog">Layout catalog</h3> <p>The Sunken registry published here contains 174 named types with
-  the <code>0x40</code> marker. The current catalog accounts for all of them: eight
-  recovered table transformations, one generated custom codec, 34
-verified metadata-order types, and 128 awaiting layout recovery.</p> <table class="wire-layout-catalog"> <thead><tr><th>Type</th><th>Transmitted sequence</th></tr></thead> <tbody> <tr> <td><a class="type-reference" href="#type-battlenet-achievement-persistentrecord" data-type-tooltip="Battlenet::Achievement::PersistentRecord
+<span class="line"><span style="color:#D6E0F0">];</span></span></code></pre> <h3 id="wire-layout-catalog">Layout catalog</h3> <p>The Sunken registry published here contains 177 named types with
+  the <code>0x40</code> marker. The current catalog contains 11
+recovered transformations, one generated custom codec, 34
+verified metadata-order types, and 131 awaiting layout recovery.</p> <table class="wire-layout-catalog"> <thead><tr><th>Type</th><th>Transmitted sequence</th></tr></thead> <tbody> <tr> <td><a class="type-reference" href="#type-battlenet-achievement-persistentrecord" data-type-tooltip="Battlenet::Achievement::PersistentRecord
 struct · metadata record 32
 field order: generated wire layout
 m_achievementId: Id
@@ -602,7 +604,7 @@ field order: generated wire layout
 m_enabled: bool record 5107
 m_filter: Filter"><code>Battlenet::Client::S2Master::MMQSubscribe</code></a></li><li><a class="type-reference" href="#type-battlenet-client-toon-initialnotifiescomplete" data-type-tooltip="Battlenet::Client::Toon::InitialNotifiesComplete
 struct · metadata record 5620
-field order: generated wire layout"><code>Battlenet::Client::Toon::InitialNotifiesComplete</code></a></li> </ul> </details> <details class="layout-status-list"> <summary>Marked types awaiting layout recovery (128)</summary> <ul> <li><a class="type-reference" href="#type-battlenet-achievement-criteriacomparanddetails" data-type-tooltip="Battlenet::Achievement::CriteriaComparandDetails
+field order: generated wire layout"><code>Battlenet::Client::Toon::InitialNotifiesComplete</code></a></li> </ul> </details> <details class="layout-status-list"> <summary>Marked types awaiting layout recovery (131)</summary> <ul> <li><a class="type-reference" href="#type-battlenet-achievement-criteriacomparanddetails" data-type-tooltip="Battlenet::Achievement::CriteriaComparandDetails
 struct · metadata record 91
 field order: generated wire layout
 m_comparand: CriteriaComparand
@@ -649,11 +651,18 @@ m_channels: ClientChannelList"><code>Battlenet::Client::Chat::ChannelListRespons
 struct · metadata record 1904
 field order: generated wire layout
 m_list: FullConferenceDescriptionList
-m_isLast: bool record 1906"><code>Battlenet::Client::Chat::ConferenceDescriptions</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-enumcategorydescriptions" data-type-tooltip="Battlenet::Client::Chat::EnumCategoryDescriptions
+m_isLast: bool record 1906"><code>Battlenet::Client::Chat::ConferenceDescriptions</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-conferencemembercounts" data-type-tooltip="Battlenet::Client::Chat::ConferenceMemberCounts
+struct · metadata record 1917
+field order: generated wire layout
+m_list: MembershipInfoList
+m_isLast: bool record 1919
+m_time: optional Seconds"><code>Battlenet::Client::Chat::ConferenceMemberCounts</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-enumcategorydescriptions" data-type-tooltip="Battlenet::Client::Chat::EnumCategoryDescriptions
 struct · metadata record 1891
 field order: generated wire layout"><code>Battlenet::Client::Chat::EnumCategoryDescriptions</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-enumconferencedescriptions" data-type-tooltip="Battlenet::Client::Chat::EnumConferenceDescriptions
 struct · metadata record 1903
-field order: generated wire layout"><code>Battlenet::Client::Chat::EnumConferenceDescriptions</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-inviteaccept" data-type-tooltip="Battlenet::Client::Chat::InviteAccept
+field order: generated wire layout"><code>Battlenet::Client::Chat::EnumConferenceDescriptions</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-enumconferencemembercounts" data-type-tooltip="Battlenet::Client::Chat::EnumConferenceMemberCounts
+struct · metadata record 1916
+field order: generated wire layout"><code>Battlenet::Client::Chat::EnumConferenceMemberCounts</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-inviteaccept" data-type-tooltip="Battlenet::Client::Chat::InviteAccept
 struct · metadata record 1826
 field order: generated wire layout
 m_channelIndex: ClientChannelIndex"><code>Battlenet::Client::Chat::InviteAccept</code></a></li><li><a class="type-reference" href="#type-battlenet-client-chat-invitedecline" data-type-tooltip="Battlenet::Client::Chat::InviteDecline
@@ -970,7 +979,12 @@ m_parentCategory: CategoryId
 m_name: ShardName
 m_sortOrder: SortOrder
 m_configuration: ConferenceConfiguration
-m_id: Id"><code>Battlenet::Conference::FullConferenceDescription</code></a></li><li><a class="type-reference" href="#type-battlenet-conference-shardname" data-type-tooltip="Battlenet::Conference::ShardName
+m_id: Id"><code>Battlenet::Conference::FullConferenceDescription</code></a></li><li><a class="type-reference" href="#type-battlenet-conference-membershipinfo" data-type-tooltip="Battlenet::Conference::MembershipInfo
+struct · metadata record 1924
+field order: generated wire layout
+m_id: Id
+m_numMembers: MembershipCount
+m_isFull: bool record 1927"><code>Battlenet::Conference::MembershipInfo</code></a></li><li><a class="type-reference" href="#type-battlenet-conference-shardname" data-type-tooltip="Battlenet::Conference::ShardName
 struct · metadata record 1241
 field order: generated wire layout
 m_key: LocatorKey
@@ -1160,9 +1174,9 @@ field order: generated wire layout
 m_unlockDefinitionFileCacheHandle: Handle"><code>Battlenet::Toon::UnlockDefinitionFile</code></a></li> </ul> </details> <h3 id="wire-layout-scope">Scope</h3> <p>Every layout and status above applies to the macOS x86_64 SC2 5.0.16.97563
   client. Marker counts come directly from that client's metadata. Table entries and
   custom layouts come from its generated reader, writer, and size behavior. Captures
-  confirm selected record boundaries and decoded values.</p> <p class="back"><a href="#top">Back to overview</a></p>  </section><section id="type-registry">  <h2>Type registry</h2> <p>The documented client contains 586 named BSN metadata
+  confirm selected record boundaries and decoded values.</p> <p class="back"><a href="#top">Back to overview</a></p>  </section><section id="type-registry">  <h2>Type registry</h2> <p>The documented client contains 590 named BSN metadata
   types. Each entry has a stable link. Search accepts a full type name, a short
-  name, a kind, or a metadata record number.</p> <div class="type-registry-controls"> <label for="type-registry-search">Find a type</label> <input id="type-registry-search" type="search" autocomplete="off" placeholder="ModuleRequest, Toon::Handle, struct, 351"> <output id="type-registry-count" aria-live="polite">586 types</output> </div> <div class="type-registry-list" id="type-registry-list"> <details class="type-registry-entry" id="type-battlenet-account-flags" data-type-search="battlenet::account::flags flags alias 16"> <summary> <span>Battlenet::Account::Flags</span> <small>alias</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 16</p> <pre class="type-registry-schema"><code><span class="syn-keyword">type</span><span> </span><span class="syn-type">Flags</span><span> = </span><a class="schema-type-link" href="#type-battlenet-u64" data-type-tooltip="Battlenet::u64
+  name, a kind, or a metadata record number.</p> <div class="type-registry-controls"> <label for="type-registry-search">Find a type</label> <input id="type-registry-search" type="search" autocomplete="off" placeholder="ModuleRequest, Toon::Handle, struct, 351"> <output id="type-registry-count" aria-live="polite">590 types</output> </div> <div class="type-registry-list" id="type-registry-list"> <details class="type-registry-entry" id="type-battlenet-account-flags" data-type-search="battlenet::account::flags flags alias 16"> <summary> <span>Battlenet::Account::Flags</span> <small>alias</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 16</p> <pre class="type-registry-schema"><code><span class="syn-keyword">type</span><span> </span><span class="syn-type">Flags</span><span> = </span><a class="schema-type-link" href="#type-battlenet-u64" data-type-tooltip="Battlenet::u64
 integer · metadata record 17
 value: u64 · accepted 0..=18446744073709551615"><span class="schema-type-link-label">u64</span></a></code></pre>  </div> </details><details class="type-registry-entry" id="type-battlenet-account-fullname" data-type-search="battlenet::account::fullname fullname struct 4"> <summary> <span>Battlenet::Account::FullName</span> <small>metadata order · 2 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 4</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">FullName</span><span> {</span>
 <span>    </span><span class="syn-field">m_givenName</span><span>: </span><a class="schema-type-link" href="#type-battlenet-account-namepart" data-type-tooltip="Battlenet::Account::NamePart
@@ -2095,6 +2109,14 @@ count: u6 · accepted 0..=63
 element: FullConferenceDescription"><span class="schema-type-link-label">FullConferenceDescriptionList</span></a><span>,</span>
 <span>    </span><span class="syn-field">m_isLast</span><span>: </span><span class="syn-type">bool record 1906</span><span>,</span>
 <span>}</span></code></pre> <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
+supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-client-chat-conferencemembercounts" data-type-search="battlenet::client::chat::conferencemembercounts conferencemembercounts struct 1917"> <summary> <span>Battlenet::Client::Chat::ConferenceMemberCounts</span> <small>generated layout · 3 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1917</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">ConferenceMemberCounts</span><span> {</span>
+<span>    </span><span class="syn-field">m_list</span><span>: </span><a class="schema-type-link" href="#type-battlenet-conference-membershipinfolist" data-type-tooltip="Battlenet::Conference::MembershipInfoList
+array · metadata record 1921
+count: u6 · accepted 0..=63
+element: MembershipInfo"><span class="schema-type-link-label">MembershipInfoList</span></a><span>,</span>
+<span>    </span><span class="syn-field">m_isLast</span><span>: </span><span class="syn-type">bool record 1919</span><span>,</span>
+<span>    </span><span class="syn-field">m_time</span><span>: </span><span class="syn-type">optional Seconds</span><span>,</span>
+<span>}</span></code></pre> <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
 supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-client-chat-createandinviterequest" data-type-search="battlenet::client::chat::createandinviterequest createandinviterequest struct 1841"> <summary> <span>Battlenet::Client::Chat::CreateAndInviteRequest</span> <small>generated layout · 4 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1841</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">CreateAndInviteRequest</span><span> {</span>
 <span>    </span><span class="syn-field">m_createToken</span><span>: </span><a class="schema-type-link" href="#type-battlenet-token" data-type-tooltip="Battlenet::Token
 alias · metadata record 1327
@@ -2145,6 +2167,8 @@ m_token: ConnectionToken
 supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-client-chat-enumcategorydescriptions" data-type-search="battlenet::client::chat::enumcategorydescriptions enumcategorydescriptions struct 1891"> <summary> <span>Battlenet::Client::Chat::EnumCategoryDescriptions</span> <small>generated layout · 0 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1891</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">EnumCategoryDescriptions</span><span> {</span>
 <span>}</span></code></pre> <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
 supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-client-chat-enumconferencedescriptions" data-type-search="battlenet::client::chat::enumconferencedescriptions enumconferencedescriptions struct 1903"> <summary> <span>Battlenet::Client::Chat::EnumConferenceDescriptions</span> <small>generated layout · 0 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1903</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">EnumConferenceDescriptions</span><span> {</span>
+<span>}</span></code></pre> <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
+supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-client-chat-enumconferencemembercounts" data-type-search="battlenet::client::chat::enumconferencemembercounts enumconferencemembercounts struct 1916"> <summary> <span>Battlenet::Client::Chat::EnumConferenceMemberCounts</span> <small>generated layout · 0 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1916</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">EnumConferenceMemberCounts</span><span> {</span>
 <span>}</span></code></pre> <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
 supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-client-chat-inviteaccept" data-type-search="battlenet::client::chat::inviteaccept inviteaccept struct 1826"> <summary> <span>Battlenet::Client::Chat::InviteAccept</span> <small>generated layout · 1 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1826</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">InviteAccept</span><span> {</span>
 <span>    </span><span class="syn-field">m_channelIndex</span><span>: </span><a class="schema-type-link" href="#type-battlenet-chat-clientchannelindex" data-type-tooltip="Battlenet::Chat::ClientChannelIndex
@@ -3994,7 +4018,24 @@ field order: generated wire layout
 m_locale: Id
 m_name: ChannelNameStringId"><span class="schema-type-link-label">PublicPartialName</span></a></code></pre>  </div> </details><details class="type-registry-entry" id="type-battlenet-conference-membershipcount" data-type-search="battlenet::conference::membershipcount membershipcount alias 1252"> <summary> <span>Battlenet::Conference::MembershipCount</span> <small>alias</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1252</p> <pre class="type-registry-schema"><code><span class="syn-keyword">type</span><span> </span><span class="syn-type">MembershipCount</span><span> = </span><a class="schema-type-link" href="#type-battlenet-u16" data-type-tooltip="Battlenet::u16
 integer · metadata record 60
-value: u16 · accepted 0..=65535"><span class="schema-type-link-label">u16</span></a></code></pre>  </div> </details><details class="type-registry-entry" id="type-battlenet-conference-privatename" data-type-search="battlenet::conference::privatename privatename string 1259"> <summary> <span>Battlenet::Conference::PrivateName</span> <small>UTF-8 string · 5-bit; 0..=31</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1259</p> <pre class="type-registry-schema"><code><span class="syn-keyword">type</span><span> </span><span class="syn-type">PrivateName</span><span> = </span><span class="syn-type">Utf8</span><span> {</span>
+value: u16 · accepted 0..=65535"><span class="schema-type-link-label">u16</span></a></code></pre>  </div> </details><details class="type-registry-entry" id="type-battlenet-conference-membershipinfo" data-type-search="battlenet::conference::membershipinfo membershipinfo struct 1924"> <summary> <span>Battlenet::Conference::MembershipInfo</span> <small>generated layout · 3 fields</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1924</p> <pre class="type-registry-schema"><code><span class="syn-keyword">struct</span><span> </span><span class="syn-type">MembershipInfo</span><span> {</span>
+<span>    </span><span class="syn-field">m_id</span><span>: </span><a class="schema-type-link" href="#type-battlenet-conference-id" data-type-tooltip="Battlenet::Conference::Id
+alias · metadata record 1915
+target: u32"><span class="schema-type-link-label">Id</span></a><span>,</span>
+<span>    </span><span class="syn-field">m_numMembers</span><span>: </span><a class="schema-type-link" href="#type-battlenet-conference-membershipcount" data-type-tooltip="Battlenet::Conference::MembershipCount
+alias · metadata record 1252
+target: u16"><span class="schema-type-link-label">MembershipCount</span></a><span>,</span>
+<span>    </span><span class="syn-field">m_isFull</span><span>: </span><span class="syn-type">bool record 1927</span><span>,</span>
+<span>}</span></code></pre> <p>Field names and types come from metadata. <a href="#wire-layouts">Generated wire-layout data</a>
+supplies the transmitted order and filler runs.</p> </div> </details><details class="type-registry-entry" id="type-battlenet-conference-membershipinfolist" data-type-search="battlenet::conference::membershipinfolist membershipinfolist array 1921"> <summary> <span>Battlenet::Conference::MembershipInfoList</span> <small>array · 6-bit; 0..=63</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1921</p> <pre class="type-registry-schema"><code><span class="syn-keyword">type</span><span> </span><span class="syn-type">MembershipInfoList</span><span> = </span><span class="syn-type">Array</span><span>&lt;</span><a class="schema-type-link" href="#type-battlenet-conference-membershipinfo" data-type-tooltip="Battlenet::Conference::MembershipInfo
+struct · metadata record 1924
+field order: generated wire layout
+m_id: Id
+m_numMembers: MembershipCount
+m_isFull: bool record 1927"><span class="schema-type-link-label">MembershipInfo</span></a><span>&gt;</span><span> {</span>
+<span>    </span><span class="syn-field">count_bits</span><span>: </span><span class="syn-number">6</span><span>,</span>
+<span>    </span><span class="syn-field">count_range</span><span>: </span><span class="syn-number">0</span><span>..=</span><span class="syn-number">63</span><span>,</span>
+<span>}</span></code></pre>  </div> </details><details class="type-registry-entry" id="type-battlenet-conference-privatename" data-type-search="battlenet::conference::privatename privatename string 1259"> <summary> <span>Battlenet::Conference::PrivateName</span> <small>UTF-8 string · 5-bit; 0..=31</small> </summary> <div class="type-registry-definition"> <p class="type-record-number">Metadata record 1259</p> <pre class="type-registry-schema"><code><span class="syn-keyword">type</span><span> </span><span class="syn-type">PrivateName</span><span> = </span><span class="syn-type">Utf8</span><span> {</span>
 <span>    </span><span class="syn-field">byte_count_bits</span><span>: </span><span class="syn-number">5</span><span>,</span>
 <span>    </span><span class="syn-field">byte_count_range</span><span>: </span><span class="syn-number">0</span><span>..=</span><span class="syn-number">31</span><span>,</span>
 <span>    </span><span class="syn-field">alignment</span><span>: </span><span class="syn-keyword">byte</span><span>,</span>
@@ -8655,45 +8696,60 @@ value: u16 · accepted 0..=65535"> <span class="schema-type-link-label">u16</spa
 <span class="line"><span style="color:#D6E0F0">    _reserved</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Reserved</span><span style="color:#D6E0F0">&#x3C;24>,</span></span>
 <span class="line"><span style="color:#D6E0F0">}</span></span></code></pre> <p class="endpoint-note">The descriptor ID and public
 <code>ChannelNameStringId</code> occupy separate namespaces. Public joins use
-      the ID from the regional cache catalog.</p>  </article> <article id="chat-conference-query" class="endpoint"> <h4><code>Chat/25</code> Chat::EnumConferenceDescriptions</h4> <dl class="endpoint-meta"> <div><dt>Direction</dt><dd>client → server</dd></div> <div><dt>Phase</dt><dd>protected discovery</dd></div> <div><dt>Structure</dt><dd>empty payload</dd></div> <div><dt>Evidence</dt><dd>live verified</dd></div> </dl>   <p>Requests the regional public-conference catalog.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-client-chat-enumconferencedescriptions" data-type-tooltip="Battlenet::Client::Chat::EnumConferenceDescriptions
-struct · metadata record 1903
-field order: generated wire layout"> <span class="schema-type-link-label">EnumConferenceDescriptions</span></a><span style="color:#D6E0F0">; </span><span style="color:#7D94B0">// zero payload bits</span></span></code></pre>  </article> <article id="chat-conference-result" class="endpoint"> <h4><code>Chat/26</code> Chat::ConferenceDescriptions</h4> <dl class="endpoint-meta"> <div><dt>Direction</dt><dd>server → client</dd></div> <div><dt>Phase</dt><dd>protected discovery</dd></div> <div><dt>Structure</dt><dd>generated order</dd></div> <div><dt>Evidence</dt><dd>live verified</dd></div> </dl>   <p>Returns one page of public numeric conference descriptions.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-client-chat-conferencedescriptions" data-type-tooltip="Battlenet::Client::Chat::ConferenceDescriptions
-struct · metadata record 1904
+      the ID from the regional cache catalog.</p>  </article> <article id="chat-conference-query" class="endpoint"> <h4><code>Chat/25</code> Chat::EnumConferenceMemberCounts</h4> <dl class="endpoint-meta"> <div><dt>Direction</dt><dd>client → server</dd></div> <div><dt>Phase</dt><dd>protected discovery</dd></div> <div><dt>Structure</dt><dd>empty payload</dd></div> <div><dt>Evidence</dt><dd>live verified</dd></div> </dl>   <p>Asks for the live population of every conference the account can see.
+      Long documented here as <code>EnumConferenceDescriptions</code>; both
+      request types are zero-field structs and encode to identical bytes, so the
+      name follows from the reply rather than from the wire.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-client-chat-enumconferencemembercounts" data-type-tooltip="Battlenet::Client::Chat::EnumConferenceMemberCounts
+struct · metadata record 1916
+field order: generated wire layout"> <span class="schema-type-link-label">EnumConferenceMemberCounts</span></a><span style="color:#D6E0F0">; </span><span style="color:#7D94B0">// zero payload bits</span></span></code></pre>  </article> <article id="chat-conference-result" class="endpoint"> <h4><code>Chat/26</code> Chat::ConferenceMemberCounts</h4> <dl class="endpoint-meta"> <div><dt>Direction</dt><dd>server → client</dd></div> <div><dt>Phase</dt><dd>protected discovery</dd></div> <div><dt>Structure</dt><dd>generated order</dd></div> <div><dt>Evidence</dt><dd>live verified</dd></div> </dl>   <p>One page of live per-conference head counts. A public channel is served
+      by one or more conferences; the server sets <code>m_isFull</code> itself at
+      the cap rather than leaving the client to compare against a maximum.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-client-chat-conferencemembercounts" data-type-tooltip="Battlenet::Client::Chat::ConferenceMemberCounts
+struct · metadata record 1917
 field order: generated wire layout
-m_list: FullConferenceDescriptionList
-m_isLast: bool record 1906"> <span class="schema-type-link-label">ConferenceDescriptions</span></a><span style="color:#D6E0F0"> {</span></span>
+m_list: MembershipInfoList
+m_isLast: bool record 1919
+m_time: optional Seconds"> <span class="schema-type-link-label">ConferenceMemberCounts</span></a><span style="color:#D6E0F0"> {</span></span>
 <span class="line"><span style="color:#D6E0F0">    is_last</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> bool</span><span style="color:#D6E0F0">,</span></span>
 <span class="line"><span style="color:#D6E0F0">    _reserved</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Reserved</span><span style="color:#D6E0F0">&#x3C;27>,</span></span>
-<span class="line"><span style="color:#D6E0F0">    decoy</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Optional</span><span style="color:#D6E0F0">&#x3C;</span><span style="color:#6BC2F2">i32</span><span style="color:#D6E0F0">>,</span></span>
-<span class="line"><span style="color:#D6E0F0">    entries</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Array</span><span style="color:#D6E0F0">&#x3C;</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-conference-fullconferencedescription" data-type-tooltip="Battlenet::Conference::FullConferenceDescription
-struct · metadata record 1909
+<span class="line"><span style="color:#D6E0F0">    sampled_at</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Optional</span><span style="color:#D6E0F0">&#x3C;</span><span style="color:#6BC2F2">i32</span><span style="color:#D6E0F0">>, </span><span style="color:#7D94B0">// Time::Seconds</span></span>
+<span class="line"><span style="color:#D6E0F0">    entries</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Array</span><span style="color:#D6E0F0">&#x3C;</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-conference-membershipinfo" data-type-tooltip="Battlenet::Conference::MembershipInfo
+struct · metadata record 1924
 field order: generated wire layout
-m_parentCategory: CategoryId
-m_name: ShardName
-m_sortOrder: SortOrder
-m_configuration: ConferenceConfiguration
-m_id: Id"><span class="schema-type-link-label">ConferenceDescription</span></a><span style="color:#D6E0F0">> {</span></span>
+m_id: Id
+m_numMembers: MembershipCount
+m_isFull: bool record 1927"><span class="schema-type-link-label">MembershipInfo</span></a><span style="color:#D6E0F0">> {</span></span>
 <span class="line"><span style="color:#D6E0F0">        count_bits</span><span style="color:#F0AA64">:</span><span style="color:#47D184"> 6</span><span style="color:#D6E0F0">,</span></span>
 <span class="line"><span style="color:#D6E0F0">    },</span></span>
 <span class="line"><span style="color:#D6E0F0">}</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-conference-fullconferencedescription" data-type-tooltip="Battlenet::Conference::FullConferenceDescription
-struct · metadata record 1909
+<span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-conference-membershipinfo" data-type-tooltip="Battlenet::Conference::MembershipInfo
+struct · metadata record 1924
 field order: generated wire layout
-m_parentCategory: CategoryId
-m_name: ShardName
-m_sortOrder: SortOrder
-m_configuration: ConferenceConfiguration
-m_id: Id"> <span class="schema-type-link-label">ConferenceDescription</span></a><span style="color:#D6E0F0"> {</span></span>
+m_id: Id
+m_numMembers: MembershipCount
+m_isFull: bool record 1927"> <span class="schema-type-link-label">MembershipInfo</span></a><span style="color:#D6E0F0"> {</span></span>
 <span class="line"><span style="color:#D6E0F0">    _reserved</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> Reserved</span><span style="color:#D6E0F0">&#x3C;23>,</span></span>
-<span class="line"><span style="color:#D6E0F0">    identifier</span><span style="color:#F0AA64">:</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-u32" data-type-tooltip="Battlenet::u32
+<span class="line"><span style="color:#D6E0F0">    conference_id</span><span style="color:#F0AA64">:</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-u32" data-type-tooltip="Battlenet::u32
 integer · metadata record 1
-value: u32 · accepted 0..=4294967295"> <span class="schema-type-link-label">u32</span></a><span style="color:#D6E0F0">,</span></span>
-<span class="line"><span style="color:#D6E0F0">    sort_order</span><span style="color:#F0AA64">:</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-u16" data-type-tooltip="Battlenet::u16
+value: u32 · accepted 0..=4294967295"> <span class="schema-type-link-label">u32</span></a><span style="color:#D6E0F0">, </span><span style="color:#7D94B0">// Conference::Id</span></span>
+<span class="line"><span style="color:#D6E0F0">    members</span><span style="color:#F0AA64">:</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-u16" data-type-tooltip="Battlenet::u16
 integer · metadata record 60
-value: u16 · accepted 0..=65535"> <span class="schema-type-link-label">u16</span></a><span style="color:#D6E0F0">,</span></span>
-<span class="line"><span style="color:#D6E0F0">    marker</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> bool</span><span style="color:#D6E0F0">,</span></span>
-<span class="line"><span style="color:#D6E0F0">}</span></span></code></pre>  </article> <article id="chat-join-request" class="endpoint"> <h4><code>Chat/0</code> Chat::JoinRequest2</h4> <dl class="endpoint-meta"> <div><dt>Direction</dt><dd>client → server</dd></div> <div><dt>Phase</dt><dd>protected</dd></div> <div><dt>Structure</dt><dd>logical order</dd></div> <div><dt>Evidence</dt><dd>verified</dd></div> </dl>   <p>Requests membership in a private, public, or club conference.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-client-chat-joinrequest2" data-type-tooltip="Battlenet::Client::Chat::JoinRequest2
+value: u16 · accepted 0..=65535"> <span class="schema-type-link-label">u16</span></a><span style="color:#D6E0F0">, </span><span style="color:#7D94B0">// m_numMembers</span></span>
+<span class="line"><span style="color:#D6E0F0">    full</span><span style="color:#F0AA64">:</span><span style="color:#6BC2F2"> bool</span><span style="color:#D6E0F0">, </span><span style="color:#7D94B0">// m_isFull</span></span>
+<span class="line"><span style="color:#D6E0F0">}</span></span></code></pre> <p class="endpoint-note">This route was labelled
+<code>ConferenceDescriptions</code> until 2026-08-19, with
+<code>members</code> read as a sort order, <code>full</code> as an unknown
+      marker, and <code>sampled_at</code> dismissed as a decoy. The bit layout
+      was right all along; only the names were wrong. Three things settle it: the
+      optional <code>i32</code> reproduces the moment of capture to within
+      seconds across ten recorded pages; the handler's element stride is eight
+      bytes, which a <code>FullConferenceDescription</code> (two arrays and a
+      choice) cannot fit; and <code>m_isFull</code> is set at exactly one value,
+      181, which is also the highest population ever observed. A sort order does
+      not vary between samples — 28 of 30 conferences do.</p> <p class="endpoint-note">Counts arrive keyed by <code>Conference::Id</code>.
+      Nothing SC2 requests pairs a conference id with the
+<code>ShardName</code> it serves, so they cannot yet be attributed to a
+      named channel.</p>  </article> <article id="chat-join-request" class="endpoint"> <h4><code>Chat/0</code> Chat::JoinRequest2</h4> <dl class="endpoint-meta"> <div><dt>Direction</dt><dd>client → server</dd></div> <div><dt>Phase</dt><dd>protected</dd></div> <div><dt>Structure</dt><dd>logical order</dd></div> <div><dt>Evidence</dt><dd>verified</dd></div> </dl>   <p>Requests membership in a private, public, or club conference.</p> <pre class="astro-code superiority sunken-schema" style="background-color:#01060d;color:#d6e0f0; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="rust"><code><span class="line"><span style="color:#F0AA64">struct</span><a style="color:#6BC2F2" class="schema-type-link" href="#type-battlenet-client-chat-joinrequest2" data-type-tooltip="Battlenet::Client::Chat::JoinRequest2
 struct · metadata record 1805
 field order: generated wire layout
 m_token: Token

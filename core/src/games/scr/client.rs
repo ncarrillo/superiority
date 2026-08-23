@@ -245,7 +245,7 @@ impl ClassicClient {
 }
 
 fn trace_rpc(direction: &str, header: &Header, body_len: usize) {
-    if std::env::var_os("SUPERIORITY_TRACE").is_none() {
+    if !crate::trace_enabled() {
         return;
     }
     let name = catalog::rpc_name(header.service_id, header.method_id)

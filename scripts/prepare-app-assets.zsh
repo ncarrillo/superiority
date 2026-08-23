@@ -209,10 +209,20 @@ typeset -A chat_backgrounds=(
   last-stand 'mods/core.sc2mod/base.sc2assets/assets/textures/ui_glues_newuser_bg.png'
 )
 
+typeset -a wc3_chat_backgrounds=(
+  wc3-human-standard
+  wc3-night-elf-standard
+  wc3-orc-standard
+  wc3-undead-standard
+)
+
 background_staging=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/superiority-backgrounds.XXXXXX")
 trap '/usr/bin/find "$background_staging" -type f -delete; /bin/rmdir "$background_staging"' EXIT
-for name relative in ${(kv)chat_backgrounds}; do
-  input="$source/chat-backgrounds/png/$relative"
+
+install_background() {
+  local name=$1
+  local input=$2
+  local width height crop_width crop_height offset_x offset_y cropped
   width=$(/usr/bin/sips -g pixelWidth "$input" | /usr/bin/awk '/pixelWidth:/ { print $2 }')
   height=$(/usr/bin/sips -g pixelHeight "$input" | /usr/bin/awk '/pixelHeight:/ { print $2 }')
   if (( width * 3 > height * 4 )); then
@@ -229,6 +239,13 @@ for name relative in ${(kv)chat_backgrounds}; do
     --cropOffset "$offset_y" "$offset_x" "$input" --out "$cropped" >/dev/null
   /usr/bin/sips --resampleHeightWidth 1200 1600 "$cropped" \
     --out "$destination/images/backgrounds/$name.png" >/dev/null
+}
+
+for name relative in ${(kv)chat_backgrounds}; do
+  install_background "$name" "$source/chat-backgrounds/png/$relative"
+done
+for name in $wc3_chat_backgrounds; do
+  install_background "$name" "$source/wc3-backgrounds/png/$name.png"
 done
 
 pngtopam "$source/png/ui/tab-hover.png" \

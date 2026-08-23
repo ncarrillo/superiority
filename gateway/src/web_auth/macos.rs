@@ -37,7 +37,6 @@ use superiority_core::{Error, Result, bgs::SecretBytes};
 
 use super::{Cancellation, cancelled, parse_credential_redirect};
 
-// how long the event pump waits per iteration before re-checking the reply.
 const PUMP_INTERVAL: f64 = 0.05;
 
 // wkwebview derives its user agent from the host bundle, which this binary
@@ -182,7 +181,6 @@ impl Authenticator {
         this
     }
 
-    // deliver the credential if location is the localhost:0 callback.
     fn complete(&self, location: &str) -> bool {
         let Ok(credential) = parse_credential_redirect(location) else {
             return false;
@@ -265,10 +263,7 @@ pub fn request_credential(
             Err(TryRecvError::Empty) => {}
         }
         if Instant::now() >= deadline {
-            break Err(Error::Authentication(format!(
-                "Battle.net web login timed out after {} seconds",
-                timeout.as_secs()
-            )));
+            break Err(super::timed_out(timeout));
         }
         // draining one event at a time also runs the run loop in the default
         // mode, which is what drives wkwebview's networking and rendering.

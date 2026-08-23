@@ -92,7 +92,7 @@ impl SuperiorityView {
                                     .min_w_0()
                                     .min_h_0()
                                     .overflow_hidden()
-                                    // The workspace scrim already provides
+                                    // the workspace scrim already provides
                                     // contrast. Keep the transcript itself
                                     // clear so it never exposes a rectangular
                                     // top/bottom gradient over the backdrop.
@@ -279,9 +279,7 @@ impl SuperiorityView {
             .wc3()
             .and_then(|wc3| {
                 let battle_tag = battle_tag?;
-                let account = battle_tag
-                    .split_once('#')
-                    .map_or(battle_tag, |(name, _)| name);
+                let account = strip_character_code(battle_tag);
                 wc3.active()
                     .into_iter()
                     .chain(wc3.channels.iter())
@@ -944,12 +942,13 @@ impl SuperiorityView {
         if body.is_empty() {
             return;
         }
-        if let Some(target) = body
-            .strip_prefix("/join ")
-            .or_else(|| body.strip_prefix("/j "))
-            .map(str::trim)
-            .filter(|target| !target.is_empty())
-        {
+        // the verb answers in any case, the way the console's does
+        let join_target = ["/join ", "/j "].into_iter().find_map(|verb| {
+            body.get(..verb.len())
+                .filter(|head| head.eq_ignore_ascii_case(verb))
+                .map(|_| body[verb.len()..].trim())
+        });
+        if let Some(target) = join_target.filter(|target| !target.is_empty()) {
             let joined = wc3
                 .channels
                 .iter()
@@ -1287,12 +1286,8 @@ const fn wc3_roster_presence(presence: Wc3Presence) -> Wc3RosterPresence {
     }
 }
 
-/// `Name#1234` split at the tag, so the digits can wear the muted ink.
-/// The name half of a battle tag: the realm knows you as `NelsonTest91`, and
+/// the name half of a battle tag: the realm knows you as `NelsonTest91`, and
 /// the `#1458` is an address, not a name — it stays off the plaque.
 fn battle_tag_name(identity: &str) -> String {
-    identity
-        .split_once('#')
-        .map_or(identity, |(name, _)| name)
-        .to_owned()
+    strip_character_code(identity).to_owned()
 }

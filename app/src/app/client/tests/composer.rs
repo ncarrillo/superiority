@@ -8,7 +8,6 @@ use crate::{
     },
     chat::ChatChannel,
 };
-// one game's wire protocol, named in full so the dependency is visible
 use superiority_core::native::WhisperTarget;
 use superiority_ui::products::sc2::PresenceKind;
 

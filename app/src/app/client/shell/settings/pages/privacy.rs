@@ -24,7 +24,7 @@ impl SettingsComponent {
             .gap(px(4.0))
             .overflow_y_scroll()
             .track_scroll(&self.privacy_scroll)
-            .bg(rgba(0x04070bc7))
+            .bg(rgba(0x0407_0bc7))
             .border_1()
             .border_color(rgba(BORDER_STRUCTURAL));
         if blocked_accounts.is_empty() {
@@ -35,7 +35,7 @@ impl SettingsComponent {
                     .items_center()
                     .px(px(10.0))
                     .text_size(px(11.0))
-                    .text_color(rgb(0x7d8fa8))
+                    .text_color(rgb(0x007d_8fa8))
                     .child("No blocked Battle.net accounts."),
             );
         } else {
@@ -54,18 +54,18 @@ impl SettingsComponent {
                         .flex_col()
                         .justify_center()
                         .px(px(10.0))
-                        .bg(rgb(0x09121a))
+                        .bg(rgb(0x0009_121a))
                         .child(
                             div()
                                 .font_weight(FontWeight::BOLD)
                                 .text_size(px(11.5))
-                                .text_color(rgb(0xd6e0f0))
+                                .text_color(rgb(0x00d6_e0f0))
                                 .child(account.name.clone()),
                         )
                         .children(detail.map(|detail| {
                             div()
                                 .text_size(px(9.8))
-                                .text_color(rgb(0x7d8fa8))
+                                .text_color(rgb(0x007d_8fa8))
                                 .child(detail)
                         })),
                 );
@@ -103,7 +103,7 @@ impl SettingsComponent {
                     .h(px(22.0))
                     .font_weight(FontWeight::BOLD)
                     .text_size(px(13.0))
-                    .text_color(rgb(0x6bc2f2))
+                    .text_color(rgb(0x006b_c2f2))
                     .child("Blocked Battle.net accounts"),
             )
             .child(
@@ -115,7 +115,7 @@ impl SettingsComponent {
                     .flex()
                     .justify_end()
                     .text_size(px(10.2))
-                    .text_color(rgb(0x7d8fa8))
+                    .text_color(rgb(0x007d_8fa8))
                     .child(format!("{} blocked", blocked_accounts.len())),
             )
             .child(
@@ -125,7 +125,7 @@ impl SettingsComponent {
                     .top(px(178.0))
                     .w(px(560.0))
                     .text_size(px(10.2))
-                    .text_color(rgb(0x7d8fa8))
+                    .text_color(rgb(0x007d_8fa8))
                     .child("Accounts currently ignored by your Battle.net account."),
             )
             .child(blocked_list);

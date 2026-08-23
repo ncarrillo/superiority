@@ -32,14 +32,13 @@ impl SuperiorityView {
                         ClassicFriendPresence::Offline => PresenceState::Offline,
                     },
                     portrait: Some(Portrait::Image(source.into())),
-                    // Keep the account identity supplied by AuroraFriends even
+                    // keep the account identity supplied by AuroraFriends even
                     // though the row displays the friendly name without its
                     // discriminator. The worker must never address a whisper
                     // by presentation text.
                     target: friend
                         .account_id
-                        .map(WhisperTarget::Account)
-                        .unwrap_or_else(|| WhisperTarget::Name(target_name)),
+                        .map_or_else(|| WhisperTarget::Name(target_name), WhisperTarget::Account),
                 }
             })
             .collect();

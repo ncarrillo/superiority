@@ -1,5 +1,6 @@
 use std::io::{ErrorKind, Read, Write};
 
+use crate::games::sc2::native::errors::native_error;
 use crate::{
     Error, Result,
     bsn::bits::{BitReader, RoutingHeader},
@@ -132,7 +133,7 @@ impl<S> RecordStream<S> {
         let (type_id, value) = decoded
             .inspect_err(|error| {
                 if !matches!(error, Error::IncompleteFrame(_))
-                    && (std::env::var_os("SUPERIORITY_TRACE").is_some()
+                    && (crate::trace_enabled()
                     || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some()
                     )
                 {
@@ -152,8 +153,7 @@ impl<S> RecordStream<S> {
         if padding != 0 {
             let padding_value = reader.read(padding)?;
             if padding_value != 0
-                && (std::env::var_os("SUPERIORITY_TRACE").is_some()
-                    || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some())
+                && (crate::trace_enabled() || std::env::var_os("SUPERIORITY_PARTY_TRACE").is_some())
             {
                 eprintln!(
                     "superiority: ignored non-zero inbound unused bits slot={:?} command={} type={} logical_bits={} unused_bits={} unused_value={}",
@@ -338,10 +338,6 @@ const fn unmapped_record_length(slot: u8, command: u8) -> Option<usize> {
         (13, 50) => Some(38),
         _ => None,
     }
-}
-
-fn native_error(message: impl Into<String>) -> Error {
-    Error::Native(message.into())
 }
 
 #[cfg(test)]

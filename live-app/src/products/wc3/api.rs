@@ -122,9 +122,12 @@ pub(crate) async fn fetch_roster(
     feed_id: &str,
     channel: &str,
 ) -> Result<Vec<RosterMember>, String> {
-    get_json::<RosterResponse>(&format!("{}/roster", channel_path(backend, feed_id, channel)))
-        .await
-        .map(|response| response.members)
+    get_json::<RosterResponse>(&format!(
+        "{}/roster",
+        channel_path(backend, feed_id, channel)
+    ))
+    .await
+    .map(|response| response.members)
 }
 
 fn product_path(backend: &str, feed_id: &str) -> String {

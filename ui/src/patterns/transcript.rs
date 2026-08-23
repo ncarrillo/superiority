@@ -274,6 +274,7 @@ impl TranscriptSelection {
         (!selected.is_empty()).then(|| selected.join("\n"))
     }
 
+    #[must_use]
     pub fn selection_for_row(&self, row: usize, len: usize) -> Option<Range<usize>> {
         let state = self.0.borrow();
         let (start, end) = ordered_selection(&state)?;

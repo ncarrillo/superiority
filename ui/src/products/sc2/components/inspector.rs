@@ -22,7 +22,11 @@ pub fn toolbar_icon_button(
         .gap(px(7.0))
         .rounded(px(3.0))
         .border_1()
-        .border_color(if active { rgb(0x2d88ac) } else { rgb(0x17384d) })
+        .border_color(if active {
+            rgb(0x002d_88ac)
+        } else {
+            rgb(0x0017_384d)
+        })
         .bg(if active {
             rgba(0x164f_7870)
         } else {
@@ -31,13 +35,17 @@ pub fn toolbar_icon_button(
         .font_family(FONT_INTERFACE)
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .text_size(px(12.0))
-        .text_color(if active { rgb(0xd6efff) } else { rgb(0x8aa2b5) })
+        .text_color(if active {
+            rgb(0x00d6_efff)
+        } else {
+            rgb(0x008a_a2b5)
+        })
         .cursor_pointer()
         .hover(|style| {
             style
-                .border_color(rgb(0x3aa8d4))
+                .border_color(rgb(0x003a_a8d4))
                 .bg(rgba(0x164f_7850))
-                .text_color(rgb(0xd6efff))
+                .text_color(rgb(0x00d6_efff))
         })
         .active(|style| style.bg(rgba(0x164f_78a0)).opacity(0.8))
         .child(icon)
@@ -166,12 +174,16 @@ pub fn filter_chip(
         } else {
             rgba(0x0000_0000)
         })
-        .text_color(if selected { rgb(0xe6f9ff) } else { rgb(MUTED) })
+        .text_color(if selected {
+            rgb(0x00e6_f9ff)
+        } else {
+            rgb(MUTED)
+        })
         .when(!selected, |chip| {
             chip.hover(|style| {
                 style
                     .border_color(rgba(0x2d88_ac99))
-                    .text_color(rgb(0xa9b8cc))
+                    .text_color(rgb(0x00a9_b8cc))
             })
         })
         .active(|style| style.opacity(0.7))
@@ -189,7 +201,7 @@ pub fn selectable_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div>
         .border_b_1()
         .border_color(rgb(0x0010_2a3b))
         .when(selected, |row| {
-            row.border_color(rgb(0x17384d)).child(
+            row.border_color(rgb(0x0017_384d)).child(
                 div()
                     .absolute()
                     .left(px(4.0))
@@ -198,7 +210,7 @@ pub fn selectable_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div>
                     .bottom(px(3.0))
                     .rounded(px(3.0))
                     .border_1()
-                    .border_color(rgba(0x39baff8c))
+                    .border_color(rgba(0x39ba_ff8c))
                     .bg(rgba(0x105f_8a78)),
             )
         })

@@ -201,7 +201,7 @@ impl ClassicSessionTap {
 }
 
 impl SessionObserver for ClassicSessionTap {
-    // The SC2 tap's surface: a classic session sees none of it.
+    // the SC2 tap's surface: a classic session sees none of it.
     fn observe(&mut self, _event: &superiority_core::chat::ChatEvent) {}
     fn observe_left(&mut self, _channel_index: u8) {}
     fn reconcile(&mut self, _snapshots: &[superiority_core::chat::ChatEvent]) {}
@@ -322,14 +322,14 @@ mod tests {
             Some("Commander#1234".into()),
         );
 
-        // Disabled: nothing leaves the machine.
+        // disabled: nothing leaves the machine.
         tap.observe_classic_channel(&channel(vec![member("Darko")]));
         assert!(
             receiver.try_recv().is_err(),
             "a disabled tap must be silent"
         );
 
-        // Enabled: the session announces as `scr`, then the roster, and every
+        // enabled: the session announces as `scr`, then the roster, and every
         // event is tagged with this session's id and no other.
         control.update_config(|config| config.enabled = true);
         tap.observe_classic_channel(&channel(vec![member("Darko"), member("Kerrigan")]));

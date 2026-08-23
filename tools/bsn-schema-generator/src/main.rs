@@ -204,7 +204,7 @@ fn main() {
         .collect();
     named.sort_by_key(|&id| type_name(&meta, id));
 
-    // Group the named types into one buffer per BSN domain.
+    // group the named types into one buffer per BSN domain.
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
     let (mut structs, mut enums, mut choices) = (0, 0, 0);
     for id in named {

@@ -210,14 +210,17 @@ impl LiveShell {
             Screen::Picker => None,
         };
         for mounted in &self.views {
-            mounted.view.set_active(Some(mounted.product) == entered, cx);
+            mounted
+                .view
+                .set_active(Some(mounted.product) == entered, cx);
         }
         cx.notify();
     }
 
-    /// Whether a card can be entered: its game is shared on this feed.
+    /// whether a card can be entered: its game is shared on this feed.
     fn actionable(&self, index: usize) -> bool {
-        GAMES.get(index).is_some_and(|game| game.shown) && self.cards.get(index).is_some_and(|card| card.present)
+        GAMES.get(index).is_some_and(|game| game.shown)
+            && self.cards.get(index).is_some_and(|card| card.present)
     }
 
     fn enter(&mut self, product: FeedProduct, cx: &mut Context<Self>) {
@@ -233,7 +236,9 @@ impl LiveShell {
 
     fn show_picker(&mut self, cx: &mut Context<Self>) {
         self.screen = Screen::Picker;
-        self.picker.motion = Motion::Entrance { started: js_sys::Date::now() };
+        self.picker.motion = Motion::Entrance {
+            started: js_sys::Date::now(),
+        };
         for mounted in &self.views {
             mounted.view.set_active(false, cx);
         }
@@ -317,8 +322,8 @@ impl LiveShell {
         // keep the frame clock running while the ROOM crossfades, not only while
         // a card is moving — otherwise the background switch renders one frame
         // and freezes
-        let room_animating =
-            self.picker.previously_selected != self.picker.selected && eased(self.picker.chosen, ROOM, now) < 1.0;
+        let room_animating = self.picker.previously_selected != self.picker.selected
+            && eased(self.picker.chosen, ROOM, now) < 1.0;
         if motion_animating || room_animating {
             window.request_animation_frame();
         }
@@ -353,12 +358,16 @@ impl LiveShell {
                     .opacity(1.0 - stage.glow),
             )
             // the chosen realm's nebula taking the whole stage
-            .children(stage.flooding.and_then(|index| GAMES.get(index)).filter(|_| stage.flood > 0.001).map(
-                |palette| {
-                    let art = self.resolver.image(palette.art);
-                    realm_flood(palette, stage.flood, art)
-                },
-            ))
+            .children(
+                stage
+                    .flooding
+                    .and_then(|index| GAMES.get(index))
+                    .filter(|_| stage.flood > 0.001)
+                    .map(|palette| {
+                        let art = self.resolver.image(palette.art);
+                        realm_flood(palette, stage.flood, art)
+                    }),
+            )
             .child(
                 div()
                     .absolute()
@@ -429,7 +438,11 @@ impl LiveShell {
             // the one being entered holds its slot and shows nothing; the copy
             // above the row does the travelling
             let held = CardMotion {
-                opacity: if self.picker.motion.entering_card() == Some(index) { 0.0 } else { motion.opacity },
+                opacity: if self.picker.motion.entering_card() == Some(index) {
+                    0.0
+                } else {
+                    motion.opacity
+                },
                 glide: 0.0,
                 scale: 1.0,
                 ..motion
@@ -460,12 +473,24 @@ impl LiveShell {
             .into_any_element()
     }
 
-    fn picker_card(&self, index: usize, size: CardSize, motion: &CardMotion, cx: &mut Context<Self>) -> AnyElement {
+    fn picker_card(
+        &self,
+        index: usize,
+        size: CardSize,
+        motion: &CardMotion,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let palette = &GAMES[index];
         let present = self.actionable(index);
         let chosen = self.picker.selected == index;
 
-        let mut look = CardLook::resolve(palette, CardState::Connected, CardState::Connected, 0.0, 0.0);
+        let mut look = CardLook::resolve(
+            palette,
+            CardState::Connected,
+            CardState::Connected,
+            0.0,
+            0.0,
+        );
         look.live();
         if !present {
             look.out_of_play(palette);
@@ -496,7 +521,7 @@ impl LiveShell {
             .top(px(motion.offset))
             .left(px(motion.glide))
             .when(present && !chosen, |card| {
-                card.border_color(rgba(fade(look_border(&look) << 8, 0.45)))
+                card.border_color(rgba(fade(look.border << 8, 0.45)))
             });
         if present {
             let glow = palette.glow;
@@ -520,8 +545,10 @@ impl LiveShell {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |shell, _, _, cx| {
                     shell.choose(index);
-                    shell.picker.motion =
-                        Motion::Entering { card: index, started: js_sys::Date::now() };
+                    shell.picker.motion = Motion::Entering {
+                        card: index,
+                        started: js_sys::Date::now(),
+                    };
                     cx.notify();
                 }));
         }
@@ -567,7 +594,13 @@ impl LiveShell {
 
     /// The winner lifted out of the row: it starts exactly on its slot, then
     /// glides to the middle and grows into the flood.
-    fn leaving_card(&self, index: usize, size: CardSize, now: f64, cx: &mut Context<Self>) -> AnyElement {
+    fn leaving_card(
+        &self,
+        index: usize,
+        size: CardSize,
+        now: f64,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let motion = self.card_motion(index, size, now);
         let grown = size.width * motion.scale;
         let resting = index_offset(index, size);
@@ -579,7 +612,12 @@ impl LiveShell {
             .child(self.picker_card(
                 index,
                 size,
-                &CardMotion { opacity: 1.0, offset: 0.0, glide: 0.0, ..motion },
+                &CardMotion {
+                    opacity: 1.0,
+                    offset: 0.0,
+                    glide: 0.0,
+                    ..motion
+                },
                 cx,
             ))
             .into_any_element()
@@ -611,7 +649,10 @@ impl LiveShell {
     }
 
     fn entering_overlay(&self, stage: &StageMotion) -> AnyElement {
-        let palette = stage.flooding.and_then(|index| GAMES.get(index)).unwrap_or(&GAMES[0]);
+        let palette = stage
+            .flooding
+            .and_then(|index| GAMES.get(index))
+            .unwrap_or(&GAMES[0]);
         let channel = stage
             .flooding
             .and_then(FeedProduct::from_card)
@@ -639,7 +680,9 @@ impl LiveShell {
                     .text_size(px(12.0))
                     .text_color(rgb(palette.dim))
                     .child(format!("{} ·", palette.title_lower()))
-                    .children(channel.map(|channel| div().text_color(rgb(palette.ok)).child(channel))),
+                    .children(
+                        channel.map(|channel| div().text_color(rgb(palette.ok)).child(channel)),
+                    ),
             )
             .child(
                 div().w(px(220.0)).h(px(2.0)).bg(rgba(0x133e_5b99)).child(
@@ -661,16 +704,27 @@ impl LiveShell {
             "left" => self.move_choice(-1),
             "right" => self.move_choice(1),
             "1" | "2" | "3" => {
-                if let Some(index) = event.keystroke.key.parse::<usize>().ok().and_then(|d| d.checked_sub(1))
+                if let Some(index) = event
+                    .keystroke
+                    .key
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|d| d.checked_sub(1))
                     && self.actionable(index)
                 {
                     self.choose(index);
-                    self.picker.motion = Motion::Entering { card: index, started: js_sys::Date::now() };
+                    self.picker.motion = Motion::Entering {
+                        card: index,
+                        started: js_sys::Date::now(),
+                    };
                 }
             }
             "enter" | "return" | "space" => {
                 if self.actionable(self.picker.selected) {
-                    self.picker.motion = Motion::Entering { card: self.picker.selected, started: js_sys::Date::now() };
+                    self.picker.motion = Motion::Entering {
+                        card: self.picker.selected,
+                        started: js_sys::Date::now(),
+                    };
                 }
             }
             _ => return,
@@ -688,11 +742,14 @@ impl LiveShell {
             .iter()
             .find(|mounted| mounted.product == product)
             .map(|mounted| {
-                div().size_full().child(mounted.view.element()).with_animation(
-                    ("live-realm-reveal", product.card()),
-                    Animation::new(Duration::from_millis(340)),
-                    gpui::Styled::opacity,
-                )
+                div()
+                    .size_full()
+                    .child(mounted.view.element())
+                    .with_animation(
+                        ("live-realm-reveal", product.card()),
+                        Animation::new(Duration::from_millis(340)),
+                        gpui::Styled::opacity,
+                    )
             });
         div()
             .id("live-realm")
@@ -774,10 +831,6 @@ fn return_glyph(color: u32) -> impl IntoElement {
     .flex_shrink_0()
 }
 
-fn look_border(look: &CardLook) -> u32 {
-    look.border
-}
-
 /// Where card `index` sits from the row's centre, in pixels — the distance it
 /// glides to the middle when it wins.
 fn slot_offset(index: usize, size: CardSize) -> f32 {
@@ -847,7 +900,10 @@ impl ChannelSummary {
         if !self.name.is_empty() {
             return self.name.clone();
         }
-        let tail = self.key.split_once(':').map_or(self.key.as_str(), |(_, tail)| tail);
+        let tail = self
+            .key
+            .split_once(':')
+            .map_or(self.key.as_str(), |(_, tail)| tail);
         tail.to_owned()
     }
 }

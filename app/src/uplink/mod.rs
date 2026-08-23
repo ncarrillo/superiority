@@ -169,7 +169,7 @@ impl SessionTap {
             Ok(config) => config.enabled,
             Err(_) => return,
         };
-        // The global switch shares every open channel; per-channel selection
+        // the global switch shares every open channel; per-channel selection
         // (`config.shared_channels`) is plumbed but deliberately has no UI
         // yet, so no allow-list is passed.
         let gates = model::ProjectionGates {
@@ -379,7 +379,7 @@ impl Drop for SessionTap {
     }
 }
 
-// The core connects through these; the inherent methods above stay the uplink's
+// the core connects through these; the inherent methods above stay the uplink's
 // own API. `self.method(..)` resolves to the inherent, not the trait, so the
 // delegation is a call, not a loop.
 impl superiority_core::observer::SessionObserverFactory for Publisher {
@@ -492,7 +492,7 @@ fn run_worker(receiver: &Receiver<TapMessage>, control: &UplinkControl) {
     loop {
         match receiver.recv_timeout(wait_duration(&sessions, next_attempt)) {
             Ok(TapMessage::Session(meta)) => {
-                // Each connection gets its own sink; a second product announcing
+                // each connection gets its own sink; a second product announcing
                 // no longer forces the first's batch out. Re-announcing keeps
                 // the sink and refreshes the meta.
                 sessions
@@ -505,7 +505,7 @@ fn run_worker(receiver: &Receiver<TapMessage>, control: &UplinkControl) {
                     });
             }
             Ok(TapMessage::Event { session, dto }) => {
-                // An event always follows its session's announcement; one for an
+                // an event always follows its session's announcement; one for an
                 // unknown (or already-pruned) session has nowhere to go.
                 if let Some(sink) = sessions.get_mut(&session) {
                     if matches!(dto.kind, EventKind::SessionEnded) {
@@ -537,7 +537,7 @@ fn run_worker(receiver: &Receiver<TapMessage>, control: &UplinkControl) {
             &mut backoff,
             &mut next_attempt,
         );
-        // A session that has ended and drained holds nothing worth keeping;
+        // a session that has ended and drained holds nothing worth keeping;
         // dropping it keeps the map bounded across a long run of reconnects.
         sessions.retain(|_, sink| !(sink.ended && sink.batcher.is_empty()));
     }
@@ -600,13 +600,13 @@ fn flush(
 
     let config = control.snapshot();
     let session = &sink.meta;
-    // Turned off mid-flight, or latched out: the data stops here.
+    // turned off mid-flight, or latched out: the data stops here.
     if !config.enabled || control.stats.auth_failed.load(Ordering::Relaxed) {
         note_batch_dropped(control, &batch);
         return FlushOutcome::Dropped;
     }
     let Some(token) = config.effective_token() else {
-        // Registration hasn't finished; keep the batch buffered.
+        // registration hasn't finished; keep the batch buffered.
         batcher.restore(batch);
         *next_attempt = now + Duration::from_secs(1);
         return FlushOutcome::Deferred;
@@ -685,7 +685,7 @@ fn shutdown_flush_all(control: &UplinkControl, sessions: &mut BTreeMap<String, S
         while !sink.batcher.is_empty() && Instant::now() < deadline {
             match flush(&http, control, sink, &mut backoff, &mut next_attempt, true) {
                 FlushOutcome::Sent => {}
-                // At shutdown there is no later; whatever could not go, goes down.
+                // at shutdown there is no later; whatever could not go, goes down.
                 FlushOutcome::NothingDue | FlushOutcome::Deferred | FlushOutcome::Dropped => break,
             }
         }
@@ -734,7 +734,7 @@ fn maybe_register(
         return;
     }
     if config.effective_token().is_some() {
-        // Already registered: make sure the UI can show the link.
+        // already registered: make sure the UI can show the link.
         if control.stats.feed_url().is_none() {
             if let Some(feed_id) = &config.feed_id {
                 control
@@ -904,11 +904,11 @@ mod tests {
         enable_sharing(&control, &["public:1033"]);
         let mut tap = publisher.begin_session(&[ChatChannel::Public(1033)]);
 
-        tap.observe(&joined(0)); // Session + session_started fill capacity 2
+        tap.observe(&joined(0)); // session + session_started fill capacity 2
         tap.observe(&message(0, "lost")); // joined(seq2) dropped... then message(seq3) dropped
         assert!(control.stats.dropped.load(Ordering::Relaxed) > 0);
 
-        // Drain, then the next event must be preceded by a Dropped marker
+        // drain, then the next event must be preceded by a Dropped marker
         // and the sequence numbers must show the gap.
         while receiver.try_recv().is_ok() {}
         tap.observe(&message(0, "arrives"));

@@ -84,9 +84,14 @@ impl ScrLiveView {
 
     fn avatar_source(&self, id: Option<&str>) -> gpui::ImageSource {
         let id = id.map_or("avatar_default_scrlogo", |id| {
-            if id.is_empty() { "avatar_default_scrlogo" } else { id }
+            if id.is_empty() {
+                "avatar_default_scrlogo"
+            } else {
+                id
+            }
         });
-        self.asset(&format!("ui/products/scr/avatars/{id}.png")).into()
+        self.asset(&format!("ui/products/scr/avatars/{id}.png"))
+            .into()
     }
 
     fn roster_user(&self, member: &RosterMember) -> RosterUser {
@@ -378,11 +383,7 @@ impl Render for ScrLiveView {
         let filter = self.roster_input.content();
         self.console.set_filter(filter, now);
 
-        let title = self
-            .console
-            .title()
-            .unwrap_or("No channel")
-            .to_uppercase();
+        let title = self.console.title().unwrap_or("No channel").to_uppercase();
         let (status, status_color) = self.status_chip();
 
         div()
@@ -443,12 +444,10 @@ impl Render for ScrLiveView {
                             .min_w_0()
                             .child(self.console.transcript_viewport(now)),
                     )
-                    .child(self.console.roster_panel(
-                        self.roster_input.clone(),
-                        now,
-                        window,
-                        cx,
-                    )),
+                    .child(
+                        self.console
+                            .roster_panel(self.roster_input.clone(), now, window, cx),
+                    ),
             )
     }
 }

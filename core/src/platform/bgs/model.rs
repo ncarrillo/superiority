@@ -330,7 +330,7 @@ pub fn challenge_url(challenge: ChallengeExternalRequest) -> Result<Url> {
 /// A product record registered beneath an account, as the account service
 /// names it.
 ///
-/// `program` is the `FourCC` every part of this protocol keys a product by —
+/// `program` is the FourCC every part of this protocol keys a product by —
 /// `S2` is `StarCraft II`, and it is the same value the client sends when it
 /// asks for web credentials. Presence here is not an ownership assertion;
 /// licenses are returned by a different AccountService RPC.
@@ -463,7 +463,7 @@ impl GameProgram {
         games
     }
 
-    /// The `FourCC` as it reads on the wire, for tracing and for matching
+    /// The FourCC as it reads on the wire, for tracing and for matching
     /// against a product code.
     #[must_use]
     pub fn code(&self) -> String {
@@ -735,7 +735,7 @@ mod game_program_tests {
         assert_eq!(sc2.name.as_deref(), Some("StarCraft II"));
         assert_eq!(sc2.accounts, 1);
 
-        // A login handle without level info is still a registered product,
+        // a login handle without level info is still a registered product,
         // but this parser deliberately makes no license claim about it.
         let remastered = &games[1];
         assert_eq!(remastered.code(), "S1");
@@ -800,7 +800,7 @@ mod game_program_tests {
 
     #[test]
     fn captured_non_owner_catalog_hides_wc3_while_owner_catalog_reveals_it() {
-        // Exact AccountLevelInfo distinction observed from Battle.net Desktop:
+        // exact AccountLevelInfo distinction observed from Battle.net Desktop:
         // account 3693 carried beta-only 50676; account 991651410 carried
         // retail 34998. Both had W3 game-account records.
         let non_owner = catalog(

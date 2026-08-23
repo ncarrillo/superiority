@@ -20,10 +20,8 @@ pub use crate::products::modal::ModalVariant;
 use crate::products::sc2::theme::FONT_NAVIGATION;
 use crate::products::scr::theme::FONT_INTERFACE as SCR_FONT;
 
-/// Reforged speaks in Friz Quadrata, its own UI face, embedded from the client.
-const WC3_FONT: &str = "Friz Quadrata TT";
+const WC3_FONT: &str = crate::products::wc3::theme::FONT_TITLE;
 
-/// How much of the realm's colour the button carries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ButtonWeight {
     /// Fill and bloom: the action the dialog is about.
@@ -381,7 +379,7 @@ pub fn button(
         })
         .active(move |style| {
             let style = style
-                .bg(pressed_fill.clone())
+                .bg(pressed_fill)
                 .border_color(rgb(pressed_edge))
                 .text_color(rgb(pressed_text));
             if inverse {

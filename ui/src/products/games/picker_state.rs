@@ -166,7 +166,7 @@ impl<C: AnimationClock> PickerState<C> {
             return false;
         };
         self.motion = Motion::SnappingBack {
-            from: self.motion.commitment_now(now),
+            from: self.motion.commitment(now),
             started: now,
         };
         true

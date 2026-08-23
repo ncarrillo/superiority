@@ -54,7 +54,7 @@ impl WarningComponent {
                         .text_center()
                         .text_size(px(19.5))
                         .line_height(px(24.0))
-                        .text_color(rgb(0xedc78c))
+                        .text_color(rgb(0x00ed_c78c))
                         .child(detail),
                 ),
         );
@@ -112,7 +112,7 @@ impl WarningComponent {
                 .on_click(cx.listener(|this, _, _, cx| this.begin_warning_close(cx))),
             );
         }
-        let dimmer = div().absolute().inset_0().bg(rgba(0x000305ad));
+        let dimmer = div().absolute().inset_0().bg(rgba(0x0003_05ad));
         let dimmer = if self.warning_closing {
             dimmer
                 .with_animation(
@@ -126,7 +126,7 @@ impl WarningComponent {
                 .with_animation(
                     "warning-dimmer-open",
                     Animation::new(Duration::from_millis(160)),
-                    |dimmer, delta| dimmer.opacity(delta),
+                    gpui::Styled::opacity,
                 )
                 .into_any_element()
         };

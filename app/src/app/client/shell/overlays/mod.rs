@@ -53,9 +53,9 @@ fn account_menu_edges() -> Vec<AnyElement> {
             edge.top(px(ACCOUNT_MENU_HEIGHT / 2.0))
         };
         let (from, to) = if top {
-            (rgba(0x33a8f0e6), rgba(0x33a8f01f))
+            (rgba(0x33a8_f0e6), rgba(0x33a8_f01f))
         } else {
-            (rgba(0x33a8f01f), rgba(0x33a8f0e6))
+            (rgba(0x33a8_f01f), rgba(0x33a8_f0e6))
         };
         edge.bg(linear_gradient(
             180.0,
@@ -106,7 +106,7 @@ impl OverlayComponent {
                 .with_animation(
                     open_id,
                     Animation::new(Duration::from_millis(140)).with_easing(ease_in_out),
-                    |overlay, delta| overlay.opacity(delta),
+                    gpui::Styled::opacity,
                 )
                 .into_any_element()
         } else {
@@ -173,7 +173,7 @@ impl OverlayComponent {
             |(user, channel)| format!("{}  ·  {channel}", user.presence.label()),
         );
         let account_detail_color =
-            identity.map_or(rgb(0x7d8fa8), |(user, _)| user.presence.text_color());
+            identity.map_or(rgb(0x007d_8fa8), |(user, _)| user.presence.text_color());
         let account_portrait = identity.and_then(|(user, _)| user.portrait.clone());
         let clan_tag = identity.and_then(|(user, _)| user.clan_tag.clone());
         // the roster name carries the tag inline; the popover splits it out so
@@ -190,7 +190,7 @@ impl OverlayComponent {
             .top(px(51.0))
             .w(px(ACCOUNT_MENU_WIDTH))
             .h(px(ACCOUNT_MENU_HEIGHT))
-            .bg(rgba(0x050a0ffc))
+            .bg(rgba(0x050a_0ffc))
             .rounded(px(3.0))
             .shadow_lg()
             .font_family(FONT_INTERFACE)
@@ -232,7 +232,7 @@ impl OverlayComponent {
                         row.child(
                             div()
                                 .flex_shrink_0()
-                                .text_color(rgb(0xf0aa64))
+                                .text_color(rgb(0x00f0_aa64))
                                 .child(format!("<{tag}>")),
                         )
                     })
@@ -240,7 +240,7 @@ impl OverlayComponent {
                         div()
                             .overflow_hidden()
                             .whitespace_nowrap()
-                            .text_color(rgb(0xd6e0f0))
+                            .text_color(rgb(0x00d6_e0f0))
                             .child(account_name),
                     ),
             )

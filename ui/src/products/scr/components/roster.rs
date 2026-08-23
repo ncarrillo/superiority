@@ -173,7 +173,7 @@ impl RenderOnce for RosterHeader {
                     .font_weight(gpui::FontWeight::BOLD)
                     .text_size(px(14.0))
                     .text_color(rgb(ACCENT))
-                    .hover(|style| style.text_color(rgb(0xffffff)))
+                    .hover(|style| style.text_color(rgb(0x00ff_ffff)))
                     .active(|style| style.opacity(0.64))
                     .on_click(move |event, window, cx| on_clear(event, window, cx))
                     .child("×"),

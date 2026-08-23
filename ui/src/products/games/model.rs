@@ -164,9 +164,6 @@ impl CardState {
 #[derive(Clone, Copy)]
 pub struct GamePalette {
     pub name: &'static str,
-    /// The Battle.net program `FourCC` this card is for. The account service
-    /// names the games an account owns by exactly this code, so it is what ties
-    /// a card to a real product rather than to a position in a list.
     pub program: &'static str,
     /// Whether this client can actually take you into the game. Each enabled
     /// product has its own recovered protocol and realm presentation.
@@ -229,9 +226,11 @@ pub struct GamePalette {
 }
 
 impl GamePalette {
-    /// The card's own tokens, spelled out. The doc prints these under the
-    /// cards so the thing being claimed — that only these change — can be
-    /// checked against the cards above them.
+    #[must_use]
+    pub fn title_lower(&self) -> String {
+        self.name.to_owned()
+    }
+
     #[must_use]
     pub fn reference(&self) -> [(String, u32); 4] {
         [
@@ -261,11 +260,6 @@ impl GamePalette {
         } else {
             self.name.to_owned()
         }
-    }
-
-    #[must_use]
-    pub fn title_lower(&self) -> String {
-        self.name.to_owned()
     }
 
     /// The clan tag the status line opens with, when the state is one that
@@ -373,7 +367,6 @@ pub const GAMES: [GamePalette; 3] = [
     },
     GamePalette {
         name: "StarCraft: Remastered",
-        // confirmed against a live account state
         program: "S1",
         playable: true,
         shown: true,
@@ -411,13 +404,10 @@ pub const GAMES: [GamePalette; 3] = [
     },
     GamePalette {
         name: "Warcraft III: Reforged",
-        // confirmed against a live account state
         program: "W3",
         playable: true,
         shown: true,
-        // Reforged's own UI face, extracted from the WC3:R client — embedded on
-        // both hosts so the browser viewer and the desktop render it identically
-        font: "Friz Quadrata TT",
+        font: crate::products::wc3::theme::FONT_TITLE,
         upper: false,
         art: AssetPaths::new(
             "images/backgrounds/wc3-orc-standard.png",
@@ -564,15 +554,13 @@ pub const PICKER_NARROW: CardSize = CardSize {
 /// screenshot: three abreast where there is room, fewer where there is not.
 #[must_use]
 pub fn picker_size(width: f32) -> CardSize {
-    let three_abreast = PICKER_WIDE
-        .width
-        .mul_add(3.0, PICKER_WIDE.gap_between * 2.0)
-        + PICKER_WIDE.section_pad * 2.0;
-    let two_abreast = PICKER_MEDIUM.width.mul_add(2.0, PICKER_MEDIUM.gap_between)
-        + PICKER_MEDIUM.section_pad * 2.0;
-    if width >= three_abreast {
+    const THREE_ABREAST: f32 =
+        PICKER_WIDE.width * 3.0 + PICKER_WIDE.gap_between * 2.0 + PICKER_WIDE.section_pad * 2.0;
+    const TWO_ABREAST: f32 =
+        PICKER_MEDIUM.width * 2.0 + PICKER_MEDIUM.gap_between + PICKER_MEDIUM.section_pad * 2.0;
+    if width >= THREE_ABREAST {
         PICKER_WIDE
-    } else if width >= two_abreast {
+    } else if width >= TWO_ABREAST {
         PICKER_MEDIUM
     } else {
         PICKER_NARROW
@@ -623,12 +611,10 @@ mod tests {
 
     #[test]
     fn the_verb_is_the_state() {
-        // there is no separate enabled flag to fall out of step with the state
         assert_eq!(CardState::Idle.verb(), "CONNECT");
         assert_eq!(CardState::Connected.verb(), "ENTER");
         assert_eq!(CardState::NoAccount.verb(), "SIGN IN");
         assert_eq!(CardState::Unreachable.verb(), "RETRY NOW");
-        // and only a card you can enter offers the key that enters it
         assert!(CardState::Connected.shows_return_key());
         assert!(!CardState::Connecting.shows_return_key());
     }
@@ -654,7 +640,6 @@ mod tests {
         assert_eq!(GAMES[1].status_tag(CardState::Idle), None);
         assert_eq!(GAMES[0].status_tag(CardState::Connected), None);
 
-        // and the title is shouted or spoken depending on whose title it is
         assert_eq!(GAMES[0].title(), "STARCRAFT II");
         assert_eq!(GAMES[2].title(), "Warcraft III: Reforged");
     }
@@ -662,13 +647,9 @@ mod tests {
     #[test]
     fn the_row_gives_up_width_before_it_gives_up_its_row() {
         let same = |left: f32, right: f32| (left - right).abs() < f32::EPSILON;
-        // three abreast where there is room for three
         assert!(same(picker_size(1400.0).width, PICKER_WIDE.width));
-        // narrower cards while two still fit
         assert!(same(picker_size(900.0).width, PICKER_MEDIUM.width));
-        // and stacked once even two will not
         assert!(same(picker_size(500.0).width, PICKER_NARROW.width));
-        // the gutter closes up as the window does
         assert!(picker_size(500.0).section_pad < picker_size(1400.0).section_pad);
     }
 }

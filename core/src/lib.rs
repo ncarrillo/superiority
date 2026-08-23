@@ -10,7 +10,7 @@ pub mod session;
 pub use error::{Error, Result};
 pub use product::Product;
 
-// The paths this tree used before the modules moved under `platform`, `games`,
+// the paths this tree used before the modules moved under `platform`, `games`,
 // and `session`. They are kept resolvable rather than rewritten because:
 //
 //   - `bsn-derive` writes `::superiority_core::bsn::` into every type it derives,
@@ -18,8 +18,14 @@ pub use product::Product;
 //     files, and
 //   - four sibling crates import these modules by path.
 //
-// Keeping them is what makes the move a move instead of a rewrite of everything
+// keeping them is what makes the move a move instead of a rewrite of everything
 // that ever referred to it.
 pub use games::sc2::{bsn, chat, metadata, native};
 pub use platform::{auth, bgs, wire};
 pub use session::{observer, worker as connection};
+
+/// whether `SUPERIORITY_TRACE` is set — read once, asked on every record
+pub fn trace_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("SUPERIORITY_TRACE").is_some())
+}

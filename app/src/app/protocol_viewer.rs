@@ -133,7 +133,7 @@ impl gpui::Render for InspectorTooltip {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_size(px(12.5))
                             .line_height(px(19.0))
-                            .text_color(rgb(0xd6e0f0))
+                            .text_color(rgb(0x00d6_e0f0))
                             .child(self.title.clone()),
                     )
                     .child(
@@ -142,7 +142,7 @@ impl gpui::Render for InspectorTooltip {
                             .flex_shrink_0()
                             .text_size(px(12.5))
                             .line_height(px(17.0))
-                            .text_color(rgb(0x85d1ff))
+                            .text_color(rgb(0x0085_d1ff))
                             .child(self.detail.clone()),
                     ),
             );
@@ -196,14 +196,14 @@ fn capture_toggle_icon(paused: bool) -> AnyElement {
                     .w(px(2.0))
                     .h(px(10.0))
                     .rounded(px(1.0))
-                    .bg(rgb(0x8aa2b5)),
+                    .bg(rgb(0x008a_a2b5)),
             )
             .child(
                 div()
                     .w(px(2.0))
                     .h(px(10.0))
                     .rounded(px(1.0))
-                    .bg(rgb(0x8aa2b5)),
+                    .bg(rgb(0x008a_a2b5)),
             )
             .into_any_element()
     }
@@ -222,7 +222,7 @@ fn clear_icon() -> impl IntoElement {
                 .right(px(2.0))
                 .top(px(3.0))
                 .h(px(1.0))
-                .bg(rgb(0x8aa2b5)),
+                .bg(rgb(0x008a_a2b5)),
         )
         .child(
             div()
@@ -231,7 +231,7 @@ fn clear_icon() -> impl IntoElement {
                 .right(px(4.0))
                 .top(px(1.0))
                 .h(px(1.0))
-                .bg(rgb(0x8aa2b5)),
+                .bg(rgb(0x008a_a2b5)),
         )
         .child(
             div()
@@ -242,7 +242,7 @@ fn clear_icon() -> impl IntoElement {
                 .bottom(px(1.0))
                 .rounded(px(1.0))
                 .border_1()
-                .border_color(rgb(0x8aa2b5)),
+                .border_color(rgb(0x008a_a2b5)),
         )
 }
 
@@ -250,8 +250,8 @@ fn clear_icon() -> impl IntoElement {
 /// the online green. nothing else in the rail wears either colour.
 fn direction_color(direction: Direction) -> Rgba {
     match direction {
-        Direction::Outgoing => rgb(0xf0aa64),
-        Direction::Incoming => rgb(0x47d184),
+        Direction::Outgoing => rgb(0x00f0_aa64),
+        Direction::Incoming => rgb(0x0047_d184),
     }
 }
 
@@ -305,20 +305,27 @@ fn search_icon(color: Rgba) -> impl IntoElement {
 
 fn service_color(service: &str) -> Rgba {
     match service {
-        "Authentication" => rgb(0xf0b35a),
-        "Connection" => rgb(0x63b8f2),
-        "Chat" => rgb(0x5fd1d0),
-        "Friends" => rgb(0x72d69b),
-        "Presence" => rgb(0xa5d86c),
-        "Profile" => rgb(0xb99af2),
-        "Toon" => rgb(0xe88bc8),
-        "Cache" => rgb(0x77cdb4),
-        "Club" | "S2Multiplayer" => rgb(0xf09667),
-        "S2Master" => rgb(0xe87b8e),
-        "GameUtilities" => rgb(0xd8c66a),
+        "Authentication" => rgb(0x00f0_b35a),
+        "Connection" => rgb(0x0063_b8f2),
+        "Chat" => rgb(0x005f_d1d0),
+        "Friends" => rgb(0x0072_d69b),
+        "Presence" => rgb(0x00a5_d86c),
+        "Profile" => rgb(0x00b9_9af2),
+        "Toon" => rgb(0x00e8_8bc8),
+        "Cache" => rgb(0x0077_cdb4),
+        "Club" | "S2Multiplayer" => rgb(0x00f0_9667),
+        "S2Master" => rgb(0x00e8_7b8e),
+        "GameUtilities" => rgb(0x00d8_c66a),
         _ => {
             const COLORS: [u32; 8] = [
-                0x62b7e8, 0x68c7b0, 0x9ccf70, 0xe0bd67, 0xe38b73, 0xd181b4, 0xa594e6, 0x7aa7e8,
+                0x0062_b7e8,
+                0x0068_c7b0,
+                0x009c_cf70,
+                0x00e0_bd67,
+                0x00e3_8b73,
+                0x00d1_81b4,
+                0x00a5_94e6,
+                0x007a_a7e8,
             ];
             let index = service.bytes().fold(0usize, |hash, byte| {
                 hash.wrapping_mul(31).wrapping_add(usize::from(byte))
@@ -332,10 +339,10 @@ fn service_color(service: &str) -> Rgba {
 /// decoded header for. everything else stays the one value tone.
 fn field_value_color(value: &str, active: bool) -> Rgba {
     match value {
-        "true" => rgb(0x47d184),
-        "false" => rgb(0x7d8fa8),
-        _ if active => rgb(0xbdeaff),
-        _ => rgb(0x67ceff),
+        "true" => rgb(0x0047_d184),
+        "false" => rgb(0x007d_8fa8),
+        _ if active => rgb(0x00bd_eaff),
+        _ => rgb(0x0067_ceff),
     }
 }
 
@@ -387,7 +394,7 @@ fn field_label(path: &str) -> String {
             .chars()
             .all(|character| character != ']')
     {
-        return format!("[{}", index);
+        return format!("[{index}");
     }
     leaf.to_owned()
 }
@@ -522,10 +529,7 @@ impl ProtocolViewer {
         cx.spawn(async move |entity, cx| {
             loop {
                 executor.timer(Duration::from_millis(100)).await;
-                if entity
-                    .update(cx, |this, cx| this.refresh_capture(cx))
-                    .is_err()
-                {
+                if entity.update(cx, ProtocolViewer::refresh_capture).is_err() {
                     break;
                 }
             }
@@ -936,8 +940,8 @@ impl ProtocolViewer {
             .h_full()
             .flex_shrink_0()
             .cursor(gpui::CursorStyle::ResizeLeftRight)
-            .bg(rgb(0x07131d))
-            .hover(|style| style.bg(rgb(0x1e789e)))
+            .bg(rgb(0x0007_131d))
+            .hover(|style| style.bg(rgb(0x001e_789e)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -1037,10 +1041,10 @@ impl ProtocolViewer {
                             .child(record_count.to_string())
                             .when(filtering, |detail| {
                                 detail
-                                    .child(div().text_color(rgb(0x3f5b6d)).child("·"))
+                                    .child(div().text_color(rgb(0x003f_5b6d)).child("·"))
                                     .child(
                                         div()
-                                            .text_color(rgb(0x8fa8bb))
+                                            .text_color(rgb(0x008f_a8bb))
                                             .child(format!("{filtered_count} shown")),
                                     )
                             }),
@@ -1082,9 +1086,9 @@ impl ProtocolViewer {
                         }),
                     )
                     .child(search_icon(if focused {
-                        rgb(0x6bc2f2)
+                        rgb(0x006b_c2f2)
                     } else {
-                        rgb(0x5e8291)
+                        rgb(0x005e_8291)
                     }))
                     .child(
                         div()
@@ -1093,7 +1097,7 @@ impl ProtocolViewer {
                             .h_full()
                             .font_family("monospace")
                             .text_size(px(12.0))
-                            .text_color(rgb(0xd6e0f0))
+                            .text_color(rgb(0x00d6_e0f0))
                             .child(input.element()),
                     ),
             )
@@ -1129,9 +1133,9 @@ impl ProtocolViewer {
                                     .font_family("monospace")
                                     .text_size(px(9.5))
                                     .text_color(if selected {
-                                        rgb(0x8fc9ea)
+                                        rgb(0x008f_c9ea)
                                     } else {
-                                        rgb(0x4c657a)
+                                        rgb(0x004c_657a)
                                     })
                                     .child(count.to_string()),
                             )
@@ -1149,8 +1153,8 @@ impl ProtocolViewer {
             .flex()
             .items_center()
             .border_b_1()
-            .border_color(rgb(0x102a3b))
-            .bg(rgb(0x07111d))
+            .border_color(rgb(0x0010_2a3b))
+            .bg(rgb(0x0007_111d))
             .child(div().h_full().flex_1())
             .child(
                 div()
@@ -1247,7 +1251,7 @@ impl ProtocolViewer {
         let selected = index == self.selected_record;
         let category_color = service_color(&record.service);
         let category_text =
-            rgb(0x7893a9).blend(category_color.alpha(if selected { 0.62 } else { 0.48 }));
+            rgb(0x0078_93a9).blend(category_color.alpha(if selected { 0.62 } else { 0.48 }));
         let direction = direction_color(record.direction);
         ui_inspector::rail_row(("protocol-record", index), selected)
             .h(px(RECORD_ROW_HEIGHT))
@@ -1284,9 +1288,9 @@ impl ProtocolViewer {
                                     .text_size(px(13.5))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(if selected {
-                                        rgb(0xe6f9ff)
+                                        rgb(0x00e6_f9ff)
                                     } else {
-                                        rgb(0xd5e5f4)
+                                        rgb(0x00d5_e5f4)
                                     })
                                     .child(record.command.clone()),
                             )
@@ -1304,9 +1308,9 @@ impl ProtocolViewer {
                             .font_family("monospace")
                             .text_size(px(10.5))
                             .text_color(if selected {
-                                rgb(0x8ebbd0)
+                                rgb(0x008e_bbd0)
                             } else {
-                                rgb(0x536f84)
+                                rgb(0x0053_6f84)
                             })
                             .child(format!("{} B", record.bytes.len())),
                     ),
@@ -1353,7 +1357,7 @@ impl ProtocolViewer {
             .w(px(self.record_pane_width))
             .flex_shrink_0()
             .border_r_1()
-            .border_color(rgb(0x17384d))
+            .border_color(rgb(0x0017_384d))
             .child(self.capture_controls(window, cx))
             .child(
                 div()
@@ -1417,7 +1421,7 @@ impl ProtocolViewer {
         ui_inspector::pane()
             .flex_1()
             .min_w(px(0.0))
-            .bg(rgb(0x030a10))
+            .bg(rgb(0x0003_0a10))
             .on_children_prepainted({
                 let viewer = cx.weak_entity();
                 move |bounds, _, cx| {
@@ -1463,8 +1467,8 @@ impl ProtocolViewer {
                     .w_full()
                     .flex_shrink_0()
                     .cursor(gpui::CursorStyle::ResizeUpDown)
-                    .bg(rgb(0x07131d))
-                    .hover(|style| style.bg(rgb(0x1e789e)))
+                    .bg(rgb(0x0007_131d))
+                    .hover(|style| style.bg(rgb(0x001e_789e)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -1490,8 +1494,8 @@ impl ProtocolViewer {
                     .flex()
                     .flex_col()
                     .border_t_1()
-                    .border_color(rgb(0x17384d))
-                    .bg(rgb(0x050d14))
+                    .border_color(rgb(0x0017_384d))
+                    .bg(rgb(0x0005_0d14))
                     .child(
                         div()
                             .h(px(34.0))
@@ -1499,11 +1503,11 @@ impl ProtocolViewer {
                             .items_center()
                             .px(px(13.0))
                             .border_b_1()
-                            .border_color(rgb(0x102a3b))
+                            .border_color(rgb(0x0010_2a3b))
                             .font_family(FONT_INTERFACE)
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .text_size(px(12.5))
-                            .text_color(rgb(0x6b8498))
+                            .text_color(rgb(0x006b_8498))
                             .child(if selection_is_exact {
                                 "Selected range"
                             } else {
@@ -1514,9 +1518,9 @@ impl ProtocolViewer {
                                     .ml_auto()
                                     .font_family("monospace")
                                     .text_color(if selection_is_exact {
-                                        rgb(0x48bff0)
+                                        rgb(0x0048_bff0)
                                     } else {
-                                        rgb(0x6b8498)
+                                        rgb(0x006b_8498)
                                     })
                                     .child(if selection_is_exact {
                                         format!(
@@ -1605,11 +1609,11 @@ impl ProtocolViewer {
                     .justify_center()
                     .cursor_pointer()
                     .border_color(if active {
-                        rgb(0x3caee0)
+                        rgb(0x003c_aee0)
                     } else if hinted {
-                        rgb(0x2b7ea8)
+                        rgb(0x002b_7ea8)
                     } else {
-                        rgb(0x18394d)
+                        rgb(0x0018_394d)
                     })
                     .when(active, |cell| {
                         cell.border_y_1()
@@ -1620,29 +1624,33 @@ impl ProtocolViewer {
                                 cell.border_r_1()
                             })
                     })
-                    .when(!active, |cell| cell.border_1())
+                    .when(!active, gpui::Styled::border_1)
                     .bg(if active {
-                        rgb(0x145b80)
+                        rgb(0x0014_5b80)
                     } else if hinted {
-                        rgb(0x0f3f58)
+                        rgb(0x000f_3f58)
                     } else {
                         match role {
-                            FieldRole::Route => rgb(0x10293a),
-                            FieldRole::Control => rgb(0x151f3a),
-                            FieldRole::Payload => rgb(0x0c2424),
-                            FieldRole::Padding => rgb(0x1b1624),
+                            FieldRole::Route => rgb(0x0010_293a),
+                            FieldRole::Control => rgb(0x0015_1f3a),
+                            FieldRole::Payload => rgb(0x000c_2424),
+                            FieldRole::Padding => rgb(0x001b_1624),
                         }
                     })
                     .font_family("monospace")
                     .text_size(px(11.0))
                     .text_color(if active {
-                        rgb(0xd9f2ff)
+                        rgb(0x00d9_f2ff)
                     } else if hinted {
-                        rgb(0xa9cde0)
+                        rgb(0x00a9_cde0)
                     } else {
-                        rgb(0x7894a9)
+                        rgb(0x0078_94a9)
                     })
-                    .hover(|style| style.border_color(rgb(0x56c9ff)).text_color(rgb(0xffffff)))
+                    .hover(|style| {
+                        style
+                            .border_color(rgb(0x0056_c9ff))
+                            .text_color(rgb(0x00ff_ffff))
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| this.select_bit(bit, cx)))
                     .child(value.to_string())
             });
@@ -1657,7 +1665,7 @@ impl ProtocolViewer {
                         .justify_center()
                         .font_family("monospace")
                         .text_size(px(11.0))
-                        .text_color(rgb(0x536d82))
+                        .text_color(rgb(0x0053_6d82))
                         .child(format!("{byte_index:04x}")),
                 )
                 .child(div().flex().children(bits))
@@ -1674,8 +1682,8 @@ impl ProtocolViewer {
                     .pt(px(17.0))
                     .font_family("monospace")
                     .text_size(px(11.0))
-                    .text_color(rgb(0x536d82))
-                    .child(format!("+{:02x}", start)),
+                    .text_color(rgb(0x0053_6d82))
+                    .child(format!("+{start:02x}")),
             )
             .child(div().flex().min_w(px(0.0)).children(byte_cells))
             .into_any_element()
@@ -1699,8 +1707,8 @@ impl ProtocolViewer {
             .w(px(23.0))
             .flex_shrink_0()
             .text_center()
-            .when(active, |cell| cell.text_color(rgb(0xd9f2ff)))
-            .when(hint.is_some(), |cell| cell.text_color(rgb(0xa9cde0)))
+            .when(active, |cell| cell.text_color(rgb(0x00d9_f2ff)))
+            .when(hint.is_some(), |cell| cell.text_color(rgb(0x00a9_cde0)))
             .child(format!("{byte:02x}"));
         let (wash, span) = if active {
             (gpui::rgba(0x174e_6fa8), Some((overlap_start, overlap_end)))
@@ -1742,10 +1750,12 @@ impl ProtocolViewer {
                 .w(px(7.0))
                 .text_center()
                 .when(active, |cell| {
-                    cell.bg(gpui::rgba(0x174e_6f80)).text_color(rgb(0xd9f2ff))
+                    cell.bg(gpui::rgba(0x174e_6f80))
+                        .text_color(rgb(0x00d9_f2ff))
                 })
                 .when(hinted, |cell| {
-                    cell.bg(gpui::rgba(0x174e_6f40)).text_color(rgb(0xa9cde0))
+                    cell.bg(gpui::rgba(0x174e_6f40))
+                        .text_color(rgb(0x00a9_cde0))
                 })
                 .child(if byte.is_ascii_graphic() || byte == b' ' {
                     char::from(byte).to_string()
@@ -1760,12 +1770,12 @@ impl ProtocolViewer {
             .items_center()
             .font_family("monospace")
             .text_size(px(12.0))
-            .text_color(rgb(0x7893a9))
+            .text_color(rgb(0x0078_93a9))
             .child(
                 div()
                     .w(px(42.0))
                     .flex_shrink_0()
-                    .text_color(rgb(0x536d82))
+                    .text_color(rgb(0x0053_6d82))
                     .child(format!("{start:04x}")),
             )
             .children(hex)
@@ -1775,8 +1785,8 @@ impl ProtocolViewer {
                     .pl(px(10.0))
                     .flex()
                     .border_l_1()
-                    .border_color(rgb(0x17384d))
-                    .text_color(rgb(0x9db5c7))
+                    .border_color(rgb(0x0017_384d))
+                    .text_color(rgb(0x009d_b5c7))
                     .children(ascii),
             )
             .into_any_element()
@@ -1851,14 +1861,14 @@ impl ProtocolViewer {
             .when(container, |toggle| {
                 toggle
                     .border_1()
-                    .border_color(rgb(0x245c78))
-                    .bg(rgb(0x091d2a))
+                    .border_color(rgb(0x0024_5c78))
+                    .bg(rgb(0x0009_1d2a))
                     .cursor_pointer()
                     .hover(|style| {
                         style
-                            .border_color(rgb(0x57c8f5))
-                            .bg(rgb(0x123247))
-                            .text_color(rgb(0xe2f7ff))
+                            .border_color(rgb(0x0057_c8f5))
+                            .bg(rgb(0x0012_3247))
+                            .text_color(rgb(0x00e2_f7ff))
                     })
                     .active(|style| style.opacity(0.68))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -1877,7 +1887,7 @@ impl ProtocolViewer {
                                     .right_0()
                                     .top(px(3.5))
                                     .h(px(1.0))
-                                    .bg(rgb(0x62c7ee)),
+                                    .bg(rgb(0x0062_c7ee)),
                             )
                             .when(collapsed, |glyph| {
                                 glyph.child(
@@ -1887,7 +1897,7 @@ impl ProtocolViewer {
                                         .bottom_0()
                                         .left(px(3.5))
                                         .w(px(1.0))
-                                        .bg(rgb(0x62c7ee)),
+                                        .bg(rgb(0x0062_c7ee)),
                                 )
                             }),
                     )
@@ -1914,7 +1924,7 @@ impl ProtocolViewer {
         let tooltip_detail = field_help::tooltip_detail(field, container);
         let row = ui_inspector::selectable_row(("protocol-field", index), active)
             .h(px(FIELD_ROW_HEIGHT))
-            .when(container && !active, |row| row.bg(rgb(0x07121b)))
+            .when(container && !active, |row| row.bg(rgb(0x0007_121b)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_field(index, cx);
                 this.focus_filter(FilterTarget::Fields, window, cx);
@@ -1951,7 +1961,7 @@ impl ProtocolViewer {
                                 .top_0()
                                 .bottom_0()
                                 .w(px(1.0))
-                                .bg(rgb(0x102c3d)),
+                                .bg(rgb(0x0010_2c3d)),
                         )
                     })
                     .child(self.field_toggle(index, container, collapsed, cx))
@@ -1972,11 +1982,11 @@ impl ProtocolViewer {
                                 gpui::FontWeight::NORMAL
                             })
                             .text_color(if active {
-                                rgb(0xf1f8ff)
+                                rgb(0x00f1_f8ff)
                             } else if container {
-                                rgb(0xcce2f2)
+                                rgb(0x00cc_e2f2)
                             } else {
-                                rgb(0xaebfce)
+                                rgb(0x00ae_bfce)
                             })
                             .child(label),
                     )
@@ -1995,7 +2005,11 @@ impl ProtocolViewer {
                             .flex_shrink_0()
                             .font_family("monospace")
                             .text_size(px(10.0))
-                            .text_color(if active { rgb(0x7f9cb0) } else { rgb(0x56718a) })
+                            .text_color(if active {
+                                rgb(0x007f_9cb0)
+                            } else {
+                                rgb(0x0056_718a)
+                            })
                             .child(field.kind),
                     )
                     .child(
@@ -2006,7 +2020,11 @@ impl ProtocolViewer {
                             .truncate()
                             .font_family("monospace")
                             .text_size(px(10.0))
-                            .text_color(if traced { rgb(0xa9b8cc) } else { rgb(0x4c657a) })
+                            .text_color(if traced {
+                                rgb(0x00a9_b8cc)
+                            } else {
+                                rgb(0x004c_657a)
+                            })
                             .child(range),
                     ),
             );
@@ -2054,7 +2072,7 @@ impl ProtocolViewer {
             .w(px(self.field_pane_width))
             .flex_shrink_0()
             .border_l_1()
-            .border_color(rgb(0x17384d))
+            .border_color(rgb(0x0017_384d))
             .child(
                 ui_inspector::header_shell()
                     .id("protocol-field-filter-focus")
@@ -2071,7 +2089,7 @@ impl ProtocolViewer {
                         ui_inspector::header_detail()
                             .font_family("monospace")
                             .text_size(px(12.0))
-                            .text_color(rgb(0x8fa8bb))
+                            .text_color(rgb(0x008f_a8bb))
                             .child(if self.field_filter_value.is_empty() {
                                 record.type_name.clone()
                             } else {
@@ -2296,7 +2314,7 @@ impl gpui::Render for ProtocolViewer {
             .flex_col()
             .font_family(FONT_INTERFACE)
             .child(self.titlebar(window, cx))
-            .child(div().h(px(6.0)).flex_shrink_0().bg(rgb(0x040a10)))
+            .child(div().h(px(6.0)).flex_shrink_0().bg(rgb(0x0004_0a10)))
             .child(if self.capture.records.is_empty() {
                 div()
                     .flex_1()
@@ -2311,7 +2329,7 @@ impl gpui::Render for ProtocolViewer {
                             .items_center()
                             .justify_center()
                             .text_size(px(14.0))
-                            .text_color(rgb(0x6b8498))
+                            .text_color(rgb(0x006b_8498))
                             .child(if self.paused {
                                 "Capture paused"
                             } else {

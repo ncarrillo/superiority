@@ -98,9 +98,9 @@ impl ComposerComponent {
             (None, None) => None,
         };
         let text_color = if self.composer.is_empty() {
-            rgb(0x5e8291)
+            rgb(0x005e_8291)
         } else {
-            rgb(0xd6e0f0)
+            rgb(0x00d6_e0f0)
         };
         self.composer
             .set_ink(ui_inputs::field_ink(ui_inputs::ModalVariant::Sc2));
@@ -172,13 +172,17 @@ impl ComposerComponent {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .bg(rgb(0x101a2a))
+                            .bg(rgb(0x0010_1a2a))
                             .border_1()
-                            .border_color(rgb(0x2c425d))
+                            .border_color(rgb(0x002c_425d))
                             .rounded(px(2.0))
                             .cursor_pointer()
-                            .hover(|style| style.bg(rgb(0x16273e)).border_color(rgb(0x3e6e9e)))
-                            .active(|style| style.bg(rgb(0x1d3a5c)).border_color(rgb(0x4e8fc8)))
+                            .hover(|style| {
+                                style.bg(rgb(0x0016_273e)).border_color(rgb(0x003e_6e9e))
+                            })
+                            .active(|style| {
+                                style.bg(rgb(0x001d_3a5c)).border_color(rgb(0x004e_8fc8))
+                            })
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.session.composer.composer_focused = false;
                                 this.session.roster.roster.focused = false;
@@ -215,12 +219,12 @@ impl ComposerComponent {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .bg(rgb(0x4579b7))
+                            .bg(rgb(0x0045_79b7))
                             .border_1()
-                            .border_color(rgb(0x78b8ec))
+                            .border_color(rgb(0x0078_b8ec))
                             .rounded(px(2.0))
                             .text_size(px(10.5))
-                            .text_color(rgb(0xe6f9ff))
+                            .text_color(rgb(0x00e6_f9ff))
                             .child(online_friends.to_string()),
                     ),
             );

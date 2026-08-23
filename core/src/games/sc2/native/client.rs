@@ -6,6 +6,7 @@ use std::{
 
 use zeroize::Zeroizing;
 
+use crate::games::sc2::native::errors::native_error;
 use crate::{
     Error, Result,
     bgs::NativeHandoff,
@@ -221,8 +222,4 @@ fn required_bool(value: &BsnStruct, field: &str) -> Result<bool> {
             "native struct field {field} is not a bool"
         ))),
     }
-}
-
-fn native_error(message: impl Into<String>) -> Error {
-    Error::Native(message.into())
 }

@@ -25,7 +25,6 @@ mod macos {
     use objc2_foundation::{NSBundle, NSString, NSUserDefaults};
 
     use crate::chat::ChatChannel;
-    // one game's wire protocol, named in full so the dependency is visible
     use superiority_core::native::protocol::MAX_JOINED_CHANNELS;
 
     const PREFERENCE_SUITE: &str = "com.superiority.sc2-chat";
@@ -468,7 +467,6 @@ mod windows {
     use serde_json::{Map, Value};
 
     use crate::chat::ChatChannel;
-    // one game's wire protocol, named in full so the dependency is visible
     use superiority_core::native::protocol::MAX_JOINED_CHANNELS;
 
     const SHOW_TIMESTAMPS_KEY: &str = "showChatTimestamps";

@@ -155,7 +155,9 @@ fn attempt(host: &str, port: u16, variant: &Variant, timeout: Duration) -> Resul
             Ok(_) => head.push(byte[0]),
             Err(error) => return Err(error.to_string()),
         }
-        if head.ends_with(b"\r\n\r\n") || head.len() > 8192 {
+        if head.ends_with(b"\r\n\r\n")
+            || head.len() > crate::platform::wire::websocket::MAX_HANDSHAKE_BYTES
+        {
             break;
         }
     }

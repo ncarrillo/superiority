@@ -55,7 +55,6 @@ pub fn field_ink(variant: ModalVariant) -> FieldInk {
         ModalVariant::Remastered => FieldInk {
             placeholder: 0x008a_4a3e,
             cursor: 0x00ff_8a78,
-            // inverse video is Remastered's press; a block is its cursor
             cursor_width: 8.0,
         },
         ModalVariant::Reforged => FieldInk {
@@ -216,7 +215,7 @@ pub fn error_caption(variant: ModalVariant, text: impl Into<SharedString>) -> Di
             .text_color(rgb(0x00ff_cf6a))
             .child(SharedString::from(format!("/// {}", text.into()))),
         ModalVariant::Reforged => div()
-            .font_family("Friz Quadrata TT")
+            .font_family(crate::products::wc3::theme::FONT_TITLE)
             .italic()
             .text_size(px(11.0))
             .text_color(rgb(0x00ff_d0b0))
@@ -393,7 +392,6 @@ mod tests {
 
     #[test]
     fn each_realm_writes_in_its_own_ink() {
-        // the block cursor is Remastered's alone; the others keep a bar
         assert!(field_ink(ModalVariant::Remastered).cursor_width > 1.5);
         assert!(field_ink(ModalVariant::Sc2).cursor_width <= 1.5);
         assert!(field_ink(ModalVariant::Reforged).cursor_width <= 1.5);
