@@ -73,6 +73,7 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Club::SearchClubsRequest::Search::Name",
     "Battlenet::Client::Club::SearchClubsResponse",
     "Battlenet::Client::Connection::Boom",
+    "Battlenet::Client::Connection::ConnectionClosing",
     "Battlenet::Client::Connection::EnableEncryption",
     "Battlenet::Client::Connection::GameSiteInfo",
     "Battlenet::Client::Connection::LogoutRequest",

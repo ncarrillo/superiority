@@ -44,48 +44,18 @@ impl superiority_core::bsn::FromBsn for FrameHeaderData {
             }
         };
         match index {
-            0i128 => Ok(Self::Content(
-                <super::frame::FrameHeaderDataContent as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            1i128 => Ok(Self::Route(
-                <super::frame::FrameHeaderDataRoute as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            2i128 => Ok(Self::Target(
-                <super::frame::FrameHeaderDataTarget as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            3i128 => Ok(Self::Correlation(
-                <super::frame::FrameHeaderDataCorrelation as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            4i128 => Ok(Self::Client(
-                <super::frame::FrameHeaderDataClient as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            5i128 => Ok(Self::Service(
-                <super::frame::FrameHeaderDataService as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            6i128 => Ok(Self::Error(
-                <super::frame::FrameHeaderDataError as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            7i128 => Ok(Self::Replicate(
-                <super::frame::FrameHeaderDataReplicate as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            8i128 => Ok(Self::Timestamp(<i32 as superiority_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            9i128 => Ok(Self::Stream(
-                <super::frame::FrameHeaderDataStream as superiority_core::bsn::FromBsn>::from_bsn(inner)?,
-            )),
-            10i128 => Ok(Self::TraceRoute(
-                <super::frame::FrameHeaderDataTraceRoute as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            other => Err(superiority_core::Error::BsnWire(format!(
-                "{other} is not a FrameHeaderData variant"
-            ))),
+            0i128 => Ok(Self::Content(<super::frame::FrameHeaderDataContent as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Route(<super::frame::FrameHeaderDataRoute as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            2i128 => Ok(Self::Target(<super::frame::FrameHeaderDataTarget as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            3i128 => Ok(Self::Correlation(<super::frame::FrameHeaderDataCorrelation as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            4i128 => Ok(Self::Client(<super::frame::FrameHeaderDataClient as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            5i128 => Ok(Self::Service(<super::frame::FrameHeaderDataService as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            6i128 => Ok(Self::Error(<super::frame::FrameHeaderDataError as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            7i128 => Ok(Self::Replicate(<super::frame::FrameHeaderDataReplicate as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            8i128 => Ok(Self::Timestamp(<i32 as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            9i128 => Ok(Self::Stream(<super::frame::FrameHeaderDataStream as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            10i128 => Ok(Self::TraceRoute(<super::frame::FrameHeaderDataTraceRoute as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a FrameHeaderData variant"))),
         }
     }
 }

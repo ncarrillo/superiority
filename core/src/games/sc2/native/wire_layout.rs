@@ -151,6 +151,25 @@ const BILLING_INFO: &[WireField] = &[
     WireField::new(0, 28),
     WireField::new(3, 0),
 ];
+/// `ConnectionClosing {m_header, m_closingReason, m_badData, m_packets, m_now}`.
+/// The client emits its clock and packet history before the failure detail.
+/// Recovered from the retail generated reader.
+const CONNECTION_CLOSING: &[WireField] = &[
+    WireField::new(4, 0),
+    WireField::new(0, 0),
+    WireField::new(3, 0),
+    WireField::new(1, 0),
+    WireField::new(2, 0),
+];
+/// `PacketInfo {m_layer, m_command, m_offset, m_size, m_time}`.
+/// Recovered from the retail generated reader.
+const PACKET_INFO: &[WireField] = &[
+    WireField::new(1, 0),
+    WireField::new(0, 0),
+    WireField::new(4, 0),
+    WireField::new(2, 0),
+    WireField::new(3, 0),
+];
 pub(super) fn register(codec: &mut Codec) -> Result<()> {
     codec.register_struct_wire_layout(
         "Battlenet::Client::Friends::FriendInvitationAddedNotify",
@@ -228,6 +247,14 @@ pub(super) fn register(codec: &mut Codec) -> Result<()> {
     codec.register_struct_wire_layout(
         "Battlenet::Client::Connection::LogoutRequest",
         StructWireLayout::new("empty Connection::LogoutRequest", IDENTITY_0),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::Client::Connection::ConnectionClosing",
+        StructWireLayout::new("generated Connection::ConnectionClosing", CONNECTION_CLOSING),
+    )?;
+    codec.register_struct_wire_layout(
+        "Battlenet::PacketInfo",
+        StructWireLayout::new("generated Connection::PacketInfo", PACKET_INFO),
     )?;
     codec.register_struct_wire_layout(
         "Battlenet::Client::S2Map::S2ListMapFavorites",

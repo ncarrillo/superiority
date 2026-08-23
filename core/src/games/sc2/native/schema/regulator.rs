@@ -22,14 +22,8 @@ impl superiority_core::bsn::FromBsn for RegulatorInfo {
         };
         match index {
             0i128 => Ok(Self::None(<() as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
-            1i128 => Ok(Self::LeakyBucket(
-                <super::regulator::RegulatorInfoLeakyBucket as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            other => Err(superiority_core::Error::BsnWire(format!(
-                "{other} is not a RegulatorInfo variant"
-            ))),
+            1i128 => Ok(Self::LeakyBucket(<super::regulator::RegulatorInfoLeakyBucket as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a RegulatorInfo variant"))),
         }
     }
 }

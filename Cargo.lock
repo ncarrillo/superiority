@@ -7011,21 +7011,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sunken-server"
-version = "0.1.0"
-dependencies = [
- "hex",
- "native-tls",
- "prost",
- "rand 0.8.7",
- "rsa",
- "sha2",
- "superiority-core",
- "tungstenite",
- "url",
-]
-
-[[package]]
 name = "superiority-app"
 version = "0.1.35"
 dependencies = [

@@ -108,17 +108,9 @@ impl superiority_core::bsn::FromBsn for MatchMakerMapOptions {
             }
         };
         match index {
-            0i128 => Ok(Self::Vetoes(
-                <super::matchmaker::MatchMakerMapPreferences as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            1i128 => Ok(Self::Selection(<u32 as superiority_core::bsn::FromBsn>::from_bsn(
-                inner,
-            )?)),
-            other => Err(superiority_core::Error::BsnWire(format!(
-                "{other} is not a MatchMakerMapOptions variant"
-            ))),
+            0i128 => Ok(Self::Vetoes(<super::matchmaker::MatchMakerMapPreferences as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Selection(<u32 as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a MatchMakerMapOptions variant"))),
         }
     }
 }

@@ -70,19 +70,9 @@ impl superiority_core::bsn::FromBsn for ChatJoinNotifyResult2 {
             }
         };
         match index {
-            0i128 => Ok(Self::Success(
-                <super::chat::ChatJoinNotifyResult2Success as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            1i128 => Ok(Self::Failed(
-                <super::chat::ChatJoinNotifyResult2Failed as superiority_core::bsn::FromBsn>::from_bsn(
-                    inner,
-                )?,
-            )),
-            other => Err(superiority_core::Error::BsnWire(format!(
-                "{other} is not a ChatJoinNotifyResult2 variant"
-            ))),
+            0i128 => Ok(Self::Success(<super::chat::ChatJoinNotifyResult2Success as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            1i128 => Ok(Self::Failed(<super::chat::ChatJoinNotifyResult2Failed as superiority_core::bsn::FromBsn>::from_bsn(inner)?)),
+            other => Err(superiority_core::Error::BsnWire(format!("{other} is not a ChatJoinNotifyResult2 variant"))),
         }
     }
 }
