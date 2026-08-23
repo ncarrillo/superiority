@@ -1,4 +1,7 @@
-use std::{path::PathBuf, sync::mpsc::Sender};
+use std::{
+    path::{Path, PathBuf},
+    sync::mpsc::Sender,
+};
 
 use gpui::{Window, actions};
 use objc2::{
@@ -28,7 +31,18 @@ pub(in crate::app) fn application() -> gpui::Application {
 }
 
 pub(in crate::app) fn resource_directory() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("macos/resources")
+    std::env::current_exe()
+        .ok()
+        .and_then(|executable| bundled_resource_directory(&executable))
+        .filter(|resources| resources.is_dir())
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("macos/resources"))
+}
+
+fn bundled_resource_directory(executable: &Path) -> Option<PathBuf> {
+    executable
+        .parent()?
+        .parent()
+        .map(|contents| contents.join("Resources"))
 }
 
 #[derive(Clone, Copy)]

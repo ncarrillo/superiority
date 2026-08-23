@@ -22,6 +22,7 @@ pub mod friends;
 pub mod gameaccount;
 pub mod header;
 pub mod ip4;
+pub mod ladder;
 pub mod league;
 pub mod matchmaker;
 pub mod packetinfo;
