@@ -10,7 +10,7 @@ members = [
     "bsn-derive",
     "gateway",
     "scanner-sweep",
-    "sunken-server",
+  #  "sunken-server",
     "tools/bsn-schema-generator",
     "tools/extract-bsn-metadata",
 ]
