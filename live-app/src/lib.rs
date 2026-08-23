@@ -20,16 +20,20 @@ pub fn run(feed_id: String, backend: String, asset_root: String) -> Result<(), J
     app.run(move |cx: &mut App| {
         let fonts = vec![
             Cow::Borrowed(
-                include_bytes!("../../assets/fonts/game/eurostileext-med.otf").as_slice(),
+                include_bytes!("../../app/macos/resources/fonts/eurostileext-med.otf").as_slice(),
             ),
-            Cow::Borrowed(include_bytes!("../../assets/fonts/game/eurostile-reg.otf").as_slice()),
+            Cow::Borrowed(
+                include_bytes!("../../app/macos/resources/fonts/eurostile-reg.otf").as_slice(),
+            ),
             // the SC:R card title asks for Eurostile Bold; without the bold face
             // the browser falls back to a plain sans, so embed it too
-            Cow::Borrowed(include_bytes!("../../assets/fonts/game/eurostile-bol.otf").as_slice()),
-            Cow::Borrowed(include_bytes!("../../assets/fonts/game/bl.ttf").as_slice()),
+            Cow::Borrowed(
+                include_bytes!("../../app/macos/resources/fonts/eurostile-bol.otf").as_slice(),
+            ),
+            Cow::Borrowed(include_bytes!("../../app/macos/resources/fonts/bl.ttf").as_slice()),
             // Reforged's UI face (Friz Quadrata), extracted from the WC3:R client,
             // so the WC3 card and realm read in the game's own type, not a fallback
-            Cow::Borrowed(include_bytes!("../../assets/fonts/game/frizqt.ttf").as_slice()),
+            Cow::Borrowed(include_bytes!("../../app/macos/resources/fonts/frizqt.ttf").as_slice()),
         ];
         cx.text_system()
             .add_fonts(fonts)
