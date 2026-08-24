@@ -33,19 +33,11 @@ impl SuperiorityView {
             )),
             Overlay::Settings => {
                 let live_url = self.runtime.uplink.stats.feed_url();
-                let live_error = self
-                    .runtime
-                    .uplink
-                    .stats
-                    .auth_failed
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                    .then(|| {
-                        self.runtime
-                            .uplink
-                            .stats
-                            .last_error()
-                            .unwrap_or_else(|| "Live sharing authentication failed.".to_owned())
-                    });
+                let live_error = if self.settings.live_enabled && live_url.is_none() {
+                    self.runtime.uplink.stats.last_error()
+                } else {
+                    None
+                };
                 Some(self.settings.overlay(
                     self.focused,
                     overlays::modal_variant(self.focused),

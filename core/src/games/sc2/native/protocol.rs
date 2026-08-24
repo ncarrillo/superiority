@@ -1895,76 +1895,6 @@ impl Protocol {
         Ok(writer.into_bytes())
     }
 
-    /// Encode `Battlenet::Client::Ladder::GetRankingsResponse` for a local
-    /// profile that has not played any ranked games.
-    ///
-    /// SC2's parameterless `GetRankings` asks for its fixed set of seven ladder
-    /// categories and requires one successful result per category. Failure
-    /// results are structurally valid BSN but cause the client to reject the
-    /// transport reply. Each local result therefore has a real membership
-    /// address and an empty (rank zero, no game data) ranking.
-    pub fn local_ladder_rankings_response(&self, profile_id: u64) -> Result<Vec<u8>> {
-        const LADDER_QUERY_COUNT: usize = 7;
-
-        let root_type = self
-            .codec
-            .schema()
-            .unique_type_id("Battlenet::Client::Ladder::GetRankingsResponse")?;
-        let marker_type = self.member_type(root_type, "GetRankings")?;
-        let rankings_type = self.member_type(root_type, "m_rankings")?;
-        let result_type = self.array_element(rankings_type)?;
-        let success_type = self.choice_variant_by_index(result_type, 0)?;
-        let membership_type = self.member_type(success_type, "m_membership")?;
-        let member_id_type = self.member_type(membership_type, "m_memberId")?;
-        let ranking_type = self.member_type(success_type, "m_ranking")?;
-        let game_data_type = self.member_type(success_type, "m_gameData")?;
-        let marker = self.struct_value(marker_type, Vec::new())?;
-        let rankings = (1..=LADDER_QUERY_COUNT)
-            .map(|ladder_id| {
-                let member_id = self.struct_value(
-                    member_id_type,
-                    vec![
-                        ("m_label", BsnValue::Integer(i128::from(TOON_PROFILE_LABEL))),
-                        ("m_id", BsnValue::Integer(i128::from(profile_id))),
-                    ],
-                )?;
-                let membership = self.struct_value(
-                    membership_type,
-                    vec![
-                        ("m_memberId", member_id),
-                        ("m_ladderId", BsnValue::Integer(ladder_id as i128)),
-                    ],
-                )?;
-                let ranking = self.struct_value(
-                    ranking_type,
-                    vec![
-                        ("m_count", BsnValue::Integer(0)),
-                        ("m_rank", BsnValue::Integer(0)),
-                        ("m_exact", BsnValue::Bool(false)),
-                    ],
-                )?;
-                let game_data = self.struct_with_defaults(game_data_type, Vec::new())?;
-                let success = self.struct_value(
-                    success_type,
-                    vec![
-                        ("m_membership", membership),
-                        ("m_ranking", ranking),
-                        ("m_gameData", game_data),
-                    ],
-                )?;
-                Ok(BsnValue::choice(0, success))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let root = self.struct_value(
-            root_type,
-            vec![
-                ("GetRankings", marker),
-                ("m_rankings", BsnValue::Array(rankings)),
-            ],
-        )?;
-        Ok(self.codec.encode(root_type, &root)?.data)
-    }
-
     /// Encode `BattlePay::GetWalletsResponse::Success` with no wallets.
     ///
     /// This is an inner reliable-transport payload, not a top-level native
@@ -4751,55 +4681,6 @@ mod tests {
             game_account.get("m_id").and_then(BsnValue::as_integer),
             Some(0x1234_5678)
         );
-    }
-
-    #[test]
-    fn local_ladder_rankings_response_succeeds_each_fixed_query() {
-        let protocol = protocol();
-        let profile_id = 0x1122_3344_5566_7788;
-        let body = protocol.local_ladder_rankings_response(profile_id).unwrap();
-        let root_type = protocol
-            .codec()
-            .schema()
-            .unique_type_id("Battlenet::Client::Ladder::GetRankingsResponse")
-            .unwrap();
-        let decoded = protocol.codec().decode(root_type, &body, None, 0).unwrap();
-        let root = value_struct(&decoded.value, "ladder response").unwrap();
-        let BsnValue::Array(rankings) = required_field(root, "m_rankings").unwrap() else {
-            panic!("expected ladder ranking results");
-        };
-        assert_eq!(rankings.len(), 7);
-        for (index, ranking) in rankings.iter().enumerate() {
-            let (variant, success) = value_choice(ranking, "ladder result").unwrap();
-            assert_eq!(variant, 0);
-            let success = value_struct(success, "ladder success").unwrap();
-            let membership = value_struct(
-                required_field(success, "m_membership").unwrap(),
-                "ladder membership",
-            )
-            .unwrap();
-            let member_id = value_struct(
-                required_field(membership, "m_memberId").unwrap(),
-                "ladder member id",
-            )
-            .unwrap();
-            assert_eq!(
-                required_field(member_id, "m_label").unwrap().as_integer(),
-                Some(i128::from(TOON_PROFILE_LABEL))
-            );
-            assert_eq!(
-                required_field(member_id, "m_id").unwrap().as_integer(),
-                Some(i128::from(profile_id))
-            );
-            assert_eq!(
-                required_field(membership, "m_ladderId")
-                    .unwrap()
-                    .as_integer(),
-                Some((index + 1) as i128)
-            );
-        }
-        assert_eq!(decoded.bit_count, 1378);
-        assert_eq!(body.len(), 173);
     }
 
     #[test]

@@ -19,7 +19,7 @@ pub enum PostError {
     Retryable(String),
     /// the server rejected this payload (other 4xx). Drop it and move on.
     Rejected(String),
-    /// 401/403: the token is bad or revoked. Latch off until restart.
+    /// 401/403: the token is bad or revoked. Replace its feed identity.
     Unauthorized,
     /// Configuration problems (redirects, bad URLs). Retrying cannot help.
     Fatal(String),

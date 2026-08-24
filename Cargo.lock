@@ -7027,7 +7027,7 @@ dependencies = [
 
 [[package]]
 name = "superiority-app"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "chrono",
  "embed-resource",

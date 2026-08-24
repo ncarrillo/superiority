@@ -32,7 +32,6 @@ pub(in crate::app::client) struct ClientRuntime {
     pub(in crate::app::client) uplink: uplink::UplinkControl,
     /// the Live publisher, kept so every product's worker taps the same feed.
     pub(in crate::app::client) publisher: uplink::Publisher,
-    pub(in crate::app::client) live_auth_notified: bool,
     /// the first (SC2/front) session establishes the one Battle.net identity
     /// every product credential must resolve to.
     pub(in crate::app::client) authoritative_account_id: Option<u64>,

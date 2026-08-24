@@ -8,7 +8,7 @@ use std::{
     collections::BTreeSet,
     sync::{
         Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -84,14 +84,11 @@ impl UplinkConfig {
     }
 }
 
-/// counters shared between the uplink worker and the UI. All monotonic or
-/// latching; the UI only ever reads.
+/// counters and status shared between the uplink worker and the UI.
 #[derive(Default)]
 pub struct UplinkStats {
     pub sent: AtomicU64,
     pub dropped: AtomicU64,
-    /// latched on a 401/403 until the app restarts or a new link is minted.
-    pub auth_failed: AtomicBool,
     last_error: Mutex<Option<String>>,
     feed_url: Mutex<Option<String>>,
 }

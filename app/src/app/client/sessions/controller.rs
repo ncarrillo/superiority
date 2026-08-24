@@ -349,7 +349,6 @@ impl SuperiorityView {
                 authenticator: None,
                 uplink,
                 publisher,
-                live_auth_notified: false,
                 authoritative_account_id: None,
                 authoritative_battle_tag: None,
                 authoritative_region: None,

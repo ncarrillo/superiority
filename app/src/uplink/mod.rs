@@ -10,7 +10,8 @@
 //!   before the send so losses leave visible gaps server-side;
 //! - nothing is sent while the master switch is off, and the first passing
 //!   event lazily announces the session, so a disabled uplink is silent;
-//! - a 401/403 latches the uplink off until restart (or a new link).
+//! - a rejected feed token is replaced automatically without losing the
+//!   pending batch.
 
 mod classic;
 pub mod config;
@@ -23,7 +24,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, RwLock,
-        atomic::Ordering,
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError},
     },
     thread,
@@ -600,8 +600,8 @@ fn flush(
 
     let config = control.snapshot();
     let session = &sink.meta;
-    // turned off mid-flight, or latched out: the data stops here.
-    if !config.enabled || control.stats.auth_failed.load(Ordering::Relaxed) {
+    // turned off mid-flight: the data stops here.
+    if !config.enabled {
         note_batch_dropped(control, &batch);
         return FlushOutcome::Dropped;
     }
@@ -650,12 +650,15 @@ fn flush(
             FlushOutcome::Dropped
         }
         Err(PostError::Unauthorized) => {
-            control.stats.auth_failed.store(true, Ordering::Relaxed);
+            control.update_config(UplinkConfig::forget_identity);
+            control.stats.set_feed_url(None);
             control.stats.set_last_error(Some(
-                "authentication failed; Live is off until restart".into(),
+                "The previous Live link expired. Generating a new link…".into(),
             ));
-            note_batch_dropped(control, &batch);
-            FlushOutcome::Dropped
+            batcher.restore(batch);
+            backoff.reset();
+            *next_attempt = now + Duration::from_secs(1);
+            FlushOutcome::Deferred
         }
     }
 }
@@ -791,6 +794,7 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::chat::{ChatChannel, ChatUser};
+    use std::sync::atomic::Ordering;
     use superiority_core::native::presence::PresenceState;
 
     fn test_publisher(capacity: usize) -> (Publisher, Receiver<TapMessage>, UplinkControl) {
@@ -945,6 +949,73 @@ mod tests {
             .expect("registration");
         assert_eq!(feed.id, "slugslugslugs");
         assert_eq!(feed.token, "aa");
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn rejected_identity_is_replaced_without_losing_the_batch() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer);
+            stream
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write");
+        });
+
+        let control = UplinkControl::new();
+        control.update_config(|config| {
+            config.enabled = true;
+            config.endpoint_base = Some(format!("http://127.0.0.1:{port}"));
+            config.adopt_identity("expired-token".into(), "expired-feed".into());
+        });
+        control
+            .stats
+            .set_feed_url(Some("http://x/expired-feed".into()));
+        let now = Instant::now();
+        let mut sink = SessionSink {
+            meta: SessionMeta {
+                id: "session".into(),
+                product: "sc2",
+                client_version: "test",
+                started_at: 1,
+            },
+            batcher: Batcher::default(),
+            ended: false,
+        };
+        sink.batcher.push(
+            EventDto {
+                seq: 1,
+                ts: 1,
+                kind: EventKind::Heartbeat,
+            },
+            now,
+        );
+        let mut backoff = Backoff::default();
+        let mut next_attempt = now;
+
+        assert!(matches!(
+            flush(
+                &LiveHttp::new(),
+                &control,
+                &mut sink,
+                &mut backoff,
+                &mut next_attempt,
+                true,
+            ),
+            FlushOutcome::Deferred
+        ));
+        let config = control.snapshot();
+        assert!(config.token.is_none());
+        assert!(config.feed_id.is_none());
+        assert!(control.stats.feed_url().is_none());
+        assert!(!sink.batcher.is_empty());
         server.join().expect("server");
     }
 }

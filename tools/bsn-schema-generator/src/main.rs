@@ -84,7 +84,6 @@ const ROOTS: &[&str] = &[
     "Battlenet::Client::Connection::Pong",
     "Battlenet::Client::Connection::RegulatorUpdate",
     "Battlenet::Client::Connection::ServerVersion",
-    "Battlenet::Client::Ladder::GetRankingsResponse",
     "Battlenet::Client::Friends::AccountBlockAddedNotify",
     "Battlenet::Client::Friends::FriendInvitationAddedNotify",
     "Battlenet::Client::Friends::FriendsListNotify5",

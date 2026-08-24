@@ -1,6 +1,6 @@
 [package]
 name = "superiority-app"
-version = "0.1.36"
+version = "0.1.37"
 edition = "2024"
 rust-version = "1.87"
 license = "MIT OR Apache-2.0"

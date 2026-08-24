@@ -282,14 +282,6 @@ pub(super) fn register(codec: &mut Codec) -> Result<()> {
         ),
     )?;
     codec.register_struct_wire_layout(
-        "Battlenet::Client::Ladder::GetRankings",
-        StructWireLayout::new("empty Ladder::GetRankings", IDENTITY_0),
-    )?;
-    codec.register_struct_wire_layout(
-        "Battlenet::Client::Ladder::GetRankingsResponse",
-        StructWireLayout::new("generated Ladder::GetRankingsResponse", IDENTITY_2),
-    )?;
-    codec.register_struct_wire_layout(
         "Battlenet::Client::Connection::ConnectionClosing",
         StructWireLayout::new(
             "generated Connection::ConnectionClosing",

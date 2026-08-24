@@ -66,26 +66,6 @@ impl SuperiorityView {
         } else {
             (false, false)
         };
-        let live_auth_failed = self
-            .runtime
-            .uplink
-            .stats
-            .auth_failed
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let new_live_auth_failure =
-            self.session.is_sc2() && live_auth_failed && !self.runtime.live_auth_notified;
-        if new_live_auth_failure {
-            self.runtime.live_auth_notified = true;
-            if !self.session.channels.tabs.is_empty() {
-                self.append_chat_line(
-                    self.session.channels.active_tab,
-                    ChatLine::Notice {
-                        time: Self::current_timestamp(),
-                        text: "Live sharing authentication failed — sharing is paused until the app restarts or a new link is made.".to_owned(),
-                    },
-                );
-            }
-        }
         let live_page_visible = self.overlays.active == Some(Overlay::Settings)
             && self.settings.active_settings_page == 3
             && self.settings.live_enabled;
@@ -95,7 +75,6 @@ impl SuperiorityView {
             || expired_joins
             || flushed_roster
             || live_page_visible
-            || new_live_auth_failure
         {
             cx.notify();
         }
